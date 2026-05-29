@@ -110,11 +110,23 @@ app.use(cookieParser())
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase()
 
-const configuredAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean)
-  .map(normalizeOrigin)
+const parseOriginList = (...values: Array<string | undefined>) =>
+  values
+    .flatMap((value) => (value || '').split(','))
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .map(normalizeOrigin)
+
+const configuredAllowedOrigins = parseOriginList(
+  process.env.CORS_ALLOWED_ORIGINS,
+  process.env.CORS_ORIGIN,
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_ORIGIN,
+  process.env.FRONTEND_ORIGIN,
+  process.env.APP_URL,
+  process.env.WEB_URL,
+)
 
 const allowedOrigins = new Set([
   'http://localhost:3000',
@@ -126,6 +138,7 @@ const allowedOrigins = new Set([
   'https://www.featherglobal.in',
   'https://app.featherglobal.in',
   'https://rad-creponne-abf33d.netlify.app',
+  'https://splendid-sunshine-78d470.netlify.app',
   ...configuredAllowedOrigins,
 ])
 
