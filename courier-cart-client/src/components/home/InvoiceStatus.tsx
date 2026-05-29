@@ -100,7 +100,7 @@ const InvoiceStatus = () => {
                         <Typography fontSize="12px" color="gray.600" mb={0.5}>
                           {status.label}
                         </Typography>
-                        <Typography fontSize="20px" fontWeight={700} sx={{ color: '#E85500' }}>
+                        <Typography fontSize="20px" fontWeight={700} sx={{ color: '#047b85' }}>
                           {status.count}
                         </Typography>
                       </Box>
@@ -117,9 +117,9 @@ const InvoiceStatus = () => {
               fullWidth
               onClick={() => navigate('/billing/invoice_management')}
               sx={{
-                borderColor: '#E85500',
-                color: '#E85500',
-                '&:hover': { borderColor: '#E85500', bgcolor: '#E8550010' },
+                borderColor: '#047b85',
+                color: '#047b85',
+                '&:hover': { borderColor: '#047b85', bgcolor: '#047b8510' },
               }}
             >
               View All Invoices →

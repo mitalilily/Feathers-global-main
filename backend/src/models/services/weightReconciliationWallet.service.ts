@@ -10,7 +10,7 @@ import { createWalletTransaction } from './wallet.service'
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, '../../.env.${env}') })
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@shiplifi.com'
+const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@featherglobal.in'
 const GOOGLE_SMTP_USER = process.env.GOOGLE_SMTP_USER || EMAIL_FROM
 const GOOGLE_SMTP_PASSWORD = process.env.GOOGLE_SMTP_PASSWORD!
 const SMTP_HOST = process.env.SMTP_HOST
@@ -45,7 +45,7 @@ async function sendEmail(opts: { to: string; subject: string; html: string }) {
       })
 
   const mailOptions = {
-    from: `"Shiplifi" <${EMAIL_FROM}>`,
+    from: `"Feather Global" <${EMAIL_FROM}>`,
     to: opts.to,
     subject: opts.subject,
     html: opts.html,

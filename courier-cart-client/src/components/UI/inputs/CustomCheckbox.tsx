@@ -47,7 +47,7 @@ export default function CustomCheckbox(props: CheckboxProps) {
             backgroundColor: '#FFFFFF',
             transition: 'all 0.2s ease',
             '&:hover': {
-              borderColor: '#E85500',
+              borderColor: '#047b85',
               boxShadow: '0 0 0 3px rgba(51, 51, 105, 0.08)',
             },
           }}
@@ -59,7 +59,7 @@ export default function CustomCheckbox(props: CheckboxProps) {
             width: 20,
             height: 20,
             borderRadius: '6px',
-            border: '2px solid #E85500',
+            border: '2px solid #047b85',
             boxSizing: 'border-box',
             display: 'inline-flex',
             alignItems: 'center',
@@ -84,7 +84,7 @@ export default function CustomCheckbox(props: CheckboxProps) {
           backgroundColor: 'rgba(51, 51, 105, 0.04)',
         },
         '&.Mui-focusVisible': {
-          outline: '2px solid #E85500',
+          outline: '2px solid #047b85',
           outlineOffset: '2px',
           borderRadius: '4px',
         },

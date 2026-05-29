@@ -1,14 +1,8 @@
-import {
-  Box,
-  FormControlLabel,
-  Link,
-  Stack,
-  ToggleButton,
-  ToggleButtonGroup,
-  Typography,
-} from '@mui/material'
+import { Box, FormControlLabel, Link, Stack, Typography } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { useCallback, useEffect, useState } from 'react'
 import { FiMail } from 'react-icons/fi'
+import { BRAND } from '../../config/brand'
 import { useRequestOtp } from '../../hooks/useOTP'
 import { TERMS_AND_CONDITIONS } from '../../utils/constants'
 import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
@@ -17,40 +11,44 @@ import CustomInput from '../UI/inputs/CustomInput'
 import CustomModal from '../UI/modal/CustomModal'
 import { toast } from '../UI/Toast'
 import OtpForm from './OtpForm'
-import PasswordLoginForm from './PasswordLoginForm'
 
-const BRAND_ORANGE = '#E85500'
-const BRAND_DARK = '#141414'
+const { teal, orange, ink, muted, paper } = BRAND.colors
 
 const primaryButtonStyles = {
   width: '100%',
-  borderRadius: 4,
-  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #C23E00 100%)`,
-  boxShadow: 'none',
+  borderRadius: 2,
+  background: `linear-gradient(135deg, ${teal} 0%, ${BRAND.colors.tealDark} 100%)`,
+  boxShadow: `0 14px 28px ${alpha(teal, 0.18)}`,
   minHeight: 52,
 }
 
 const secondaryButtonStyles = {
   width: '100%',
-  border: '1px solid rgba(20, 20, 20, 0.1)',
-  backgroundColor: '#ffffff',
-  color: BRAND_DARK,
-  borderRadius: 4,
-  minHeight: 48,
+  border: `1px solid ${alpha(teal, 0.22)}`,
+  backgroundColor: alpha(paper, 0.86),
+  color: teal,
+  borderRadius: 2,
+  minHeight: 46,
+}
+
+type RequestOtpResponse = {
+  devOtp?: string
+  otp?: string
 }
 
 export default function PhoneForm() {
   const activeEmail = sessionStorage.getItem('activeEmail')
   const [step, setStep] = useState<number>(0)
-  const [preferredLoginMethod, setPreferredLoginMethod] = useState<'phone' | 'password'>('phone')
   const [email, setEmail] = useState('')
   const [termsChecked, setTermsChecked] = useState(false)
   const [openTerms, setOpenTerms] = useState(false)
+  const [debugOtp, setDebugOtp] = useState('')
 
   const { mutate: sendOtpRequest, isPending } = useRequestOtp()
 
   const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setEmail(e.target.value.trim())
+    setDebugOtp('')
   }, [])
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -69,11 +67,15 @@ export default function PhoneForm() {
         return
       }
 
-      setPreferredLoginMethod('phone')
-      sessionStorage.setItem('preferredMethod', 'phone')
+      const normalizedEmail = email.toLowerCase().trim()
 
-      sendOtpRequest(email.toLowerCase().trim(), {
-        onSuccess: () => setStep(1),
+      sendOtpRequest(normalizedEmail, {
+        onSuccess: (data: RequestOtpResponse) => {
+          const otpFromResponse = data?.devOtp ?? data?.otp ?? ''
+          setDebugOtp(otpFromResponse)
+          sessionStorage.setItem('preferredMethod', 'email_otp')
+          setStep(1)
+        },
         onError: (err: any) => {
           const msg = err?.response?.data?.error || 'OTP request failed'
           toast.open({
@@ -92,184 +94,115 @@ export default function PhoneForm() {
   }, [activeEmail])
 
   const termsLabel = (
-    <Typography fontSize="13px" display="flex" alignItems="center" gap="3px" color="#6E6763">
+    <Typography fontSize="13px" display="flex" alignItems="center" gap="3px" color={muted}>
       I agree to{' '}
       <Link
         component="button"
         underline="hover"
         onClick={() => setOpenTerms(true)}
-        sx={{ cursor: 'pointer', color: BRAND_ORANGE, fontWeight: 800 }}
+        sx={{ cursor: 'pointer', color: teal, fontWeight: 800 }}
       >
         Terms and Conditions
       </Link>
     </Typography>
   )
 
-  const renderOtpEntry = () =>
-    step === 0 ? (
-      <Box component="form" onSubmit={handleSubmit} width="100%">
-        <Stack spacing={2}>
-          <Box
-            sx={{
-              p: 1.5,
-              border: '1px solid rgba(17,17,19,0.08)',
-              background: '#faf7f4',
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: '0.75rem',
-                fontWeight: 800,
-                color: BRAND_ORANGE,
-                textTransform: 'uppercase',
-                letterSpacing: '0.14em',
-                mb: 0.6,
-              }}
-            >
-              Email Verification
-            </Typography>
-
-            <Typography sx={{ color: '#6E6763', fontSize: '0.88rem', lineHeight: 1.6 }}>
-              We’ll send a one-time code to your registered work email for secure access.
-            </Typography>
-          </Box>
-
-          <CustomInput
-            type="email"
-            label="Work Email"
-            value={email}
-            name="email"
-            id="email"
-            onChange={handleEmailChange}
-            required
-            error={email.length > 0 && !isValidEmail}
-            helperText={email.length > 0 && !isValidEmail ? 'Enter a valid email address.' : ''}
-            autoFocus
-            prefix={<FiMail color={BRAND_ORANGE} size={15} />}
-          />
-
-          <FormControlLabel
-            sx={{ m: 0, alignItems: 'flex-start' }}
-            control={
-              <CustomCheckbox
-                checked={termsChecked}
-                onChange={(e) => setTermsChecked(e.target.checked)}
-                color="primary"
-              />
-            }
-            label={
-              <Typography mt={0.35} variant="body2">
-                {termsLabel}
-              </Typography>
-            }
-          />
-
-          <CustomIconLoadingButton
-            type="submit"
-            styles={primaryButtonStyles}
-            textColor="#ffffff"
-            disabled={!email || !termsChecked || isPending || !isValidEmail}
-            text="Send Verification Code"
-            loading={isPending}
-            loadingText="Sending..."
-          />
-        </Stack>
-      </Box>
-    ) : (
-      <OtpForm email={email} onEditEmail={() => setStep(0)} />
-    )
-
   return (
     <Stack spacing={2.2} alignItems="stretch">
-      <Stack spacing={1.2}>
-        <Typography
-          sx={{
-            fontSize: '1.05rem',
-            fontWeight: 800,
-            color: '#17171A',
-            letterSpacing: '-0.01em',
-          }}
-        >
-          Choose how you want to sign in
-        </Typography>
-      </Stack>
+      {step === 0 ? (
+        <Box component="form" onSubmit={handleSubmit} width="100%">
+          <Stack spacing={2}>
+            <Box
+              sx={{
+                p: 1.6,
+                border: `1px solid ${alpha(teal, 0.14)}`,
+                background: `linear-gradient(180deg, ${alpha(BRAND.colors.tealSoft, 0.82)}, ${alpha(paper, 0.92)})`,
+                borderRadius: 2,
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  color: orange,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.12em',
+                  mb: 0.6,
+                }}
+              >
+                Email OTP
+              </Typography>
+
+              <Typography sx={{ color: muted, fontSize: '0.88rem', lineHeight: 1.65 }}>
+                Use your registered work email. The temporary OTP is also shown on this screen for
+                testing.
+              </Typography>
+            </Box>
+
+            <CustomInput
+              type="email"
+              label="Work Email"
+              value={email}
+              name="email"
+              id="email"
+              onChange={handleEmailChange}
+              required
+              error={email.length > 0 && !isValidEmail}
+              helperText={email.length > 0 && !isValidEmail ? 'Enter a valid email address.' : ''}
+              autoFocus
+              prefix={<FiMail color={teal} size={15} />}
+            />
+
+            <FormControlLabel
+              sx={{ m: 0, alignItems: 'flex-start' }}
+              control={
+                <CustomCheckbox
+                  checked={termsChecked}
+                  onChange={(e) => setTermsChecked(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={
+                <Typography mt={0.35} variant="body2">
+                  {termsLabel}
+                </Typography>
+              }
+            />
+
+            <CustomIconLoadingButton
+              type="submit"
+              styles={primaryButtonStyles}
+              textColor="#ffffff"
+              disabled={!email || !termsChecked || isPending || !isValidEmail}
+              text="Send Verification Code"
+              loading={isPending}
+              loadingText="Generating..."
+            />
+          </Stack>
+        </Box>
+      ) : (
+        <OtpForm email={email} debugOtp={debugOtp} onDebugOtpChange={setDebugOtp} onEditEmail={() => setStep(0)} />
+      )}
 
       <Box
         sx={{
-          border: '1px solid rgba(17,17,19,0.08)',
-          background: '#fff',
+          p: 1.5,
+          borderRadius: 2,
+          border: `1px solid ${alpha(teal, 0.12)}`,
+          background: alpha(paper, 0.72),
         }}
       >
-        <Box
-          sx={{
-            px: 1.2,
-            py: 1.2,
-            borderBottom: '1px solid rgba(17,17,19,0.08)',
-            background: '#f7f1ed',
-          }}
-        >
-          <ToggleButtonGroup
-            value={preferredLoginMethod}
-            exclusive
-            onChange={(_, value) => {
-              if (!value) return
-              setPreferredLoginMethod(value)
-              setStep(0)
-            }}
-            fullWidth
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 1,
-              '& .MuiToggleButton-root': {
-                textTransform: 'none',
-                fontWeight: 800,
-                border: '1px solid rgba(17,17,19,0.08) !important',
-                color: '#6f6a67',
-                px: 1.4,
-                py: 1.15,
-                justifyContent: 'center',
-                backgroundColor: '#fffaf7',
-                '&.Mui-selected': {
-                  color: BRAND_DARK,
-                  backgroundColor: '#ffffff',
-                  boxShadow: 'inset 0 0 0 1px rgba(217,4,22,0.18)',
-                },
-              },
-            }}
-          >
-            <ToggleButton value="phone">Email OTP</ToggleButton>
-            <ToggleButton value="password">Email + Password</ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
-
-        <Box sx={{ p: { xs: 1.3, sm: 1.6 } }}>
-          {preferredLoginMethod === 'phone' ? (
-            renderOtpEntry()
-          ) : (
-            <PasswordLoginForm step={step} setOpenTerms={setOpenTerms} setStep={setStep} />
-          )}
-        </Box>
-      </Box>
-
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 1.2,
-          flexDirection: { xs: 'column', sm: 'row' },
-        }}
-      >
-        <Typography sx={{ fontSize: '0.8rem', color: '#6E6763', lineHeight: 1.6 }}>
+        <Typography sx={{ fontSize: '0.8rem', color: muted, lineHeight: 1.6 }}>
           Need account policy details before signing in?
         </Typography>
-        <CustomIconLoadingButton
-          styles={secondaryButtonStyles}
-          onClick={() => setOpenTerms(true)}
-          variant="text"
-          text="View Terms and Policies"
-        />
+        <Box sx={{ mt: 1 }}>
+          <CustomIconLoadingButton
+            styles={secondaryButtonStyles}
+            onClick={() => setOpenTerms(true)}
+            variant="text"
+            text="View Terms and Policies"
+          />
+        </Box>
       </Box>
 
       <CustomModal
@@ -284,6 +217,7 @@ export default function PhoneForm() {
             maxHeight: '60vh',
             overflowY: 'auto',
             pr: 1,
+            color: ink,
           }}
         >
           {TERMS_AND_CONDITIONS}

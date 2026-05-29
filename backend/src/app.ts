@@ -122,9 +122,10 @@ const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5176',
-  'https://shiplifi.com',
-  'https://www.shiplifi.com',
-  'https://app.shiplifi.com',
+  'https://featherglobal.in',
+  'https://www.featherglobal.in',
+  'https://app.featherglobal.in',
+  'https://rad-creponne-abf33d.netlify.app',
   ...configuredAllowedOrigins,
 ])
 
@@ -136,7 +137,7 @@ const isAllowedOrigin = (origin: string) => {
   }
 
   // Allow first-party HTTPS subdomains like preview or alternate app hosts.
-  return /^https:\/\/([a-z0-9-]+\.)*shiplifi\.com$/.test(normalizedOrigin)
+  return /^https:\/\/([a-z0-9-]+\.)*featherglobal\.in$/.test(normalizedOrigin)
 }
 
 app.use(
@@ -215,7 +216,7 @@ app.use('/api', ndrRoutes)
 app.use('/api', rtoRoutes)
 app.use('/api/v1', externalApiRoutes)
 // Amazon Shipping tracking webhook. The public production URL is:
-// https://api.shiplifi.com/webhooks/amazon-shipping/tracking
+// https://api.featherglobal.in/webhooks/amazon-shipping/tracking
 app.get(AMAZON_SHIPPING_WEBHOOK_PATH, amazonShippingTrackingWebhookHealthHandler)
 app.post(AMAZON_SHIPPING_WEBHOOK_PATH, express.json(), amazonShippingTrackingWebhookHandler)
 app.post('/api/webhook/amazon-shipping/tracking', express.json(), amazonShippingTrackingWebhookHandler)

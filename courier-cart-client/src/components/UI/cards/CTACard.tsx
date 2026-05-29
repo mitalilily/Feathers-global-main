@@ -12,7 +12,7 @@ import {
 import React from 'react'
 import StatusChip from '../chip/StatusChip'
 
-const BRAND_GREEN = '#4b8e40'
+const BRAND_GREEN = '#047b85'
 
 interface CTACardProps {
   icon: React.ReactNode

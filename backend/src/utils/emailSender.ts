@@ -76,12 +76,12 @@ const renderDataTable = (rows: Array<{ label: string; value: string }>) => `
 `
 
 const renderEmailFrame = ({
-  eyebrow = 'Shiplifi',
+  eyebrow = 'Feather Global',
   title,
   intro,
   body,
   outro,
-  footerNote = 'This is an automated message from Shiplifi.',
+  footerNote = 'This is an automated message from Feather Global.',
 }: EmailFrameOptions) => `
   <div style="margin:0; padding:32px 16px; background:#F3F4F6;">
     <div style="max-width:640px; margin:0 auto; background:#FFFFFF; border:1px solid ${BRAND_BORDER};">
@@ -110,7 +110,7 @@ const renderEmailFrame = ({
       </div>
       <div style="padding:16px 28px; border-top:1px solid ${BRAND_BORDER}; background:${BRAND_SURFACE};">
         <div style="font-size:12px; color:${BRAND_MUTED};">${footerNote}</div>
-        <div style="font-size:12px; color:#9CA3AF; margin-top:6px;">© ${new Date().getFullYear()} Shiplifi</div>
+        <div style="font-size:12px; color:#9CA3AF; margin-top:6px;">© ${new Date().getFullYear()} Feather Global</div>
       </div>
     </div>
   </div>
@@ -160,7 +160,7 @@ const sendEmail = async (
   }
 
   const mailOptions: any = {
-    from: `"Shiplifi" <${EMAIL_FROM}>`,
+    from: `"Feather Global" <${EMAIL_FROM}>`,
     to,
     subject,
     html: htmlContent,
@@ -198,7 +198,7 @@ export const sendVerificationEmail = async (to: string, token: string) => {
     eyebrow: 'Secure Sign-In',
     title: 'Your verification code',
     intro:
-      'A sign-in request was received for your Shiplifi merchant account. Use the code below to continue securely.',
+      'A sign-in request was received for your Feather Global merchant account. Use the code below to continue securely.',
     body: `
       <div style="margin:22px 0; padding:20px; background:${BRAND_SURFACE}; border:1px solid ${BRAND_BORDER}; text-align:center;">
         <div style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:${BRAND_MUTED}; font-weight:800; margin-bottom:10px;">
@@ -213,14 +213,14 @@ export const sendVerificationEmail = async (to: string, token: string) => {
     `,
   })
 
-  await sendEmail(to, 'Your Shiplifi verification code', html)
+  await sendEmail(to, 'Your Feather Global verification code', html)
 }
 
 export const sendPhoneVerificationEmail = async (to: string, token: string, phone: string) => {
   const html = renderEmailFrame({
     eyebrow: 'Profile Verification',
     title: 'Confirm your contact number',
-    intro: `A request was made to verify the contact number <strong>${escapeHtml(phone)}</strong> on your Shiplifi merchant profile.`,
+    intro: `A request was made to verify the contact number <strong>${escapeHtml(phone)}</strong> on your Feather Global merchant profile.`,
     body: `
       <div style="margin:22px 0; padding:20px; background:${BRAND_SURFACE}; border:1px solid ${BRAND_BORDER}; text-align:center;">
         <div style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:${BRAND_MUTED}; font-weight:800; margin-bottom:10px;">
@@ -235,7 +235,7 @@ export const sendPhoneVerificationEmail = async (to: string, token: string, phon
     `,
   })
 
-  await sendEmail(to, 'Your Shiplifi phone verification code', html)
+  await sendEmail(to, 'Your Feather Global phone verification code', html)
 }
 
 // Employee Credentials Email
@@ -250,7 +250,7 @@ export const sendEmployeeCredentials = async (
     title: 'Your employee account is ready',
     intro: `An account has been created for you by <strong>${escapeHtml(createdBy)}</strong>.`,
     body: `
-      <p style="margin:0 0 14px;">Use the credentials below to access Shiplifi.</p>
+      <p style="margin:0 0 14px;">Use the credentials below to access Feather Global.</p>
       ${renderDataTable([
         { label: 'Email', value: escapeHtml(email) },
         { label: 'Temporary password', value: escapeHtml(password) },
@@ -260,7 +260,7 @@ export const sendEmployeeCredentials = async (
       'After signing in, update your password if required by your administrator. Contact your account owner if you have trouble accessing shipment or billing functions.',
   })
 
-  await sendEmail(to, 'Your Shiplifi employee account', html)
+  await sendEmail(to, 'Your Feather Global employee account', html)
 }
 const escapeHtml = (unsafe: string) =>
   unsafe
@@ -276,7 +276,7 @@ export const sendTempPasswordEmail = async (to: string, tempPassword: string) =>
   const html = renderEmailFrame({
     eyebrow: 'Account Security',
     title: 'Your temporary password',
-    intro: 'Your Shiplifi password has been reset.',
+    intro: 'Your Feather Global password has been reset.',
     body: `
       <div style="margin:22px 0; padding:20px; background:${BRAND_SURFACE}; border:1px solid ${BRAND_BORDER}; text-align:center;">
         <div style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:${BRAND_MUTED}; font-weight:800; margin-bottom:10px;">
@@ -292,7 +292,7 @@ export const sendTempPasswordEmail = async (to: string, tempPassword: string) =>
       'If you did not request this change, contact support immediately so your merchant account can be secured.',
   })
 
-  await sendEmail(to, 'Your temporary Shiplifi password', html)
+  await sendEmail(to, 'Your temporary Feather Global password', html)
 }
 
 export const sendInvoiceReadyEmail = async (opts: {
@@ -397,7 +397,7 @@ export const sendInvoiceReminderEmail = async (opts: {
       }
     `,
     outro:
-      'If payment has already been completed, you can ignore this reminder. For assistance, contact support through your Shiplifi account.',
+      'If payment has already been completed, you can ignore this reminder. For assistance, contact support through your Feather Global account.',
   })
 
   await sendEmail(to, `Payment Reminder: Invoice ${invoiceNo}`, html)

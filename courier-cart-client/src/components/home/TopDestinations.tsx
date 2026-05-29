@@ -3,7 +3,7 @@ import { MdLocationOn } from 'react-icons/md'
 import { useNavigate } from 'react-router-dom'
 import type { TopDestination } from '../../api/dashboard.api'
 
-const BRAND_PRIMARY = '#E85500'
+const BRAND_PRIMARY = '#047b85'
 const INK = '#111827'
 const MUTED = '#6B7280'
 

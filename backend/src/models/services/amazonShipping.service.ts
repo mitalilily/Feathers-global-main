@@ -4,7 +4,7 @@ import { HttpError } from '../../utils/classes'
 
 const DEFAULT_AMAZON_LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token'
 const DEFAULT_TIMEOUT_MS = Number(process.env.AMAZON_SHIPPING_TIMEOUT_MS || 30000)
-const DEFAULT_USER_AGENT = 'Shiplifi/1.0 (Language=Node.js)'
+const DEFAULT_USER_AGENT = 'FeatherGlobal/1.0 (Language=Node.js)'
 const VALID_BUSINESS_IDS = new Set([
   'AmazonShipping_US',
   'AmazonShipping_IN',

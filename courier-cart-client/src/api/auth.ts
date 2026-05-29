@@ -1,7 +1,13 @@
 import axiosInstance from "./axiosInstance";
 import { getAuthTokens } from "./tokenVault";
 
-export const requestOtpApi = async (email: string) => {
+export type RequestOtpResponse = {
+  message: string
+  devOtp?: string
+  otp?: string
+}
+
+export const requestOtpApi = async (email: string): Promise<RequestOtpResponse> => {
   const { data } = await axiosInstance.post("/auth/request-otp", { email });
   return data;
 };

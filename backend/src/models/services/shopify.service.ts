@@ -1159,7 +1159,7 @@ const createShopifyFulfillment = async ({
   if (trackingNumber) {
     fulfillment.trackingInfo = {
       number: trackingNumber,
-      company: String(courierPartner || 'Shiplifi').slice(0, 255),
+      company: String(courierPartner || 'Feather Global').slice(0, 255),
     }
   }
 
@@ -1245,7 +1245,7 @@ const cancelShopifyOrder = async (store: ShopifyStore, shopifyOrderId: string) =
       refundMethod: { originalPaymentMethodsRefund: false },
       restock: false,
       reason: 'OTHER',
-      staffNote: 'Cancelled from Shiplifi shipment status sync.',
+      staffNote: 'Cancelled from Feather Global shipment status sync.',
     },
   })
 

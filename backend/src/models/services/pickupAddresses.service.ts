@@ -30,7 +30,7 @@ function buildGeo(latitude: string | null | undefined, longitude: string | null 
 
 const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => ({
   alias: pickupAddr.addressNickname || pickupAddr.contactName || `warehouse-${pickupAddr.id}`,
-  contactName: pickupAddr.contactName || 'Shiplifi',
+  contactName: pickupAddr.contactName || 'Feather Global',
   contactPhone: pickupAddr.contactPhone || '',
   contactEmail: pickupAddr.contactEmail || '',
   addressLine1: pickupAddr.addressLine1,
@@ -42,14 +42,14 @@ const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => (
   pincode: pickupAddr.pincode,
   latitude: pickupAddr.latitude,
   longitude: pickupAddr.longitude,
-  companyName: pickupAddr.addressNickname || pickupAddr.contactName || 'Shiplifi',
+  companyName: pickupAddr.addressNickname || pickupAddr.contactName || 'Feather Global',
   returnAddress: rtoAddressData
     ? {
         alias:
           rtoAddressData.addressNickname ||
           rtoAddressData.contactName ||
           `${pickupAddr.addressNickname || pickupAddr.contactName || 'warehouse'}-rto`,
-        contactName: rtoAddressData.contactName || pickupAddr.contactName || 'Shiplifi',
+        contactName: rtoAddressData.contactName || pickupAddr.contactName || 'Feather Global',
         contactPhone: rtoAddressData.contactPhone || pickupAddr.contactPhone || '',
         contactEmail: rtoAddressData.contactEmail || pickupAddr.contactEmail || '',
         addressLine1: rtoAddressData.addressLine1 || pickupAddr.addressLine1,
@@ -61,7 +61,7 @@ const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => (
         pincode: rtoAddressData.pincode || pickupAddr.pincode,
         latitude: rtoAddressData.latitude || pickupAddr.latitude,
         longitude: rtoAddressData.longitude || pickupAddr.longitude,
-        companyName: rtoAddressData.addressNickname || rtoAddressData.contactName || 'Shiplifi',
+        companyName: rtoAddressData.addressNickname || rtoAddressData.contactName || 'Feather Global',
       }
     : undefined,
 })
@@ -222,7 +222,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
       const delhivery = new DelhiveryService()
       const delhiveryResp = await delhivery.createWarehouse({
         name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? 'Default Warehouse',
-        registered_name: 'Shiplifi',
+        registered_name: 'Feather Global',
         phone: pickupAddr.contactPhone,
         email: pickupAddr.contactEmail ?? '',
         address: pickupAddr.addressLine1,
@@ -306,7 +306,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
       const geo = buildGeo(pickupAddr.latitude, pickupAddr.longitude)
       const payload = {
         alias,
-        contactName: pickupAddr.contactName || 'Shiplifi',
+        contactName: pickupAddr.contactName || 'Feather Global',
         phone: Number(phoneDigits) || 0,
         email: pickupAddr.contactEmail || '',
         addressLine1: pickupAddr.addressLine1,
@@ -317,7 +317,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
         country: pickupAddr.country || 'India',
         ...(geo ? { geo } : {}),
         returnAddress: {
-          contactName: pickupAddr.contactName || 'Shiplifi',
+          contactName: pickupAddr.contactName || 'Feather Global',
           phone: Number(phoneDigits) || 0,
           addressLine1: pickupAddr.addressLine1,
           addressLine2: pickupAddr.addressLine2 || '',

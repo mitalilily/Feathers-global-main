@@ -2,6 +2,7 @@ import { alpha, Box, IconButton, Stack, Tooltip, useMediaQuery, useTheme } from 
 import { FaBolt, FaWallet } from 'react-icons/fa'
 import { MdClose, MdPushPin } from 'react-icons/md'
 import { TbLayoutSidebarRightCollapseFilled } from 'react-icons/tb'
+import { BRAND } from '../../config/brand'
 import { useUserProfile } from '../../hooks/User/useUserProfile'
 import StatusChip from '../UI/chip/StatusChip'
 import GlobalSearch from './GlobalSearch'
@@ -15,9 +16,9 @@ interface NavbarProps {
   onPinChange?: (pinned: boolean) => void
 }
 
-const BRAND_SURFACE = '#FFFFFF'
-const BRAND_TEXT = '#141414'
-const BRAND_PRIMARY = '#E85500'
+const BRAND_SURFACE = BRAND.colors.paper
+const BRAND_TEXT = BRAND.colors.ink
+const BRAND_PRIMARY = BRAND.colors.teal
 
 export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange }: NavbarProps) {
   const theme = useTheme()
@@ -39,8 +40,8 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
           py: { xs: 0.4, sm: 0.45, md: 0.5, lg: 0.6 },
           borderRadius: 0,
           backgroundColor: alpha(BRAND_SURFACE, 0.98),
-          border: `1px solid ${alpha('#000', 0.05)}`,
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.04), 0 1px 4px rgba(0, 0, 0, 0.02)',
+          border: `1px solid ${alpha(BRAND_PRIMARY, 0.12)}`,
+          boxShadow: '0 10px 30px rgba(4, 62, 69, 0.06)',
           minHeight: { xs: 44, sm: 46, md: 48, lg: 52 },
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
@@ -62,8 +63,8 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
                 width: { xs: 32, sm: 34, md: 36, lg: 40 },
                 height: { xs: 32, sm: 34, md: 36, lg: 40 },
                 borderRadius: 2,
-                bgcolor: alpha('#000', 0.02),
-                border: `1.5px solid ${alpha('#000', 0.08)}`,
+                bgcolor: alpha(BRAND_PRIMARY, 0.04),
+                border: `1.5px solid ${alpha(BRAND_PRIMARY, 0.12)}`,
                 color: BRAND_TEXT,
                 transition: 'all 280ms cubic-bezier(0.34, 1.56, 0.64, 1)',
                 display: 'flex',
@@ -142,11 +143,11 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
                     fontWeight: 800,
                     letterSpacing: '0.04em',
                     borderRadius: '999px',
-                    border: '1px solid rgba(21, 128, 61, 0.25)',
-                    background: 'rgba(21, 128, 61, 0.08)',
-                    color: '#15803D',
+                    border: `1px solid ${alpha(BRAND.colors.teal, 0.28)}`,
+                    background: alpha(BRAND.colors.teal, 0.08),
+                    color: BRAND.colors.teal,
                     '& .MuiChip-icon': {
-                      color: '#15803D',
+                      color: BRAND.colors.teal,
                     },
                   }}
                 />

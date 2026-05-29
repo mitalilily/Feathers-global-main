@@ -5,7 +5,7 @@ import path from 'path'
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@shiplifi.com'
+const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@featherglobal.in'
 const GOOGLE_SMTP_USER = process.env.GOOGLE_SMTP_USER || EMAIL_FROM
 const GOOGLE_SMTP_PASSWORD = process.env.GOOGLE_SMTP_PASSWORD!
 const SMTP_HOST = process.env.SMTP_HOST
@@ -40,7 +40,7 @@ async function sendEmail(to: string, subject: string, htmlContent: string) {
       })
 
   const mailOptions = {
-    from: `"Shiplifi" <${EMAIL_FROM}>`,
+    from: `"Feather Global" <${EMAIL_FROM}>`,
     to,
     subject,
     html: htmlContent,
@@ -267,8 +267,8 @@ export async function sendWeightDiscrepancyEmail(data: WeightDiscrepancyNotifica
           </div>
           
           <div class="footer">
-            <p>This is an automated notification from the Shiplifi weight reconciliation system.</p>
-            <p>© ${new Date().getFullYear()} Shiplifi. All rights reserved.</p>
+            <p>This is an automated notification from the Feather Global weight reconciliation system.</p>
+            <p>© ${new Date().getFullYear()} Feather Global. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -414,11 +414,11 @@ export async function sendDailySummaryEmail(data: DailySummaryData) {
           </div>
           
           <div class="footer">
-            <p>This is an automated daily summary from Shiplifi.</p>
+            <p>This is an automated daily summary from Feather Global.</p>
             <p>You can manage email preferences in your <a href="${
               process.env.FRONTEND_URL || 'http://localhost:5173'
             }/reconciliation/weight/settings">settings</a></p>
-            <p>© ${new Date().getFullYear()} Shiplifi. All rights reserved.</p>
+            <p>© ${new Date().getFullYear()} Feather Global. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -501,7 +501,7 @@ export async function sendDisputeUpdateEmail(
           </div>
           
           <div class="footer">
-            <p>© ${new Date().getFullYear()} Shiplifi. All rights reserved.</p>
+            <p>© ${new Date().getFullYear()} Feather Global. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -734,11 +734,11 @@ export async function sendWeeklyReportEmail(data: WeeklyReportData) {
           </div>
           
           <div class="footer">
-            <p>This is an automated weekly report from Shiplifi.</p>
+            <p>This is an automated weekly report from Feather Global.</p>
             <p>You can manage email preferences in your <a href="${
               process.env.FRONTEND_URL || 'http://localhost:5173'
             }/reconciliation/weight/settings">settings</a></p>
-            <p>© ${new Date().getFullYear()} Shiplifi. All rights reserved.</p>
+            <p>© ${new Date().getFullYear()} Feather Global. All rights reserved.</p>
           </div>
         </div>
       </body>

@@ -32,7 +32,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useMerchantDashboardStats } from '../../hooks/useDashboard'
 
-const BRAND_PRIMARY = '#E85500'
+const BRAND_PRIMARY = '#047b85'
 const BRAND_TEXT = '#111827'
 const TEXT_MUTED = '#6B7280'
 

@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client'
 
-const SOCKET_URL = import.meta.env.VITE_APP_SOCKET_URL || 'https://api.shiplifi.com'
+const SOCKET_URL = import.meta.env.VITE_APP_SOCKET_URL || window.location.origin
 const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] })
 
 let pingInterval: number | null = null

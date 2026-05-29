@@ -114,7 +114,7 @@ const DEFAULT_LABEL_SETTINGS = {
     deadWeight: false,
     otherCharges: true,
   },
-  powered_by: 'Shiplifi',
+  powered_by: 'Feather Global',
 }
 
 function safeParseObject(value: unknown, fallback: Record<string, any> = {}) {
@@ -204,7 +204,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   const adminPrefs = await getAdminInvoicePreferences()
   const platformLogoKey =
     adminPrefs?.includeLogo !== false && adminPrefs?.logoFile ? adminPrefs.logoFile : null
-  // Always show Shiplifi platform logo (Powered by ...) when configured in admin billing prefs
+  // Always show Feather Global platform logo (Powered by ...) when configured in admin billing prefs
   let platformLogoBase64: string | null = null
   if (platformLogoKey) {
     try {

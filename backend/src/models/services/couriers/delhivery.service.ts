@@ -68,7 +68,7 @@ const normalizeDelhiveryWeightGrams = (value: unknown, fallbackGrams = 500) => {
   const numericValue = Number(value ?? 0)
   if (!Number.isFinite(numericValue) || numericValue <= 0) return fallbackGrams
 
-  // Shiplifi stores B2C weights in grams; older integrations may still send kg.
+  // Feather Global stores B2C weights in grams; older integrations may still send kg.
   return numericValue > 50 ? Math.round(numericValue) : Math.round(numericValue * 1000)
 }
 
@@ -381,7 +381,7 @@ export class DelhiveryService {
           ? pickupAddressParts.join(', ')
           : sanitizeString(pickup.warehouse_name)
 
-      const sellerName = sanitizeString(params.company?.name || pickup.name || 'Shiplifi')
+      const sellerName = sanitizeString(params.company?.name || pickup.name || 'Feather Global')
       const sellerGst = sanitizeString(params.company?.gst || pickup.gst_number || '')
       const productNames = orderItems
         .map((item) => sanitizeString(item?.name))
@@ -898,7 +898,7 @@ export class DelhiveryService {
             shipment_width: Number(params.package_breadth ?? 10),
             shipment_height: Number(params.package_height ?? 10),
             pickup_location: params.pickup?.warehouse_name ?? 'Default Warehouse',
-            seller_name: params.pickup?.name ?? 'Shiplifi',
+            seller_name: params.pickup?.name ?? 'Feather Global',
             seller_add: params.pickup?.address ?? '',
             order_date: new Date().toISOString().split('T')[0],
             return_name: reverseDrop?.name ?? params.pickup?.name ?? 'Return',

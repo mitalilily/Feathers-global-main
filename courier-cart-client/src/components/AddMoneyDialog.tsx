@@ -19,8 +19,8 @@ import { toast } from './UI/Toast'
 import CustomIconLoadingButton from './UI/button/CustomLoadingButton'
 import CustomDialog from './UI/modal/CustomModal'
 
-const BRAND_ORANGE = '#E85500'
-const BRAND_ORANGE_DARK = '#C23E00'
+const BRAND_ORANGE = '#047b85'
+const BRAND_ORANGE_DARK = '#013f49'
 const BRAND_SURFACE = '#FCF8F7'
 
 interface AddMoneyDialogProps {
@@ -274,7 +274,7 @@ const AddMoneyDialog: React.FC<AddMoneyDialogProps> = ({ open, setOpen, currentB
             color: '#FFFFFF',
             borderRadius: 3.5,
             '&:hover': {
-              background: `linear-gradient(135deg, ${BRAND_ORANGE_DARK} 0%, #7F0715 100%)`,
+              background: `linear-gradient(135deg, ${BRAND_ORANGE_DARK} 0%, #013f49 100%)`,
             },
           }}
         />

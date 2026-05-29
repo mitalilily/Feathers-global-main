@@ -6,7 +6,7 @@ import { useAuth } from '../../context/auth/AuthContext'
 import { useWalletBalance } from '../../hooks/useWalletBalance'
 import AddMoneyDialog from '../AddMoneyDialog'
 
-const BRAND_PRIMARY = '#E85500'
+const BRAND_PRIMARY = '#047b85'
 const BRAND_DARK = '#17171A'
 
 interface WalletMenuProps {

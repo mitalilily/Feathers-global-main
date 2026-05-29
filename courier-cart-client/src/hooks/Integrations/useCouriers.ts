@@ -43,6 +43,7 @@ export interface UseAvailableCouriersParams {
   length?: number
   breadth?: number
   height?: number
+  numberOfBoxes?: number
   enabled?: boolean
   shipmentType?: 'b2b' | 'b2c'
   payment_type: 'cod' | 'prepaid'
@@ -102,6 +103,7 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
       length,
       breadth,
       height,
+      params?.numberOfBoxes,
       shipmentType,
       params?.pickupName,
       params?.pickupAddress,
@@ -136,6 +138,7 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
         cod,
         weight,
         length,
+        number_of_boxes: params.numberOfBoxes,
         ...(shipmentType && { shipment_type: shipmentType }),
         context: params.context,
         isCalculator: params.isCalculator === true || params.context === 'rate_calculator',
@@ -179,6 +182,7 @@ export const useAvailableCouriersMutation = () => {
         length: params.length,
         breadth: params.breadth,
         height: params.height,
+        number_of_boxes: params.numberOfBoxes,
         shipment_type: params?.shipmentType,
         context: params.context,
         isCalculator: params.isCalculator === true || params.context === 'rate_calculator',

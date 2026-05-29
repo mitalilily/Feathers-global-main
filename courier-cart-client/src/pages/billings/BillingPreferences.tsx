@@ -72,7 +72,7 @@ const BillingPreferencesPage: React.FC = () => {
           <CardContent>
             {/* Header */}
             <Stack direction="row" alignItems="start" spacing={2} mb={3}>
-              <RiMoneyRupeeCircleFill size={36} color="#E85500" />
+              <RiMoneyRupeeCircleFill size={36} color="#047b85" />
               <Box>
                 <PageHeading
                   title="Billing Preferences"
@@ -84,7 +84,7 @@ const BillingPreferencesPage: React.FC = () => {
             <form onSubmit={handleSubmit(onSubmit)}>
               {/* Frequency */}
               <Stack direction="row" alignItems="center" spacing={1}>
-                <FaClock color="#E85500" />
+                <FaClock color="#047b85" />
                 <Typography fontWeight={500}>Billing Frequency</Typography>
               </Stack>
               <FormControl fullWidth margin="normal" variant="outlined" size="small">

@@ -278,7 +278,7 @@ export const fetchIndianHolidaysFromAPI = async (year: number) => {
     const response = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/IN`, {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'Shiplifi/1.0',
+        'User-Agent': 'FeatherGlobal/1.0',
       },
       signal: controller.signal,
     })

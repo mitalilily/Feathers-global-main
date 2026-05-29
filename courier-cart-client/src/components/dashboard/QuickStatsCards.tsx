@@ -24,7 +24,7 @@ interface QuickStatsCardsProps {
   formatCurrency: (amount: number) => string
 }
 
-const BRAND_PRIMARY = '#E85500'
+const BRAND_PRIMARY = '#047b85'
 
 export default function QuickStatsCards({
   todayOps,

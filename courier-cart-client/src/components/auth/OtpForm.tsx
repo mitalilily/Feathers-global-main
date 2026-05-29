@@ -1,6 +1,7 @@
 import { Box, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { FiEdit2, FiRefreshCcw } from 'react-icons/fi'
+import { BRAND } from '../../config/brand'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useRequestOtp, useVerifyOtp } from '../../hooks/useOTP'
 import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
@@ -8,13 +9,14 @@ import { toast } from '../UI/Toast'
 
 const OTP_LENGTH = 6
 const OTP_RESEND_DELAY_MS = 30000
-const BRAND_ORANGE = '#E85500'
-const BRAND_DARK = '#141414'
+const BRAND_ORANGE = BRAND.colors.orange
+const BRAND_DARK = BRAND.colors.ink
+const BRAND_TEAL = BRAND.colors.teal
 
 const primaryButtonStyles = {
   width: '100%',
   borderRadius: 4,
-  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #C23E00 100%)`,
+  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #013f49 100%)`,
   boxShadow: 'none',
   minHeight: 52,
 }
@@ -30,10 +32,12 @@ const ghostButtonStyles = {
 
 type Props = {
   email: string
+  debugOtp?: string
+  onDebugOtpChange?: (otp: string) => void
   onEditEmail: () => void
 }
 
-export default function OtpForm({ email, onEditEmail }: Props) {
+export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail }: Props) {
   const { setTokens, setUserId } = useAuth()
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const [error, setError] = useState('')
@@ -132,7 +136,8 @@ export default function OtpForm({ email, onEditEmail }: Props) {
     if (!resendEnabled || resending) return
 
     resendOtp(email.toLowerCase().trim(), {
-      onSuccess: () => {
+      onSuccess: (data: { devOtp?: string; otp?: string }) => {
+        onDebugOtpChange?.(data?.devOtp ?? data?.otp ?? '')
         setOtpDigits(Array(OTP_LENGTH).fill(''))
         setError('')
         setResendEnabled(false)
@@ -157,7 +162,7 @@ export default function OtpForm({ email, onEditEmail }: Props) {
           if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
         }, OTP_RESEND_DELAY_MS)
 
-        toast.open({ message: 'Verification code sent again.', severity: 'success' })
+        toast.open({ message: 'Verification code generated again.', severity: 'success' })
       },
       onError: (err: any) => {
         setError(err?.response?.data?.error || 'Failed to resend OTP')
@@ -176,7 +181,7 @@ export default function OtpForm({ email, onEditEmail }: Props) {
         }}
       >
         <Typography variant="body2" sx={{ color: '#5F5A57', lineHeight: 1.7 }}>
-          We sent a 6-digit sign-in code to <strong>{email}</strong>.
+          We generated a 6-digit sign-in code for <strong>{email}</strong>.
           <Box
             component="span"
             sx={{
@@ -193,6 +198,25 @@ export default function OtpForm({ email, onEditEmail }: Props) {
           </Box>
         </Typography>
       </Box>
+
+      {debugOtp && (
+        <Box
+          sx={{
+            p: 1.4,
+            borderRadius: 2,
+            textAlign: 'center',
+            background: 'linear-gradient(135deg, rgba(4,123,133,0.1), rgba(255,130,28,0.12))',
+            border: '1px solid rgba(4,123,133,0.2)',
+          }}
+        >
+          <Typography sx={{ fontSize: '0.72rem', fontWeight: 800, color: BRAND_TEAL, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            Test OTP
+          </Typography>
+          <Typography sx={{ mt: 0.4, fontSize: '1.5rem', fontWeight: 800, color: BRAND_DARK, letterSpacing: '0.18em' }}>
+            {debugOtp}
+          </Typography>
+        </Box>
+      )}
 
       <Box
         sx={{
@@ -230,16 +254,16 @@ export default function OtpForm({ email, onEditEmail }: Props) {
               '& .MuiOutlinedInput-root': {
                 height: 52,
                 borderRadius: 1.5,
-                backgroundColor: '#fbf7f4',
+                backgroundColor: '#f8fcfd',
                 color: BRAND_DARK,
                 '& fieldset': {
-                  borderColor: 'rgba(20, 20, 20, 0.1)',
+                  borderColor: 'rgba(4, 123, 133, 0.18)',
                 },
                 '&:hover fieldset': {
-                  borderColor: BRAND_ORANGE,
+                  borderColor: BRAND_TEAL,
                 },
                 '&.Mui-focused fieldset': {
-                  borderColor: BRAND_ORANGE,
+                  borderColor: BRAND_TEAL,
                   borderWidth: 2,
                 },
               },
@@ -258,7 +282,7 @@ export default function OtpForm({ email, onEditEmail }: Props) {
       )}
 
       <Typography variant="caption" color="#6E6763" textAlign="center" sx={{ userSelect: 'none' }}>
-        Enter the code from your inbox to continue to the merchant shipping workspace.
+        Enter the test code above to continue to the merchant shipping workspace.
       </Typography>
 
       <CustomIconLoadingButton

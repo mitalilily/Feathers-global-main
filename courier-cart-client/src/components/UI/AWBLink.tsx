@@ -35,10 +35,10 @@ export default function AWBLink({ awb, stopPropagation = true }: AWBLinkProps) {
         }
       }}
       sx={{
-        color: '#E85500',
+        color: '#047b85',
         cursor: 'pointer',
         fontWeight: 700,
-        textDecorationColor: alpha('#E85500', 0.45),
+        textDecorationColor: alpha('#047b85', 0.45),
         textUnderlineOffset: '0.14em',
         '&:hover': {
           color: '#A80311',

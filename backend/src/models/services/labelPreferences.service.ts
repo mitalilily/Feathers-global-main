@@ -38,7 +38,7 @@ export const DEFAULT_PREFERENCES = {
     otherCharges: true,
   },
   brand_logo: null,
-  powered_by: 'Shiplifi',
+  powered_by: 'Feather Global',
   created_at: new Date(),
   updated_at: new Date(),
 }

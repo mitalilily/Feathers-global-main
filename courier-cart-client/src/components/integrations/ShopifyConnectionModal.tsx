@@ -178,7 +178,7 @@ const ShopifyConnectionModal = ({
                 required
                 prefix={<BiLink />}
                 label="Shopify Store URL"
-                placeholder="shiplifi-test.myshopify.com"
+                placeholder="feather-global-test.myshopify.com"
                 value={shopifyDetails.storeUrl ?? shopifyDetails?.domain}
                 onChange={(e) =>
                   setShopifyDetails((prev) => ({
@@ -388,7 +388,7 @@ const ShopifyConnectionModal = ({
                       },
                     }))
                   }
-                  helperText="Automatically update order statuses in Shopify when they change in Shiplifi."
+                  helperText="Automatically update order statuses in Shopify when they change in Feather Global."
                 />
 
                 {/* Auto cancel orders */}
@@ -404,7 +404,7 @@ const ShopifyConnectionModal = ({
                       },
                     }))
                   }
-                  helperText="Automatically cancel the order in Shopify when it’s marked as cancelled in Shiplifi."
+                  helperText="Automatically cancel the order in Shopify when it’s marked as cancelled in Feather Global."
                 />
 
                 {/* Mark COD Orders Paid */}

@@ -38,7 +38,7 @@ import AddPickupAddressForm from '../../pickups/AddPickupAddressForm'
 import CustomDrawer from '../../UI/drawer/CustomDrawer'
 import { toast } from '../../UI/Toast'
 
-const ACCENT = '#E85500'
+const ACCENT = '#047b85'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_MUTED = '#5B7094'
 
@@ -149,7 +149,7 @@ type CourierSelection = {
 
 const sampleRows = [
   {
-    warehouse_name: 'Shiplifi Jaipur Hub',
+    warehouse_name: 'Feather Global Jaipur Hub',
     pickup_date: new Date().toISOString().split('T')[0],
     pickup_time: '10:00',
     order_id: 'B2C-1001',

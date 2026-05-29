@@ -22,7 +22,7 @@ interface StepOneProps {
   setErrors: React.Dispatch<React.SetStateAction<FormErrors>>
 }
 
-const BRAND_ORANGE = '#E85500'
+const BRAND_ORANGE = '#047b85'
 const BRAND_INK = '#141414'
 
 export default function StepOneForm({ formData, onChange, errors, setFormData, setErrors }: StepOneProps) {

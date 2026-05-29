@@ -377,7 +377,7 @@ export class EkartService {
     const packageBreadth = this.toNumber(payload?.package_breadth ?? payload?.breadth ?? payload?.width, 10)
     const packageHeight = this.toNumber(payload?.package_height ?? payload?.height, 10)
 
-    const sellerName = this.sanitizeText(payload?.company?.name || payload?.pickup?.name, 'Shiplifi')
+    const sellerName = this.sanitizeText(payload?.company?.name || payload?.pickup?.name, 'Feather Global')
     const sellerAddress = [
       this.sanitizeText(payload?.pickup?.address),
       this.sanitizeText(payload?.pickup?.address_2),

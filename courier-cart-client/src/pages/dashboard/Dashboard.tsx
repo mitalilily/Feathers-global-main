@@ -46,7 +46,7 @@ const widgetComponents: Record<string, React.ComponentType<any>> = {
   topDestinations: TopDestinationsCard,
 }
 
-const BRAND_PRIMARY = '#E85500'
+const BRAND_PRIMARY = '#047b85'
 const BRAND_TEXT = '#17171A'
 const TEXT_MUTED = '#6B7280'
 const CARD_BORDER = 'rgba(17, 24, 39, 0.08)'
@@ -484,8 +484,8 @@ export default function Dashboard() {
                   to right,
                   transparent 0,
                   transparent calc((100% / 12) - 1px),
-                  ${alpha('#E85500', 0.08)} calc((100% / 12) - 1px),
-                  ${alpha('#E85500', 0.08)} calc(100% / 12)
+                  ${alpha('#047b85', 0.08)} calc((100% / 12) - 1px),
+                  ${alpha('#047b85', 0.08)} calc(100% / 12)
                 )
               `,
             }}

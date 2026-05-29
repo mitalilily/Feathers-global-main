@@ -1,4 +1,5 @@
 import {
+  Box,
   CardContent,
   CircularProgress,
   Divider,
@@ -17,13 +18,14 @@ import B2CRateCalculator from '../../components/tools/B2CRateCalculator'
 import CustomIconLoadingButton from '../../components/UI/button/CustomLoadingButton'
 import CustomInput from '../../components/UI/inputs/CustomInput'
 import { SmartTabs } from '../../components/UI/tab/Tabs'
-import { BRAND_GREEN } from '../../components/user/profile/UserProfileForm'
+import { BRAND } from '../../config/brand'
 import { useAvailableCouriersMutation } from '../../hooks/Integrations/useCouriers'
 import { usePaymentOptions } from '../../hooks/usePaymentOptions'
 import { usePincodeLookup } from '../../hooks/User/usePincodeLookup'
-import { B2C_MIN_CHARGEABLE_WEIGHT_GRAMS, defaultLogo } from '../../utils/constants'
+import { defaultLogo } from '../../utils/constants'
 
 type ShipmentType = 'b2b' | 'b2c'
+const { teal, tealDark, orange, muted, border } = BRAND.colors
 
 const termsAndConditions = {
   b2c: [
@@ -61,17 +63,17 @@ export const cardStyles = {
   position: 'relative',
   width: '100%',
   overflow: 'hidden',
-  background: '#FFFFFF',
-  border: '1px solid #E2E8F0',
+  background: BRAND.colors.paper,
+  border: `1px solid ${border}`,
   borderRadius: 3,
-  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+  boxShadow: '0 18px 46px rgba(1, 63, 73, 0.08)',
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 
 export function RateCalculator() {
   const { mutateAsync, isPending, isError, error } = useAvailableCouriersMutation()
-  const couriersRef = useRef<HTMLDivElement | null>(null) // 👈 ref for scrolling
+  const couriersRef = useRef<HTMLDivElement | null>(null)
   const [shipmentType, setShipmentType] = useState<ShipmentType>('b2c')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [availableCouriers, setAvailableCouriers] = useState<any[]>([])
@@ -93,7 +95,7 @@ export function RateCalculator() {
       weight: '',
       totalWeight: '',
       numberOfBoxes: '',
-      orderAmount: '', // ✅ added shipment value
+      orderAmount: '',
     },
   })
 
@@ -109,8 +111,6 @@ export function RateCalculator() {
 
   const pickupPincode = watch('pickupPincode')
   const deliveryPincode = watch('deliveryPincode')
-
-  // ✅ Single hook handles both lookups
   const loadingPickup = usePincodeLookup(pickupPincode, 'pickup', setValue, setError, clearErrors)
   const loadingDelivery = usePincodeLookup(
     deliveryPincode,
@@ -119,8 +119,6 @@ export function RateCalculator() {
     setError,
     clearErrors,
   )
-
-  // ✅ Submit
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onSubmit = async (formData: any) => {
     try {
@@ -130,24 +128,18 @@ export function RateCalculator() {
       const height = Number(formData.height) || 0
       const actualWeightKg = Number(formData.weight) || 0 // kg from UI
 
-      // volumetric weight in grams
-      const volumetricWeightGrams = ((length * breadth * height) / 5000) * 1000
-      // convert actual weight from kg → grams
+      // Convert actual weight from kg to grams.
       const actualWeightGrams = actualWeightKg * 1000
-      // applicable weight in grams
-      const applicableWeightGrams = Math.max(
-        actualWeightGrams,
-        volumetricWeightGrams,
-        B2C_MIN_CHARGEABLE_WEIGHT_GRAMS,
-      )
+      const b2bWeightKg = Number(formData.totalWeight) || 0
+      const numberOfBoxes = Math.max(Number(formData.numberOfBoxes) || 1, 1)
 
       const orderAmountValue = Number(formData.orderAmount || 0)
 
       const payload = {
         pickupPincode: formData.pickupPincode,
         deliveryPincode: formData.deliveryPincode,
-        // Send declared weight; backend computes chargeable weight and slab consistently.
-        weight: shipmentType === 'b2c' ? actualWeightGrams : applicableWeightGrams,
+        // B2C serviceability expects grams; B2B local rate calculation expects kilograms.
+        weight: shipmentType === 'b2c' ? actualWeightGrams : b2bWeightKg,
         cod: formData.paymentType === 'cod' ? Math.max(orderAmountValue, 1) : 0,
         length,
         breadth,
@@ -155,11 +147,12 @@ export function RateCalculator() {
         orderAmount: orderAmountValue > 0 ? orderAmountValue : undefined,
         shipmentType: shipmentType,
         payment_type: formData?.paymentType,
+        numberOfBoxes: shipmentType === 'b2b' ? numberOfBoxes : undefined,
         // Hint to backend that this is just a rate calculator call (can skip heavy live checks)
         context: 'rate_calculator',
       }
 
-      const result = await mutateAsync(payload) // 👈 awaited
+      const result = await mutateAsync(payload)
       setAvailableCouriers(result ?? [])
       console.log('Available couriers:', result)
     } catch (err) {
@@ -205,10 +198,10 @@ export function RateCalculator() {
             position: 'relative',
             width: '100%',
             overflow: 'hidden',
-            background: '#FFFFFF',
-            border: '1px solid #E2E8F0',
+            background: BRAND.colors.paper,
+            border: `1px solid ${border}`,
             borderRadius: 3,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            boxShadow: '0 18px 46px rgba(1, 63, 73, 0.08)',
             p: 3,
           }}
         >
@@ -230,7 +223,7 @@ export function RateCalculator() {
 
           {/* Pickup Section */}
           <Grid container spacing={2}>
-            <Grid size={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <CustomInput
                 label="Pickup Pincode"
                 {...register('pickupPincode', {
@@ -245,7 +238,7 @@ export function RateCalculator() {
                 fullWidth
               />
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <CustomInput
                 label="Pickup City"
                 {...register('pickupCity')}
@@ -254,7 +247,7 @@ export function RateCalculator() {
                 postfix={loadingPickup ? <CircularProgress size={16} /> : null}
               />
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <CustomInput
                 label="Pickup State"
                 {...register('pickupState')}
@@ -265,7 +258,7 @@ export function RateCalculator() {
             </Grid>
 
             {/* Delivery Section */}
-            <Grid size={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <CustomInput
                 label="Delivery Pincode"
                 {...register('deliveryPincode', {
@@ -280,7 +273,7 @@ export function RateCalculator() {
                 fullWidth
               />
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <CustomInput
                 label="Delivery City"
                 {...register('deliveryCity')}
@@ -289,7 +282,7 @@ export function RateCalculator() {
                 postfix={loadingDelivery ? <CircularProgress size={16} /> : null}
               />
             </Grid>
-            <Grid size={4}>
+            <Grid size={{ xs: 12, md: 4 }}>
               <CustomInput
                 label="Delivery State"
                 {...register('deliveryState')}
@@ -312,7 +305,7 @@ export function RateCalculator() {
             rules={{ required: 'Please select a payment type' }}
             render={({ field, fieldState }) => (
               <Stack mb={3}>
-                <Typography color="#7F8C8D" sx={{ fontSize: '15px' }}>
+                <Typography color={muted} sx={{ fontSize: '15px' }}>
                   {' '}
                   Payment Type
                 </Typography>
@@ -335,17 +328,17 @@ export function RateCalculator() {
                           textTransform: 'none',
                           fontWeight: 600,
                           fontSize: '0.95rem',
-                          color: '#6B7280',
-                          border: '1px solid #E2E8F0',
+                          color: muted,
+                          border: `1px solid ${border}`,
                           transition: 'all 0.25s ease',
                           '&.Mui-selected': {
-                            background: BRAND_GREEN,
+                            background: teal,
                             color: '#FFFFFF',
                             transform: 'scale(1.05)',
                           },
                           '&:hover': {
-                            borderColor: BRAND_GREEN,
-                            color: '#E85500',
+                            borderColor: teal,
+                            color: tealDark,
                           },
                         }}
                       >
@@ -364,17 +357,17 @@ export function RateCalculator() {
                           textTransform: 'none',
                           fontWeight: 500,
                           fontSize: '0.95rem',
-                          color: '#6B7280',
-                          border: '1px solid #E2E8F0',
+                          color: muted,
+                          border: `1px solid ${border}`,
                           transition: 'all 0.25s ease',
                           '&.Mui-selected': {
-                            background: BRAND_GREEN,
+                            background: teal,
                             color: '#FFFFFF',
                             transform: 'scale(1.05)',
                           },
                           '&:hover': {
-                            borderColor: BRAND_GREEN,
-                            color: '#E85500',
+                            borderColor: teal,
+                            color: tealDark,
                           },
                         }}
                       >
@@ -393,7 +386,7 @@ export function RateCalculator() {
 
           <Divider sx={{ my: 2 }} />
 
-          <Grid size={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <CustomInput
               label="Order Amount (Shipment Value)"
               type="number"
@@ -419,7 +412,7 @@ export function RateCalculator() {
         </CardContent>
       </FormProvider>
       {isPending && (
-        <Typography sx={{ color: '#E85500', textAlign: 'center', py: 2 }}>
+        <Typography sx={{ color: teal, textAlign: 'center', py: 2 }}>
           Loading available couriers...
         </Typography>
       )}
@@ -429,25 +422,27 @@ export function RateCalculator() {
           Failed to fetch couriers: {error?.message ?? 'Unknown error'}
         </Typography>
       ) : (
-        <CourierRateCards
-          shipmentType={watch('paymentType')}
-          availableCouriers={availableCouriers}
-          defaultLogo={defaultLogo}
-        />
+        <Box ref={couriersRef}>
+          <CourierRateCards
+            shipmentType={watch('paymentType')}
+            availableCouriers={availableCouriers}
+            defaultLogo={defaultLogo}
+          />
+        </Box>
       )}
 
       <Divider />
       <CardContent
         sx={{
           mt: 3,
-          backgroundColor: '#FFFFFF',
-          border: '1px solid #E2E8F0',
+          backgroundColor: BRAND.colors.paper,
+          border: `1px solid ${border}`,
           borderRadius: 3,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          boxShadow: '0 18px 46px rgba(1, 63, 73, 0.08)',
           p: 3,
         }}
       >
-        <Typography variant="h6" gutterBottom sx={{ color: '#E85500', fontWeight: 700 }}>
+        <Typography variant="h6" gutterBottom sx={{ color: tealDark, fontWeight: 700 }}>
           Terms & Conditions ({shipmentType.toUpperCase()})
         </Typography>
 
@@ -458,30 +453,30 @@ export function RateCalculator() {
                 <Typography
                   key={idx}
                   variant="body2"
-                  sx={{ color: '#6B7280', fontSize: '0.85rem', lineHeight: 1.6 }}
+                  sx={{ color: muted, fontSize: '0.85rem', lineHeight: 1.6 }}
                 >
-                  • {term}
+                  - {term}
                 </Typography>
               )
             }
 
-            // If it’s an object with sub-items
+            // If it's an object with sub-items
             return (
               <Stack key={idx} spacing={0.5}>
                 <Typography
                   variant="body2"
-                  sx={{ color: '#E85500', fontSize: '0.85rem', lineHeight: 1.6, fontWeight: 600 }}
+                  sx={{ color: orange, fontSize: '0.85rem', lineHeight: 1.6, fontWeight: 600 }}
                 >
-                  • {term.text}
+                  - {term.text}
                 </Typography>
                 <Stack pl={3} spacing={0.3}>
                   {term.sub.map((subItem, subIdx) => (
                     <Typography
                       key={subIdx}
                       variant="body2"
-                      sx={{ color: '#6B7280', fontSize: '0.8rem', lineHeight: 1.5 }}
+                      sx={{ color: muted, fontSize: '0.8rem', lineHeight: 1.5 }}
                     >
-                      ◦ {subItem}
+                      - {subItem}
                     </Typography>
                   ))}
                 </Stack>

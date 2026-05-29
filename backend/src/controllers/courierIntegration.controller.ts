@@ -668,6 +668,10 @@ export const fetchAvailableCouriers = async (req: Request, res: Response) => {
       breadth,
       height,
       shipment_type,
+      number_of_boxes,
+      numberOfBoxes,
+      pieceCount,
+      piece_count,
     } = req.body
     if (!origin || !destination) {
       return res.status(400).json({
@@ -698,6 +702,7 @@ export const fetchAvailableCouriers = async (req: Request, res: Response) => {
       length: Number(length),
       breadth: Number(breadth),
       height: Number(height),
+      numberOfBoxes: Number(number_of_boxes ?? numberOfBoxes ?? pieceCount ?? piece_count ?? 1),
       ...serviceabilityOptions,
     }
 
@@ -820,6 +825,10 @@ export const fetchAvailableCouriersToUser = async (req: Request, res: Response) 
       breadth,
       height,
       shipment_type,
+      number_of_boxes,
+      numberOfBoxes,
+      pieceCount,
+      piece_count,
     } = req.body
     if (!origin || !destination) {
       return res.status(400).json({
@@ -850,6 +859,7 @@ export const fetchAvailableCouriersToUser = async (req: Request, res: Response) 
       length: Number(length),
       breadth: Number(breadth),
       height: Number(height),
+      numberOfBoxes: Number(number_of_boxes ?? numberOfBoxes ?? pieceCount ?? piece_count ?? 1),
       ...serviceabilityOptions,
     }
 

@@ -1237,7 +1237,7 @@ const B2COrdersList = () => {
             onClick={() => navigate(getClientAwbTrackingPath(String(value)))}
             sx={{
               cursor: 'pointer',
-              color: '#E85500',
+              color: '#047b85',
               fontWeight: 500,
               textDecoration: 'underline',
               '&:hover': { opacity: 0.8 },
@@ -1421,11 +1421,11 @@ const B2COrdersList = () => {
                 textTransform: 'none',
                 whiteSpace: 'nowrap',
                 borderColor: 'rgba(232, 85, 0, 0.32)',
-                color: isMenuOpen ? '#FFFFFF' : '#E85500',
-                bgcolor: isMenuOpen ? '#E85500' : '#FFFFFF',
+                color: isMenuOpen ? '#FFFFFF' : '#047b85',
+                bgcolor: isMenuOpen ? '#047b85' : '#FFFFFF',
                 boxShadow: isMenuOpen ? '0 10px 20px rgba(232, 85, 0, 0.16)' : 'none',
                 '&:hover': {
-                  borderColor: '#E85500',
+                  borderColor: '#047b85',
                   bgcolor: isMenuOpen ? '#D34B00' : 'rgba(232, 85, 0, 0.06)',
                 },
               }}
@@ -1809,7 +1809,7 @@ const B2COrdersList = () => {
                         }}
                         disabled={downloadingByWarehouse}
                         sx={{
-                          bgcolor: '#E85500',
+                          bgcolor: '#047b85',
                           textTransform: 'none',
                           '&:hover': { bgcolor: '#B40312' },
                         }}
@@ -2024,7 +2024,7 @@ const B2COrdersList = () => {
             sx={{ flexWrap: 'nowrap' }}
           >
             <Box sx={{ flex: 0, whiteSpace: 'nowrap' }}>
-              <Typography sx={{ fontWeight: 700, color: '#E85500', fontSize: '15px' }}>
+              <Typography sx={{ fontWeight: 700, color: '#047b85', fontSize: '15px' }}>
                 {selectedOrders.length} order{selectedOrders.length > 1 ? 's' : ''} selected
               </Typography>
               {manifestValidationMessage && (
@@ -2121,10 +2121,10 @@ const B2COrdersList = () => {
                   px: 1.5,
                   fontSize: '0.8rem',
                   fontWeight: 600,
-                  color: '#E85500',
-                  borderColor: '#E85500',
+                  color: '#047b85',
+                  borderColor: '#047b85',
                   '&:hover': {
-                    borderColor: '#E85500',
+                    borderColor: '#047b85',
                     backgroundColor: 'rgba(217, 4, 22, 0.04)',
                   },
                 }}

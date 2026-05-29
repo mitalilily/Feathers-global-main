@@ -6,6 +6,6 @@ export const AMAZON_SHIPPING_WEBHOOK_PATH = '/webhooks/amazon-shipping/tracking'
 
 export const AMAZON_SHIPPING_WEBHOOK_URL =
   process.env.AMAZON_SHIPPING_WEBHOOK_URL ||
-  `https://api.shiplifi.com${AMAZON_SHIPPING_WEBHOOK_PATH}`
+  `https://api.featherglobal.in${AMAZON_SHIPPING_WEBHOOK_PATH}`
 
 export const AMAZON_SHIPPING_WEBHOOK_API_KEY_HEADER = 'X-API-KEY'

@@ -228,7 +228,7 @@ export default function CompanyInfoForm() {
       onSubmit={handleSubmit(onSubmit)}
     >
       <Stack spacing={0.8}>
-        <Typography sx={{ fontSize: '0.72rem', letterSpacing: 1.8, color: '#1A7500', fontWeight: 700 }}>
+        <Typography sx={{ fontSize: '0.72rem', letterSpacing: 1.8, color: '#ff821c', fontWeight: 700 }}>
           COMPANY PROFILE
         </Typography>
         <Typography sx={{ fontSize: { xs: '1.18rem', md: '1.48rem' }, color: '#17171A', fontWeight: 800 }}>

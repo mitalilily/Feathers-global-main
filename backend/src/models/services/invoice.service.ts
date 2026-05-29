@@ -248,7 +248,7 @@ export const generateInvoicePDF = async (invoice: InvoiceData): Promise<Buffer> 
   const platformLogoKey =
     adminPrefs?.includeLogo !== false && adminPrefs?.logoFile ? adminPrefs.logoFile : null
 
-  // Platform (Shiplifi) logo comes from admin billing preferences only.
+  // Platform (Feather Global) logo comes from admin billing preferences only.
   let platformLogoDataUrl: string | undefined
   if (platformLogoKey) {
     try {
@@ -809,7 +809,7 @@ export const generateInvoicePDF = async (invoice: InvoiceData): Promise<Buffer> 
   // Thermal Layout
   // -------------------
   const contentThermal: any[] = [
-    { text: invoice.companyName ?? 'Shiplifi', alignment: 'center', bold: true },
+    { text: invoice.companyName ?? 'Feather Global', alignment: 'center', bold: true },
     { text: 'TAX INVOICE', alignment: 'center', bold: true, margin: [0, 2, 0, 2] },
     {
       text: 'ORIGINAL FOR RECIPIENT',
@@ -904,7 +904,7 @@ export const generateInvoicePDF = async (invoice: InvoiceData): Promise<Buffer> 
       ? { image: 'platformLogo', width: 40, alignment: 'center', margin: [0, 4, 0, 0] }
       : null,
     {
-      text: 'Powered by Shiplifi',
+      text: 'Powered by Feather Global',
       alignment: 'center',
       italics: true,
       margin: [0, 4, 0, 0],

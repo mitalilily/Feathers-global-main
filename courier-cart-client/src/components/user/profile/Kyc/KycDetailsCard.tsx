@@ -132,7 +132,7 @@ const PreviewBlock = ({
     <Grid size={{ md: 4, sm: 12 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
         <Box display="flex" alignItems="center" gap={1}>
-          <Box sx={{ color: '#E85500', display: 'flex', alignItems: 'center' }}>{icon}</Box>
+          <Box sx={{ color: '#047b85', display: 'flex', alignItems: 'center' }}>{icon}</Box>
           <Typography variant="subtitle2" fontWeight={700} color="#1A1A1A">
             {label}
           </Typography>
@@ -374,7 +374,7 @@ const KycDetailsCard = ({
           mb={2}
         >
           <Box display="flex" alignItems="center" gap={2}>
-            <Typography variant="h6" fontWeight={700} color="#E85500">
+            <Typography variant="h6" fontWeight={700} color="#047b85">
               {loading ? <Skeleton width={120} /> : 'KYC Details'}
             </Typography>
             {!loading && (
@@ -393,7 +393,7 @@ const KycDetailsCard = ({
           fontWeight={700}
           sx={{
             mb: 2.5,
-            color: '#E85500',
+            color: '#047b85',
             display: 'flex',
             alignItems: 'center',
             gap: 1,
@@ -423,7 +423,7 @@ const KycDetailsCard = ({
               fontWeight={700}
               sx={{
                 mb: 2.5,
-                color: '#E85500',
+                color: '#047b85',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,
@@ -460,7 +460,7 @@ const KycDetailsCard = ({
               fontWeight={700}
               sx={{
                 mb: 2.5,
-                color: '#E85500',
+                color: '#047b85',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,

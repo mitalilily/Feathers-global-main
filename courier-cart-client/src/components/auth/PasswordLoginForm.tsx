@@ -11,12 +11,12 @@ import CustomInput from '../UI/inputs/CustomInput'
 import { toast } from '../UI/Toast'
 import EmailVerificationForm from './EmailVerificationForm'
 
-const BRAND_ORANGE = '#E85500'
+const BRAND_ORANGE = '#047b85'
 
 const primaryButtonStyles = {
   width: '100%',
   borderRadius: 4,
-  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #C23E00 100%)`,
+  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #013f49 100%)`,
   boxShadow: 'none',
   minHeight: 52,
 }

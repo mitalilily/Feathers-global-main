@@ -1,7 +1,7 @@
 import { Box } from '@mui/material'
 import React from 'react'
+import { BRAND } from '../../../config/brand'
 import './loader.css'
-import Logo from '/logo/shiplifi-logo.png'
 
 type Props = {
   night?: boolean
@@ -12,7 +12,7 @@ const FullScreenLoader: React.FC<Props> = ({ night = false }) => {
     <Box className={`loader-overlay ${night ? 'night' : ''}`}>
       <Box className="loader-content">
         <div className="logo-container">
-          <img src={Logo} alt="Shiplifi Logo" className="loader-logo" />
+          <img src={BRAND.logo} alt={`${BRAND.name} Logo`} className="loader-logo" />
           <div className="pulse-ring"></div>
           <div className="pulse-ring pulse-ring-delay"></div>
         </div>

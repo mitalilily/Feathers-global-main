@@ -257,7 +257,7 @@ export const ensureWooCommerceOrderWebhooks = async (store: WooCommerceStore) =>
       method: 'post',
       path: '/webhooks',
       data: {
-        name: `Shiplifi ${topic}`,
+        name: `Feather Global ${topic}`,
         topic,
         delivery_url: address,
         secret,
@@ -629,7 +629,7 @@ export const syncWooCommerceStatusForLocalOrder = async (order: any, tx: any = d
         method: 'post',
         path: `/orders/${encodeURIComponent(parsed.wooOrderId)}/notes`,
         data: {
-          note: `Shiplifi update: ${orderStatus}. AWB: ${awb}. Courier: ${order?.courier_partner || 'Courier'}.`,
+          note: `Feather Global update: ${orderStatus}. AWB: ${awb}. Courier: ${order?.courier_partner || 'Courier'}.`,
           customer_note: false,
         },
       })

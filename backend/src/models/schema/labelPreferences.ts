@@ -63,7 +63,7 @@ export const labelPreferences = createTable('label_preferences', {
   max_items: integer('max_items').default(3).notNull(),
 
   brand_logo: text('brand_logo'), // S3 key or URL
-  powered_by: varchar('powered_by', { length: 120 }).default('Shiplifi'),
+  powered_by: varchar('powered_by', { length: 120 }).default('Feather Global'),
 
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updated_at: timestamp('updated_at', { withTimezone: true })

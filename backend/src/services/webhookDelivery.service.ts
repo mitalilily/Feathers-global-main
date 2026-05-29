@@ -47,7 +47,7 @@ async function deliverWebhook(
         'Content-Type': 'application/json',
         'X-Webhook-Signature': signature,
         'X-Webhook-Event': payload.event,
-        'User-Agent': 'Shiplifi-Webhooks/1.0',
+        'User-Agent': 'FeatherGlobal-Webhooks/1.0',
       },
       timeout: 10000, // 10 second timeout
       validateStatus: (status) => status < 500, // Don't throw on 4xx errors

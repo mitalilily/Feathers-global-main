@@ -1,12 +1,11 @@
-import { Box, Typography } from '@mui/material'
-import { useState } from 'react'
+import { alpha, Box, Stack, Typography } from '@mui/material'
+import { FiCheckCircle, FiMapPin, FiTruck } from 'react-icons/fi'
+import { BRAND, brandGradient } from '../../config/brand'
 import PhoneForm from './PhoneForm'
 
-const BRAND_ORANGE = '#E85500'
+const { teal, tealDark, orange, amberSoft, skySoft, ink, text, muted, paper } = BRAND.colors
 
 export default function LoginForm() {
-  const [isHovering, setIsHovering] = useState(false)
-
   return (
     <Box
       sx={{
@@ -15,212 +14,227 @@ export default function LoginForm() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #fafbfc 0%, #f3f5f7 100%)',
-        px: { xs: 2, sm: 3 },
-        py: { xs: 3, sm: 4 },
+        background: brandGradient,
+        px: { xs: 1.5, sm: 3 },
+        py: { xs: 2, sm: 4 },
       }}
     >
-      {/* Main Card Container */}
       <Box
         sx={{
           width: '100%',
-          maxWidth: 1100,
+          maxWidth: 1180,
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-          gap: { xs: 0, md: 4 },
-          background: '#ffffff',
-          borderRadius: { xs: '24px', md: '32px' },
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
-          overflow: { xs: 'hidden', md: 'visible' },
+          gridTemplateColumns: { xs: '1fr', md: '0.94fr 1.06fr' },
+          borderRadius: { xs: 3, md: 4 },
+          border: `1px solid ${alpha(teal, 0.16)}`,
+          background: alpha(paper, 0.9),
+          boxShadow: '0 24px 70px rgba(15, 44, 67, 0.12)',
+          overflow: 'hidden',
+          backdropFilter: 'blur(18px)',
         }}
       >
-        {/* LEFT PANEL - LOGIN FORM */}
         <Box
           sx={{
+            px: { xs: 2.2, sm: 4, md: 5 },
+            py: { xs: 3.4, md: 5.5 },
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            px: { xs: 2.5, sm: 4, md: 5 },
-            py: { xs: 4, md: 6 },
+            minWidth: 0,
           }}
         >
-          {/* Logo & Header */}
-          <Box sx={{ mb: 4 }}>
-            <Box
-              component="img"
-              src="/logo/shiplifi-logo.png"
-              alt="Shiplifi"
-              sx={{ width: 120, height: 'auto', mb: 2.5 }}
-            />
+          <Box component="img" src={BRAND.logo} alt={BRAND.name} sx={{ width: 174, mb: 2.8 }} />
 
-            <Typography
-              sx={{
-                fontSize: '0.65rem',
-                letterSpacing: '0.15em',
-                textTransform: 'uppercase',
-                color: BRAND_ORANGE,
-                fontWeight: 900,
-                mb: 1,
-              }}
-            >
-              Merchant Platform
-            </Typography>
-
-            <Typography
-              sx={{
-                color: '#0f172a',
-                fontWeight: 700,
-                fontSize: { xs: '1.6rem', sm: '1.9rem' },
-                letterSpacing: '-0.01em',
-                lineHeight: 1.2,
-                mb: 0.5,
-              }}
-            >
-              Welcome Back
-            </Typography>
-
-            <Typography
-              sx={{
-                color: '#64748b',
-                fontSize: '0.95rem',
-                fontWeight: 400,
-                lineHeight: 1.6,
-              }}
-            >
-              Sign in to manage your shipments across India
-            </Typography>
-          </Box>
-
-          {/* Login Form */}
-          <Box sx={{ mb: 3 }}>
-            <PhoneForm />
-          </Box>
-
-          {/* Footer Text */}
           <Typography
             sx={{
-              fontSize: '0.8rem',
-              color: '#94a3b8',
-              textAlign: 'center',
-              mt: 2,
+              fontSize: '0.74rem',
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: orange,
+              fontWeight: 800,
+              mb: 1,
             }}
           >
-            Secure merchant access with industry-leading encryption
+            Merchant Workspace
           </Typography>
+
+          <Typography
+            sx={{
+              color: ink,
+              fontWeight: 800,
+              fontSize: { xs: '1.75rem', sm: '2.1rem' },
+              lineHeight: 1.18,
+              mb: 1,
+            }}
+          >
+            Welcome back
+          </Typography>
+
+          <Typography sx={{ color: muted, fontSize: '0.96rem', lineHeight: 1.7, mb: 3 }}>
+            Sign in to manage shipments, tracking, billing, and marketplace operations.
+          </Typography>
+
+          <PhoneForm />
         </Box>
 
-        {/* RIGHT PANEL - HERO IMAGE WITH BLOB SHAPE */}
         <Box
           sx={{
             display: { xs: 'none', md: 'flex' },
-            alignItems: 'center',
-            justifyContent: 'center',
             position: 'relative',
-            minHeight: 500,
-            px: { md: 3 },
-            py: { md: 6 },
+            minHeight: 610,
             overflow: 'hidden',
+            background:
+              `linear-gradient(135deg, ${alpha(teal, 0.96)} 0%, ${alpha(tealDark, 0.98)} 58%, #012f38 100%)`,
+            color: '#ffffff',
+            p: { md: 4.5, lg: 5 },
+            alignItems: 'stretch',
           }}
         >
-          {/* Blob-shaped image container with organic asymmetrical shape */}
-          <Box
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => setIsHovering(false)}
-            sx={{
-              position: 'relative',
-              width: '100%',
-              maxWidth: 380,
-              aspectRatio: '1',
-              cursor: 'pointer',
-              transition: 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
-              transform: isHovering ? 'scale(1.05)' : 'scale(1)',
-              filter: isHovering ? 'drop-shadow(0 30px 60px rgba(217, 4, 22, 0.15))' : 'drop-shadow(0 15px 40px rgba(0, 0, 0, 0.1))',
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                inset: 0,
-                background: 'url(/images/login.jpg)',
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                borderRadius: '60% 40% 30% 70% / 60% 30% 70% 40%',
-                opacity: 1,
-                transition: 'border-radius 0.6s ease-in-out',
-                zIndex: 1,
-              },
-              '&:hover::before': {
-                borderRadius: '30% 60% 70% 40% / 50% 60% 30% 60%',
-              },
-            }}
-          />
-
-          {/* Animated gradient overlay for depth */}
           <Box
             sx={{
               position: 'absolute',
               inset: 0,
-              background: 'radial-gradient(circle at 30% 30%, rgba(217, 4, 22, 0.1) 0%, transparent 60%)',
-              pointerEvents: 'none',
-              borderRadius: '60% 40% 30% 70% / 60% 30% 70% 40%',
+              background:
+                `linear-gradient(90deg, ${alpha('#ffffff', 0.08)} 1px, transparent 1px) 0 0 / 58px 58px, linear-gradient(${alpha('#ffffff', 0.07)} 1px, transparent 1px) 0 0 / 58px 58px`,
             }}
           />
-
-          {/* Animated background elements */}
           <Box
             sx={{
               position: 'absolute',
-              top: -50,
-              right: -50,
-              width: 200,
-              height: 200,
-              background: 'radial-gradient(circle, rgba(217, 4, 22, 0.05) 0%, transparent 70%)',
+              width: 300,
+              height: 300,
+              right: -120,
+              top: -100,
               borderRadius: '50%',
-              animation: 'float 6s ease-in-out infinite',
-              '@keyframes float': {
-                '0%, 100%': { transform: 'translateY(0px)' },
-                '50%': { transform: 'translateY(-20px)' },
-              },
+              background: alpha(amberSoft, 0.24),
+              filter: 'blur(4px)',
             }}
           />
-
           <Box
             sx={{
               position: 'absolute',
-              bottom: -30,
-              left: -30,
-              width: 150,
-              height: 150,
-              background: 'radial-gradient(circle, rgba(100, 116, 139, 0.05) 0%, transparent 70%)',
+              width: 260,
+              height: 260,
+              left: -110,
+              bottom: -90,
               borderRadius: '50%',
-              animation: 'float 8s ease-in-out infinite',
-              '@keyframes float': {
-                '0%, 100%': { transform: 'translateY(0px)' },
-                '50%': { transform: 'translateY(20px)' },
-              },
+              background: alpha(skySoft, 0.24),
             }}
           />
+
+          <Stack
+            sx={{
+              position: 'relative',
+              zIndex: 1,
+              width: '100%',
+              justifyContent: 'space-between',
+              minWidth: 0,
+            }}
+          >
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: '2rem', lineHeight: 1.18 }}>
+                One workspace for cleaner shipping decisions.
+              </Typography>
+              <Typography sx={{ mt: 1.8, color: alpha('#ffffff', 0.76), lineHeight: 1.8 }}>
+                Reliable order movement, operational visibility, and finance controls in a calmer
+                dashboard.
+              </Typography>
+            </Box>
+
+            <Box
+              sx={{
+                position: 'relative',
+                minHeight: 270,
+                borderRadius: 3,
+                border: `1px solid ${alpha('#ffffff', 0.22)}`,
+                background: alpha('#ffffff', 0.1),
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
+                overflow: 'hidden',
+                p: 2.2,
+              }}
+            >
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: '18px 22px',
+                  borderRadius: 2,
+                  border: `1px dashed ${alpha('#ffffff', 0.28)}`,
+                }}
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  left: '14%',
+                  top: '28%',
+                  width: '72%',
+                  height: 2,
+                  background: `linear-gradient(90deg, ${orange}, ${skySoft})`,
+                  transform: 'rotate(-8deg)',
+                  boxShadow: `0 10px 26px ${alpha('#000', 0.18)}`,
+                }}
+              />
+              {[
+                { label: 'Booked', left: '12%', top: '22%', icon: <FiMapPin /> },
+                { label: 'In transit', left: '46%', top: '42%', icon: <FiTruck /> },
+                { label: 'Delivered', left: '68%', top: '18%', icon: <FiCheckCircle /> },
+              ].map((item) => (
+                <Box
+                  key={item.label}
+                  sx={{
+                    position: 'absolute',
+                    left: item.left,
+                    top: item.top,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 0.8,
+                    px: 1.4,
+                    py: 0.9,
+                    borderRadius: 2,
+                    color: text,
+                    background: alpha('#ffffff', 0.92),
+                    boxShadow: '0 16px 32px rgba(7, 25, 35, 0.18)',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                  }}
+                >
+                  <Box sx={{ color: teal, display: 'flex' }}>{item.icon}</Box>
+                  {item.label}
+                </Box>
+              ))}
+            </Box>
+
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: 1.2,
+              }}
+            >
+              {[
+                ['Multi-carrier', 'allocation'],
+                ['COD', 'visibility'],
+                ['KYC', 'readiness'],
+              ].map(([title, subtitle]) => (
+                <Box
+                  key={title}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: `1px solid ${alpha('#ffffff', 0.18)}`,
+                    background: alpha('#ffffff', 0.1),
+                    minHeight: 88,
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 800, color: '#ffffff' }}>{title}</Typography>
+                  <Typography sx={{ mt: 0.4, fontSize: '0.78rem', color: alpha('#ffffff', 0.66) }}>
+                    {subtitle}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          </Stack>
         </Box>
       </Box>
-
-      {/* Add global styles for blob animation */}
-      <style>{`
-        @keyframes float {
-          0%, 100% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-20px);
-          }
-        }
-
-        @keyframes blobRotate {
-          0%, 100% {
-            border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
-          }
-          50% {
-            border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
-          }
-        }
-      `}</style>
     </Box>
   )
 }
