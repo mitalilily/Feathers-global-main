@@ -2,7 +2,7 @@ import * as dotenv from 'dotenv'
 import path from 'path'
 import { server } from './app'
 import './crons'
-import { testDatabaseConnection } from './models/client'
+import { pool, testDatabaseConnection } from './models/client'
 
 // Determine environment
 const env = process.env.NODE_ENV || 'development'
@@ -13,6 +13,42 @@ dotenv.config({ path: path.resolve(__dirname, `../.env.${env}`) })
 
 // Use PORT from env or fallback
 const PORT = process.env.PORT || 4000
+let shuttingDown = false
+
+const shutdown = (signal: NodeJS.Signals) => {
+  if (shuttingDown) return
+  shuttingDown = true
+
+  console.log(`[shutdown] Received ${signal}. Closing HTTP server and database pool...`)
+
+  const forceExitTimer = setTimeout(() => {
+    console.warn('[shutdown] Forced shutdown after timeout')
+    process.exit(0)
+  }, 10000)
+  forceExitTimer.unref()
+
+  server.close(async (err) => {
+    const closeError = err as NodeJS.ErrnoException | undefined
+    const failedToClose = Boolean(closeError && closeError.code !== 'ERR_SERVER_NOT_RUNNING')
+
+    if (failedToClose) {
+      console.error('[shutdown] HTTP server close failed:', closeError)
+    }
+
+    try {
+      await pool.end()
+      console.log('[shutdown] Database pool closed')
+    } catch (poolError) {
+      console.error('[shutdown] Database pool close failed:', poolError)
+    }
+
+    clearTimeout(forceExitTimer)
+    process.exit(failedToClose ? 1 : 0)
+  })
+}
+
+process.once('SIGTERM', shutdown)
+process.once('SIGINT', shutdown)
 
 // Test database connection before starting server
 async function startServer() {
