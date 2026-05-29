@@ -1,5 +1,5 @@
 import { and, eq, or, sql } from 'drizzle-orm'
-import { razorpay } from '../../utils/razorpay'
+import { getRazorpayKeyId, razorpay } from '../../utils/razorpay'
 import { db } from '../client'
 import { wallets, walletTopups } from '../schema/wallet'
 import { users } from '../schema/users'
@@ -77,18 +77,12 @@ export async function createWalletOrder(
     status: 'created',
   })
 
-  // Get the correct key based on mode (same logic as razorpay.ts)
-  const MODE: 'test' | 'live' =
-    (process.env.RAZORPAY_MODE as 'test' | 'live') ??
-    (process.env.NODE_ENV === 'production' ? 'live' : 'test')
-  const keyId = MODE === 'live' ? process.env.RAZORPAY_KEY_ID_PROD! : process.env.RAZORPAY_KEY_ID!
-
   // Return Razorpay order details for frontend
   return {
     orderId: razorpayOrder.id,
     amount: razorpayOrder.amount,
     currency: razorpayOrder.currency,
-    key: keyId,
+    key: getRazorpayKeyId(),
     name: 'Feather Global',
     description: 'Wallet Recharge',
     prefill: {
@@ -97,7 +91,7 @@ export async function createWalletOrder(
       contact: details.phone,
     },
     theme: {
-      color: '#4b8e40',
+      color: '#047b85',
     },
   }
 }
