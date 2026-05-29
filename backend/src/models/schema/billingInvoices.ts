@@ -13,7 +13,12 @@ import {
 } from 'drizzle-orm/pg-core'
 import { users } from './users'
 
-export const invoiceStatusEnum = pgEnum('invoice_status', ['pending', 'paid', 'disputed'])
+export const invoiceStatusEnum = pgEnum('invoice_status', [
+  'paid',
+  'pending',
+  'overdue',
+  'disputed',
+])
 export const billingInvoiceTypeEnum = pgEnum('billingInvoiceTypeEnum', [
   'weekly',
   'monthly_summary',
