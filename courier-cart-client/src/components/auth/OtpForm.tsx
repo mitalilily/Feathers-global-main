@@ -9,24 +9,23 @@ import { toast } from '../UI/Toast'
 
 const OTP_LENGTH = 6
 const OTP_RESEND_DELAY_MS = 30000
-const BRAND_ORANGE = BRAND.colors.orange
 const BRAND_DARK = BRAND.colors.ink
 const BRAND_TEAL = BRAND.colors.teal
 
 const primaryButtonStyles = {
   width: '100%',
-  borderRadius: 4,
-  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #013f49 100%)`,
-  boxShadow: 'none',
+  borderRadius: 1,
+  background: `linear-gradient(135deg, ${BRAND_TEAL} 0%, #013f49 100%)`,
+  boxShadow: '0 16px 26px rgba(4, 123, 133, 0.18)',
   minHeight: 52,
 }
 
 const ghostButtonStyles = {
   width: '100%',
-  border: '1px solid rgba(20, 20, 20, 0.1)',
+  border: '1px solid rgba(91, 119, 150, 0.32)',
   color: BRAND_DARK,
   backgroundColor: '#ffffff',
-  borderRadius: 4,
+  borderRadius: 1,
   minHeight: 48,
 }
 
@@ -171,13 +170,13 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
   }, [email, resendOtp, resendEnabled, resending])
 
   return (
-    <Stack component="form" onSubmit={handleSubmit} width="100%" mt={1} gap={2}>
+    <Stack component="form" onSubmit={handleSubmit} width="100%" mt={0} gap={1.75}>
       <Box
         sx={{
-          p: 1.8,
-          borderRadius: 2,
-          backgroundColor: '#f7f1ed',
-          border: '1px solid rgba(20, 20, 20, 0.08)',
+          p: 1.65,
+          borderRadius: 1.25,
+          background: 'linear-gradient(135deg, rgba(228,246,248,0.76), rgba(255,255,255,0.92))',
+          border: '1px solid rgba(4,123,133,0.12)',
         }}
       >
         <Typography variant="body2" sx={{ color: '#5F5A57', lineHeight: 1.7 }}>
@@ -189,7 +188,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
               display: 'inline-flex',
               alignItems: 'center',
               cursor: 'pointer',
-              color: BRAND_ORANGE,
+              color: BRAND_TEAL,
             }}
             onClick={onEditEmail}
           >
@@ -202,8 +201,8 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
       {debugOtp && (
         <Box
           sx={{
-            p: 1.4,
-            borderRadius: 2,
+            p: 1.35,
+            borderRadius: 1.25,
             textAlign: 'center',
             background: 'linear-gradient(135deg, rgba(4,123,133,0.1), rgba(255,130,28,0.12))',
             border: '1px solid rgba(4,123,133,0.2)',
@@ -253,7 +252,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
               width: '100%',
               '& .MuiOutlinedInput-root': {
                 height: 52,
-                borderRadius: 1.5,
+                borderRadius: 1,
                 backgroundColor: '#f8fcfd',
                 color: BRAND_DARK,
                 '& fieldset': {
