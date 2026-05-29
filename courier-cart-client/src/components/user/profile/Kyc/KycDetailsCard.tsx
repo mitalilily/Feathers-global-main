@@ -16,6 +16,7 @@ import {
   MdAccountBalance,
   MdBadge,
   MdBusiness,
+  MdCameraAlt,
   MdDescription,
   MdEdit,
   MdErrorOutline,
@@ -40,6 +41,7 @@ const iconMap: Record<string, JSX.Element> = {
   cancelledChequeUrl: <MdAccountBalance />,
   partnershipDeedUrl: <MdGavel />,
   boardResolutionUrl: <MdDescription />,
+  selfieUrl: <MdCameraAlt />,
   cin: <MdBusiness />,
 }
 
@@ -56,6 +58,7 @@ const getLabel = (key: string) => {
     cancelledChequeUrl: 'Cancelled Cheque',
     partnershipDeedUrl: 'Partnership Deed',
     boardResolutionUrl: 'Board Resolution',
+    selfieUrl: 'Camera Verification',
     structure: 'Business Structure',
     cin: 'CIN',
     createdAt: 'Submitted On',
@@ -305,6 +308,7 @@ const KycDetailsCard = ({
       'cancelledChequeUrl',
       'businessPanUrl',
       'gstCertificateUrl',
+      'selfieUrl',
     ].includes(f)
 
   const fileFieldsToShow = allFields.filter(isFileField)

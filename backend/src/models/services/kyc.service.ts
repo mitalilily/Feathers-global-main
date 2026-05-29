@@ -95,6 +95,7 @@ export const UpdateKYCDetails = async (userId: string, details: KycDetails) => {
       'gstin',
       'panNumber',
       'llpAgreementUrl',
+      'selfieUrl',
     ]
 
     const fieldToStatusMap: Partial<Record<keyof KycDetails, keyof KycDetails>> = {
@@ -107,6 +108,7 @@ export const UpdateKYCDetails = async (userId: string, details: KycDetails) => {
       panCardUrl: 'panCardStatus',
       partnershipDeedUrl: 'partnershipDeedStatus',
       boardResolutionUrl: 'boardResolutionStatus',
+      selfieUrl: 'selfieStatus',
       cin: 'cinStatus',
     }
 
@@ -120,6 +122,7 @@ export const UpdateKYCDetails = async (userId: string, details: KycDetails) => {
       partnershipDeedUrl: 'partnershipDeedMime',
       businessPanUrl: 'businessPanMime',
       gstCertificateUrl: 'gstCertificateMime',
+      selfieUrl: 'selfieMime',
     }
 
     for (const field of docFields) {
@@ -230,6 +233,7 @@ export const updateKycStatus = async (
       'businessPan',
       'gstCertificate',
       'llpAgreement',
+      'selfie',
       'cin',
     ]
 
@@ -279,6 +283,7 @@ export const updateDocumentStatus = async (
     businessPanUrl: 'businessPanStatus',
     gstCertificateUrl: 'gstCertificateStatus',
     llpAgreementUrl: 'llpAgreementStatus',
+    selfieUrl: 'selfieStatus',
     cin: 'cinStatus',
   }
   const statusField = allowedStatusFields[key]

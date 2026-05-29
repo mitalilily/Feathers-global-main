@@ -206,6 +206,7 @@ export interface KycDetails {
   companyAddressProofUrl?: string;
   gstCertificateUrl?: string;
   llpAgreementUrl?: string;
+  selfieUrl?: string;
 
   /* ─ Optional MIME types ─ */
   panCardMime?: string;
@@ -215,6 +216,10 @@ export interface KycDetails {
   boardResolutionMime?: string;
   partnershipDeedMime?: string;
   llpAgreementMime?: string;
+  companyAddressProofMime?: string;
+  businessPanMime?: string;
+  gstCertificateMime?: string;
+  selfieMime?: string;
 
   /* ─ Per-field status ─ */
   panCardStatus?: "pending" | "verified" | "rejected";
@@ -225,6 +230,10 @@ export interface KycDetails {
   partnershipDeedStatus?: "pending" | "verified" | "rejected";
   cinStatus?: "pending" | "verified" | "rejected";
   llpAgreementStatus: "pending" | "verified" | "rejected";
+  businessPanStatus?: "pending" | "verified" | "rejected";
+  gstCertificateStatus?: "pending" | "verified" | "rejected";
+  companyAddressProofStatus?: "pending" | "verified" | "rejected";
+  selfieStatus?: "pending" | "verified" | "rejected";
 
   /* ─ Rejection reasons ─ */
   panCardRejectionReason?: string;
@@ -235,6 +244,10 @@ export interface KycDetails {
   partnershipDeedRejectionReason?: string;
   cinRejectionReason?: string;
   llpAgreementReason?: string;
+  businessPanRejectionReason?: string;
+  gstCertificateRejectionReason?: string;
+  companyAddressProofRejectionReason?: string;
+  selfieRejectionReason?: string;
 
   /* ─ Workflow ─ */
   rejectionReason?: string; // global rejection reason (optional)

@@ -28,6 +28,14 @@ const runKycSchemaCompatibility = async () => {
   `)
 
   await pool.query(`
+    ALTER TABLE "kyc"
+      ADD COLUMN IF NOT EXISTS "selfieUrl" text,
+      ADD COLUMN IF NOT EXISTS "selfieStatus" "kyc_doc_status" DEFAULT 'pending' NOT NULL,
+      ADD COLUMN IF NOT EXISTS "selfieRejectionReason" text,
+      ADD COLUMN IF NOT EXISTS "selfieMime" varchar(100);
+  `)
+
+  await pool.query(`
     DO $$
     BEGIN
       IF EXISTS (

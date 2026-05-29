@@ -9,8 +9,9 @@ import type { KycDetails } from '../../../../types/user.types'
 import { toast } from '../../../UI/Toast'
 import AdditionalDetailsStep, { type AdditionalKYCForm } from './AdditionalInfoStep'
 import { BusinessStructureStep } from './BusinessStructureStep'
+import CameraVerificationStep from './CameraVerificationStep'
 
-const steps = ['Business Structure', 'Additional Details']
+const steps = ['Business Structure', 'Additional Details', 'Camera Verification']
 const { teal, tealDark, orange, ink, muted } = BRAND.colors
 
 const KYCVerificationStep: React.FC<{
@@ -28,11 +29,9 @@ const KYCVerificationStep: React.FC<{
   const [isStepValid, setIsStepValid] = useState(false)
 
   const updateKycData = (newData: Partial<KycDetails>) => {
-    setKycData((prev) => {
-      const updated = { ...prev, ...newData }
-      kycDataRef.current = updated
-      return updated
-    })
+    const updated = { ...kycDataRef.current, ...newData }
+    kycDataRef.current = updated
+    setKycData(updated)
   }
 
   // Prefill when editing mode is on
@@ -103,8 +102,14 @@ const KYCVerificationStep: React.FC<{
     }
   }
 
-  const handleFinalSubmit = async (data: AdditionalKYCForm) => {
+  const handleAdditionalInfoSubmit = async (data: AdditionalKYCForm) => {
     await handleAdditionalInfoChange(data)
+    setIsStepValid(Boolean(kycDataRef.current.selfieUrl))
+    setActiveStep(2)
+  }
+
+  const handleFinalSubmit = async (data: Partial<KycDetails>) => {
+    updateKycData(data)
     await submitKycDetails({ ...kycDataRef.current, ...data })
   }
 
@@ -142,13 +147,26 @@ const KYCVerificationStep: React.FC<{
             onChange={handleBusinessStructureChange}
           />
         )
-      default:
+      case 1:
         return (
           <AdditionalDetailsStep
             structure={kycData?.structure}
             companyType={kycData?.companyType}
             defaultValue={kycData}
-            onComplete={(data) => handleFinalSubmit(data ?? {})}
+            submitLabel="Continue to Camera"
+            onComplete={(data) => handleAdditionalInfoSubmit(data ?? {})}
+          />
+        )
+      default:
+        return (
+          <CameraVerificationStep
+            defaultValue={kycData}
+            submitting={isPending}
+            onChange={(data) => {
+              updateKycData(data)
+              setIsStepValid(Boolean(data.selfieUrl))
+            }}
+            onComplete={handleFinalSubmit}
           />
         )
     }
@@ -216,7 +234,7 @@ const KYCVerificationStep: React.FC<{
                   </Button>
                 )}
 
-                {activeStep !== steps.length - 1 ? (
+                {activeStep === 0 ? (
                   <Button
                     variant="contained"
                     onClick={handleNext}
