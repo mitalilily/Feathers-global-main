@@ -24,7 +24,7 @@ import { BRAND, brandGradient } from '../../config/brand'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useCompleteUserOnboarding } from '../../hooks/useCompleteUserOnboarding'
 import type { UserInfoData } from '../../types/user.types'
-import { hasValidationErrors, validateOnboardingFields } from '../../utils/functions'
+import { emptyErrors, hasValidationErrors, validateOnboardingFields } from '../../utils/functions'
 import { initialFormData } from '../../utils/utility'
 
 const BRAND_ORANGE = BRAND.colors.orange
@@ -58,6 +58,21 @@ const steps = [
   },
 ]
 
+const createFormErrors = (): FormErrors => JSON.parse(JSON.stringify(emptyErrors)) as FormErrors
+
+const normalizeFormErrors = (errors: Partial<FormErrors> = {}): FormErrors => {
+  const base = createFormErrors()
+
+  return {
+    ...base,
+    ...errors,
+    basicInfo: { ...base.basicInfo, ...(errors.basicInfo ?? {}) },
+    businessLegal: { ...base.businessLegal, ...(errors.businessLegal ?? {}) },
+    platformIntegration: { ...base.platformIntegration, ...(errors.platformIntegration ?? {}) },
+    warehouseSetup: { ...base.warehouseSetup, ...(errors.warehouseSetup ?? {}) },
+  }
+}
+
 export default function UserOnboarding() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
@@ -69,7 +84,7 @@ export default function UserOnboarding() {
 
   const [step, setStep] = useState<number>(1)
   const [formData, setFormData] = useState<UserInfoData>({ ...initialFormData })
-  const [formErrors, setFormErrors] = useState<FormErrors>({ ...initialFormData })
+  const [formErrors, setFormErrors] = useState<FormErrors>(() => createFormErrors())
 
   const progressPercent = useMemo(() => Math.round((step / steps.length) * 100), [step])
   const currentStepMeta = steps[step - 1]
@@ -95,26 +110,28 @@ export default function UserOnboarding() {
 
     setFormData(updatedForm)
 
-    const newErrors = validateOnboardingFields(updatedForm, step)
+    const newErrors = normalizeFormErrors(validateOnboardingFields(updatedForm, step))
     setFormErrors((prev) => {
+      const currentErrors = normalizeFormErrors(prev)
+
       if (subKey) {
         return {
-          ...prev,
+          ...currentErrors,
           [subKey]: {
-            ...prev[subKey],
+            ...currentErrors[subKey],
             [name]: newErrors[subKey]?.[name] || '',
           },
         }
       }
       return {
-        ...prev,
+        ...currentErrors,
         [name]: newErrors[name] || '',
       }
     })
   }
 
   const handleNext = async () => {
-    const errors = validateOnboardingFields(formData, step)
+    const errors = normalizeFormErrors(validateOnboardingFields(formData, step))
     setFormErrors(errors)
 
     if (hasValidationErrors(errors)) return

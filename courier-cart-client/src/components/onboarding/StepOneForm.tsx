@@ -39,7 +39,7 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
       if (!/^\d{6}$/.test(pincode)) {
         setErrors((prev) => ({
           ...prev,
-          basicInfo: { ...prev.basicInfo, pincode: '' },
+          basicInfo: { ...(prev.basicInfo ?? {}), pincode: '' },
         }))
         setLocation({ city: '', state: '' })
         return
@@ -53,13 +53,13 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
         if (!loc) {
           setErrors((prev) => ({
             ...prev,
-            basicInfo: { ...prev.basicInfo, pincode: 'Invalid pincode or no location found.' },
+            basicInfo: { ...(prev.basicInfo ?? {}), pincode: 'Invalid pincode or no location found.' },
           }))
           setLocation({ city: '', state: '' })
         } else {
           setErrors((prev) => ({
             ...prev,
-            basicInfo: { ...prev.basicInfo, pincode: '' },
+            basicInfo: { ...(prev.basicInfo ?? {}), pincode: '' },
           }))
           setLocation({ city: loc.city, state: loc.state })
         }
@@ -68,7 +68,7 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
         setErrors((prev) => ({
           ...prev,
           basicInfo: {
-            ...prev.basicInfo,
+            ...(prev.basicInfo ?? {}),
             pincode: 'Failed to validate pincode. Please try again.',
           },
         }))
@@ -95,6 +95,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
       },
     }))
   }, [location?.state, location?.city, setFormData])
+
+  const basicErrors = errors?.basicInfo ?? {}
 
   const fieldCardSx = {
     p: { xs: 1.6, md: 2 },
@@ -126,8 +128,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
               value={formData?.basicInfo?.firstName}
               onChange={(e) => onChange(e, 'basicInfo')}
               required
-              error={!!errors.basicInfo.firstName}
-              helperText={errors.basicInfo.firstName}
+              error={!!basicErrors.firstName}
+              helperText={basicErrors.firstName}
               prefix={<FiUser color={BRAND_ORANGE} />}
             />
           </Box>
@@ -141,8 +143,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
               value={formData?.basicInfo.lastName}
               onChange={(e) => onChange(e, 'basicInfo')}
               required
-              error={!!errors.basicInfo.lastName}
-              helperText={errors.basicInfo.lastName}
+              error={!!basicErrors.lastName}
+              helperText={basicErrors.lastName}
               prefix={<FiUser color={BRAND_ORANGE} />}
             />
           </Box>
@@ -156,8 +158,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
           value={formData?.basicInfo.companyName}
           onChange={(e) => onChange(e, 'basicInfo')}
           required
-          error={!!errors.basicInfo.companyName}
-          helperText={errors.basicInfo.companyName}
+          error={!!basicErrors.companyName}
+          helperText={basicErrors.companyName}
           prefix={<MdBusiness color={BRAND_ORANGE} />}
         />
       </Box>
@@ -174,8 +176,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
                 onChange={(e) => onChange(e, 'basicInfo')}
                 disabled
                 required
-                error={!!errors.basicInfo.email}
-                helperText={errors.basicInfo.email}
+                error={!!basicErrors.email}
+                helperText={basicErrors.email}
                 prefix={<MdEmail color={BRAND_ORANGE} />}
               />
             </Box>
@@ -189,8 +191,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
                 value={formData?.basicInfo?.phone}
                 onChange={(e) => onChange(createSyntheticEvent('phone', e.target.value), 'basicInfo')}
                 required
-                error={!!errors.basicInfo.phone}
-                helperText={errors.basicInfo.phone}
+                error={!!basicErrors.phone}
+                helperText={basicErrors.phone}
                 prefix={<MdPhone color={BRAND_ORANGE} />}
               />
             </Box>
@@ -207,8 +209,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
                 value={formData?.basicInfo.email}
                 onChange={(e) => onChange(e, 'basicInfo')}
                 required
-                error={!!errors.basicInfo.email}
-                helperText={errors.basicInfo.email}
+                error={!!basicErrors.email}
+                helperText={basicErrors.email}
                 prefix={<MdEmail color={BRAND_ORANGE} />}
               />
             </Box>
@@ -223,8 +225,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
                 onChange={(e) => onChange(e, 'basicInfo')}
                 disabled
                 required
-                error={!!errors.basicInfo.phone}
-                helperText={errors.basicInfo.phone}
+                error={!!basicErrors.phone}
+                helperText={basicErrors.phone}
                 prefix={<MdPhone color={BRAND_ORANGE} />}
               />
             </Box>
@@ -241,8 +243,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
                 value={formData?.basicInfo.email}
                 onChange={(e) => onChange(e, 'basicInfo')}
                 required
-                error={!!errors.basicInfo.email}
-                helperText={errors.basicInfo.email}
+                error={!!basicErrors.email}
+                helperText={basicErrors.email}
                 prefix={<MdEmail color={BRAND_ORANGE} />}
               />
             </Box>
@@ -256,8 +258,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
                 value={formData?.basicInfo?.phone}
                 onChange={(e) => onChange(createSyntheticEvent('phone', e.target.value), 'basicInfo')}
                 required
-                error={!!errors.basicInfo.phone}
-                helperText={errors.basicInfo.phone}
+                error={!!basicErrors.phone}
+                helperText={basicErrors.phone}
                 prefix={<MdPhone color={BRAND_ORANGE} />}
               />
             </Box>
@@ -273,8 +275,8 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
           onChange={(e) =>
             onChange(createSyntheticEvent('pincode', normalizePincode(e.target.value)), 'basicInfo')
           }
-          error={!!errors.basicInfo.pincode}
-          helperText={errors.basicInfo.pincode}
+          error={!!basicErrors.pincode}
+          helperText={basicErrors.pincode}
           prefix={<MdLocationPin color={BRAND_ORANGE} />}
         />
       </Box>

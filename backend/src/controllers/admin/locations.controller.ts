@@ -21,7 +21,9 @@ export const LocationController = {
         city: req.query.city as string,
         state: req.query.state as string,
       }
-      const result = await LocationService.list({ page, limit, filters })
+      const fallbackToPostalApi =
+        String(req.query.fallbackToPostalApi || '').toLowerCase() === 'true'
+      const result = await LocationService.list({ page, limit, filters, fallbackToPostalApi })
       res.json(result)
     } catch (err) {
       console.error(err)
