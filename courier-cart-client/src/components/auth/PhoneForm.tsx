@@ -284,44 +284,6 @@ export default function PhoneForm() {
               />
             </Box>
 
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: '58px 1fr',
-                gap: 1.55,
-                alignItems: 'center',
-                p: { xs: 1.35, md: 1.45 },
-                borderRadius: 1.25,
-                border: `1px solid ${alpha(teal, 0.12)}`,
-                background:
-                  `linear-gradient(135deg, ${alpha(tealSoft, 0.72)} 0%, ${alpha(paper, 0.92)} 100%)`,
-              }}
-            >
-              <Box
-                sx={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: '50%',
-                  display: 'grid',
-                  placeItems: 'center',
-                  color: teal,
-                  background: alpha(paper, 0.74),
-                  boxShadow: `inset 0 0 0 1px ${alpha(teal, 0.12)}`,
-                  fontSize: 25,
-                }}
-              >
-                <FiShield />
-              </Box>
-              <Box minWidth={0}>
-                <Typography sx={{ color: '#102344', fontSize: 15.5, fontWeight: 900, lineHeight: 1.25 }}>
-                  We'll send you a verification code
-                </Typography>
-                <Typography sx={{ mt: 0.55, color: '#263a59', fontSize: 14.5, lineHeight: 1.55 }}>
-                  Enter your work email address and we'll send a secure code to verify it's you.
-                </Typography>
-              </Box>
-            </Box>
-
             <FormControlLabel
               sx={{ m: 0, alignItems: 'center' }}
               control={
@@ -399,18 +361,6 @@ export default function PhoneForm() {
               View terms and policies
             </Button>
 
-            <Typography sx={{ pt: 0.25, color: '#263a59', fontSize: 15, textAlign: 'center' }}>
-              New to Feather Global?{' '}
-              <Link
-                component="button"
-                type="button"
-                underline="hover"
-                onClick={() => document.getElementById('email')?.focus()}
-                sx={{ color: teal, fontWeight: 900, cursor: 'pointer' }}
-              >
-                Create account
-              </Link>
-            </Typography>
           </Stack>
         </Box>
       ) : (
