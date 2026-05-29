@@ -150,7 +150,11 @@ const isAllowedOrigin = (origin: string) => {
   }
 
   // Allow first-party HTTPS subdomains like preview or alternate app hosts.
-  return /^https:\/\/([a-z0-9-]+\.)*featherglobal\.in$/.test(normalizedOrigin)
+  return (
+    /^https:\/\/([a-z0-9-]+\.)*featherglobal\.in$/.test(normalizedOrigin) ||
+    /^https:\/\/[a-z0-9-]+\.netlify\.app$/.test(normalizedOrigin) ||
+    /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/.test(normalizedOrigin)
+  )
 }
 
 app.use(

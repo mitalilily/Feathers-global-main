@@ -115,8 +115,8 @@ export const LocationService = {
     const total = Number(totalRes[0]?.count ?? 0)
 
     const exactPincode = String(params.filters?.pincode || '').trim()
-    const shouldUsePostalFallback =
-      params.fallbackToPostalApi === true &&
+    const shouldUseDirectoryFallback =
+      params.fallbackToPostalApi !== false &&
       data.length === 0 &&
       page === 1 &&
       limit > 0 &&
@@ -124,7 +124,7 @@ export const LocationService = {
       !params.filters?.state &&
       INDIAN_PINCODE_REGEX.test(exactPincode)
 
-    if (shouldUsePostalFallback) {
+    if (shouldUseDirectoryFallback) {
       const directoryLocation = await lookupPincodeDirectory(exactPincode)
 
       if (directoryLocation) {
