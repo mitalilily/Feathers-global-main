@@ -1,0 +1,230 @@
+name: Amazon Shipping Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      origin_postal_code:
+        description: Origin postal code
+        required: false
+        default: '560001'
+      destination_postal_code:
+        description: Destination postal code
+        required: false
+        default: '110001'
+      backend_log_lines:
+        description: Backend Amazon log lines to collect after the smoke test
+        required: false
+        default: '300'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          for attempt in 1 2 3 4 5; do
+            if ssh-keyscan -T 10 -H "${{ secrets.SHIPLIFI_HOST }}" >> ~/.ssh/known_hosts; then
+              exit 0
+            fi
+            echo "ssh-keyscan attempt ${attempt} failed; retrying..."
+            sleep 5
+          done
+          exit 1
+
+      - name: Run Amazon rates smoke test
+        env:
+          ORIGIN_POSTAL_CODE: ${{ inputs.origin_postal_code }}
+          DESTINATION_POSTAL_CODE: ${{ inputs.destination_postal_code }}
+        run: |
+          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd /srv/shiplifi/current/backend && ORIGIN_POSTAL_CODE='$ORIGIN_POSTAL_CODE' DESTINATION_POSTAL_CODE='$DESTINATION_POSTAL_CODE' python3 -"
+          from pathlib import Path
+          from urllib import parse, request, error
+          from datetime import datetime, timezone
+          import hashlib
+          import json
+          import os
+          import sys
+
+          def read_env(path):
+              env = {}
+              for raw in path.read_text().splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith("#") or "=" not in line:
+                      continue
+                  key, value = line.split("=", 1)
+                  env[key.strip()] = value.strip().strip("\"").strip("'")
+              return env
+
+          def fingerprint(value):
+              value = value or ""
+              return "" if not value else hashlib.sha256(value.encode()).hexdigest()[:12]
+
+          def call_json(url, data, headers):
+              encoded = data if isinstance(data, bytes) else json.dumps(data).encode()
+              req = request.Request(url, data=encoded, headers=headers, method="POST")
+              try:
+                  with request.urlopen(req, timeout=45) as resp:
+                      raw = resp.read().decode(errors="replace")
+                      return resp.status, dict(resp.headers), json.loads(raw or "{}")
+              except error.HTTPError as exc:
+                  raw = exc.read().decode(errors="replace")
+                  try:
+                      parsed = json.loads(raw or "{}")
+                  except Exception:
+                      parsed = {"message": raw[:1000]}
+                  raise RuntimeError(json.dumps({
+                      "status": exc.code,
+                      "message": parsed.get("error_description") or parsed.get("message") or parsed.get("error") or parsed,
+                  }))
+
+          env = read_env(Path(".env.production"))
+          token_url = env.get("AMAZON_SHIPPING_LWA_TOKEN_URL") or env.get("AMAZON_LWA_TOKEN_URL") or "https://api.amazon.com/auth/o2/token"
+          endpoint = (env.get("AMAZON_SHIPPING_API_BASE") or "https://sellingpartnerapi-eu.amazon.com").rstrip("/")
+          business_id = env.get("AMAZON_SHIPPING_BUSINESS_ID") or "AmazonShipping_IN"
+          gstin = (env.get("AMAZON_SHIPPING_GSTIN") or "").strip().upper().replace(" ", "")
+
+          token_payload = parse.urlencode({
+              "grant_type": "refresh_token",
+              "refresh_token": env.get("AMAZON_SHIPPING_REFRESH_TOKEN", ""),
+              "client_id": env.get("AMAZON_SHIPPING_LWA_CLIENT_ID") or env.get("AMAZON_LWA_CLIENT_ID", ""),
+              "client_secret": env.get("AMAZON_SHIPPING_LWA_CLIENT_SECRET") or env.get("AMAZON_LWA_CLIENT_SECRET", ""),
+          }).encode()
+          token_status, _, token_body = call_json(token_url, token_payload, {
+              "Accept": "application/json",
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          })
+          access_token = token_body.get("access_token", "")
+          if not access_token:
+              raise RuntimeError("Amazon LWA did not return an access token")
+
+          origin_postal_code = os.environ.get("ORIGIN_POSTAL_CODE", "560001")
+          destination_postal_code = os.environ.get("DESTINATION_POSTAL_CODE", "110001")
+          package_ref = f"PKG-SMOKE-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+          rates_body = {
+              "channelDetails": {"channelType": "EXTERNAL"},
+              "shipFrom": {
+                  "name": "Shiplifi Warehouse",
+                  "companyName": "Shiplifi",
+                  "addressLine1": "MG Road",
+                  "addressLine2": "Central Business District",
+                  "city": "Bengaluru",
+                  "stateOrRegion": "Karnataka",
+                  "countryCode": "IN",
+                  "postalCode": origin_postal_code,
+                  "phoneNumber": "+919876543210",
+                  "email": "ops@shiplifi.com",
+              },
+              "shipTo": {
+                  "name": "Smoke Test Customer",
+                  "companyName": "Test Recipient",
+                  "addressLine1": "Connaught Place",
+                  "addressLine2": "Block A",
+                  "city": "New Delhi",
+                  "stateOrRegion": "Delhi",
+                  "countryCode": "IN",
+                  "postalCode": destination_postal_code,
+                  "phoneNumber": "+919999999999",
+                  "email": "customer@example.com",
+              },
+              "packages": [
+                  {
+                      "packageClientReferenceId": package_ref,
+                      "dimensions": {
+                          "length": 25,
+                          "width": 18,
+                          "height": 8,
+                          "unit": "CENTIMETER",
+                      },
+                      "weight": {
+                          "value": 500,
+                          "unit": "GRAM",
+                      },
+                      "insuredValue": {
+                          "value": 999,
+                          "unit": "INR",
+                      },
+                      "items": [
+                          {
+                              "quantity": 1,
+                              "description": "Cotton t-shirt",
+                              "itemValue": {
+                                  "value": 999,
+                                  "unit": "INR",
+                              },
+                              "weight": {
+                                  "value": 500,
+                                  "unit": "GRAM",
+                              },
+                          }
+                      ],
+                  }
+              ],
+              "shipmentType": "FORWARD",
+          }
+          if not gstin:
+              raise RuntimeError("AMAZON_SHIPPING_GSTIN is missing; this Amazon Shipping account requires GST taxDetails")
+          rates_body["taxDetails"] = [
+              {
+                  "taxType": "GST",
+                  "taxRegistrationNumber": gstin,
+              }
+          ]
+          rates_status, rates_headers, rates_data = call_json(
+              f"{endpoint}/shipping/v2/shipments/rates",
+              rates_body,
+              {
+                  "Accept": "application/json",
+                  "Content-Type": "application/json",
+                  "x-amz-access-token": access_token,
+                  "x-amzn-shipping-business-id": business_id,
+                  "User-Agent": "Shiplifi/1.0 (Language=Python)",
+              },
+          )
+          rates = (
+              rates_data.get("payload", {}).get("rates")
+              or rates_data.get("rates")
+              or rates_data.get("rateOptions")
+              or []
+          )
+          print("Amazon Shipping smoke passed", {
+              "lwaStatus": token_status,
+              "accessTokenSha": fingerprint(access_token),
+              "ratesStatus": rates_status,
+              "requestId": rates_headers.get("x-amzn-requestid") or rates_headers.get("x-amzn-RequestId"),
+              "businessId": business_id,
+              "origin": origin_postal_code,
+              "destination": destination_postal_code,
+              "rateCount": len(rates),
+              "sampleRate": {
+                  "carrierName": (rates[0].get("carrierName") if rates else None),
+                  "serviceId": (rates[0].get("serviceId") if rates else None),
+              },
+          })
+          if not rates:
+              raise RuntimeError("Amazon rates call succeeded but returned zero rates for the smoke-test route")
+          PY
+
+      - name: Collect backend Amazon call logs
+        env:
+          BACKEND_LOG_LINES: ${{ inputs.backend_log_lines }}
+        run: |
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "LINES='${BACKEND_LOG_LINES:-300}' bash -s" <<'SH'
+          set -euo pipefail
+          lines="${LINES:-300}"
+          case "$lines" in
+            ''|*[!0-9]*) lines=300 ;;
+          esac
+          if [ "$lines" -gt 1000 ]; then
+            lines=1000
+          fi
+          pm2 logs shiplifi-backend --lines "$lines" --nostream 2>/dev/null \
+            | grep -E 'ShipmentCreate|AmazonShipping|Amazon Shipping|Error creating B2C|shipping/v2/shipments' \
+            | tail -n "$lines" || true
+          SH

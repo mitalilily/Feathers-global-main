@@ -1,0 +1,216 @@
+{
+  "info": {
+    "_postman_id": "f6f7cb96-c0e3-4c09-9df2-amazon-shipping",
+    "name": "Shiplifi Amazon Shipping V2",
+    "description": "Postman collection for the Shiplifi Amazon Shipping V2 proxy. Set xApiKey and either configure Amazon credentials in Admin Courier Credentials or set amazonAccessToken per request. Access Points is UK-only and NDR Feedback is IN-only per Amazon Shipping docs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('request succeeds with valid credentials', function () {",
+          "  pm.expect([200, 204]).to.include(pm.response.code);",
+          "});",
+          "",
+          "if (pm.response.code !== 204) {",
+          "  var body = pm.response.json();",
+          "  pm.test('response success flag is true', function () {",
+          "    pm.expect(body.success).to.eql(true);",
+          "  });",
+          "  pm.test('Amazon metadata is returned', function () {",
+          "    pm.expect(body.amazon).to.be.an('object');",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Get Rates",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/rates",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "rates"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"channelDetails\": {\n    \"channelType\": \"EXTERNAL\"\n  },\n  \"shipFrom\": {{shipFromJson}},\n  \"shipTo\": {{shipToJson}},\n  \"packages\": [{{packageJson}}],\n  \"shipmentType\": \"FORWARD\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Purchase Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" },
+          { "key": "x-amzn-IdempotencyKey", "value": "{{idempotencyKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/shipments",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "shipments"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"requestToken\": \"{{requestToken}}\",\n  \"rateId\": \"{{rateId}}\",\n  \"requestedDocumentSpecification\": {{labelSpecificationJson}}\n}"
+        }
+      }
+    },
+    {
+      "name": "One Click Shipment",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/one-click-shipment",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "one-click-shipment"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"channelDetails\": {\n    \"channelType\": \"EXTERNAL\"\n  },\n  \"shipFrom\": {{shipFromJson}},\n  \"shipTo\": {{shipToJson}},\n  \"packages\": [{{packageJson}}],\n  \"shipmentType\": \"FORWARD\",\n  \"labelSpecifications\": {{labelSpecificationJson}},\n  \"serviceSelection\": {\n    \"serviceId\": \"{{serviceId}}\"\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "Tracking",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/tracking?trackingId={{trackingId}}&carrierId={{carrierId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "tracking"],
+          "query": [
+            { "key": "trackingId", "value": "{{trackingId}}" },
+            { "key": "carrierId", "value": "{{carrierId}}" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shipment Documents",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/shipments/{{shipmentId}}/documents?packageClientReferenceId={{packageClientReferenceId}}&format=PDF&dpi=203",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "shipments", "{{shipmentId}}", "documents"],
+          "query": [
+            { "key": "packageClientReferenceId", "value": "{{packageClientReferenceId}}" },
+            { "key": "format", "value": "PDF" },
+            { "key": "dpi", "value": "203" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Cancel Shipment",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/shipments/{{shipmentId}}/cancel",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "shipments", "{{shipmentId}}", "cancel"]
+        }
+      }
+    },
+    {
+      "name": "Access Points",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{accessPointBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/access-points?accessPointTypes={{accessPointTypes}}&countryCode={{accessPointCountryCode}}&postalCode={{accessPointPostalCode}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "access-points"],
+          "query": [
+            { "key": "accessPointTypes", "value": "{{accessPointTypes}}" },
+            { "key": "countryCode", "value": "{{accessPointCountryCode}}" },
+            { "key": "postalCode", "value": "{{accessPointPostalCode}}" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "NDR Feedback",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/ndr-feedback",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "ndr-feedback"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"trackingId\": \"{{trackingId}}\",\n  \"ndrAction\": \"RESCHEDULE\",\n  \"ndrRequestData\": {\n    \"rescheduleDate\": \"{{rescheduleDate}}\"\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "Additional Inputs Schema",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" },
+          { "key": "x-amz-access-token", "value": "{{amazonAccessToken}}" },
+          { "key": "x-amzn-shipping-business-id", "value": "{{shippingBusinessId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/amazon-shipping/additional-inputs/schema?requestToken={{requestToken}}&rateId={{rateId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["amazon-shipping", "additional-inputs", "schema"],
+          "query": [
+            { "key": "requestToken", "value": "{{requestToken}}" },
+            { "key": "rateId", "value": "{{rateId}}" }
+          ]
+        }
+      }
+    }
+  ]
+}

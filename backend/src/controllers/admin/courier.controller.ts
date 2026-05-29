@@ -1,0 +1,1380 @@
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { Request, Response } from 'express'
+import * as XLSX from 'xlsx'
+import { db } from '../../models/client'
+import {
+  deleteCourierService,
+  deleteShippingRate,
+  getShippingRates,
+  ShippingRateUpdatePayload,
+  updateShippingRate,
+} from '../../models/services/courierIntegration.service'
+import {
+  CSVRow,
+  importB2CSlabFormat,
+  importFlatFormat,
+  isSlabValidationError,
+  normalizeRateCardRow,
+  parseRateCardCsvText,
+} from '../../models/services/rateCardImport.service'
+import { fetchAvailableCouriersWithRatesAdmin } from '../../models/services/shiprocket.service'
+import { courier_credentials } from '../../models/schema/courierCredentials'
+import { couriers } from '../../models/schema/couriers'
+import { getAllZones } from '../../models/services/zone.service'
+import { XpressbeesService } from '../../models/services/couriers/xpressbees.service'
+import { ShadowfaxService } from '../../models/services/couriers/shadowfax.service'
+import {
+  createXpressbeesManualAwbRange,
+  getXpressbeesManualAwbSummary,
+} from '../../models/services/xpressbeesAwbRange.service'
+import {
+  AMAZON_CREDENTIALS_PROVIDER,
+  AMAZON_DEFAULT_BUSINESS_ID,
+  AMAZON_DEFAULT_REGION,
+  applyAmazonShippingCredentialsToEnv,
+  buildAmazonShippingCredentialsFromRow,
+  maskAmazonCredential,
+  normalizeAmazonCredentialTokens,
+  normalizeAmazonCredentialValue,
+  parseAmazonSandboxFlag,
+} from '../../models/services/amazonShippingCredentials.service'
+
+export interface ShippingRateFilters {
+  courier_name?: string[]
+  mode?: string
+  min_weight?: number
+  plan_id?: string
+  business_type?: 'b2b' | 'b2c'
+}
+
+export const fetchAvailableCouriersForAdmin = async (req: Request, res: Response) => {
+  try {
+    const {
+      origin,
+      destination,
+      payment_type,
+      order_amount,
+      weight,
+      length,
+      breadth,
+      height,
+      shipment_type,
+      plan_id,
+      isCalculator,
+      context,
+      shadowfax_forward_mode,
+      shadowfaxForwardMode,
+      shadowfax_service_mode,
+      shadowfaxServiceMode,
+    } = req.body
+    if (!origin || !destination) {
+      return res.status(400).json({
+        success: false,
+        error: 'pickupPincode and deliveryPincode are required',
+      })
+    }
+
+    const couriers = await fetchAvailableCouriersWithRatesAdmin(
+      {
+        origin: Number(origin),
+        destination: Number(destination),
+        payment_type: payment_type,
+        order_amount: order_amount,
+        shipment_type: shipment_type,
+        weight: Number(weight),
+        length: Number(length),
+        breadth: Number(breadth),
+        height: Number(height),
+        isCalculator: isCalculator === true || context === 'rate_calculator',
+        shadowfax_forward_mode: shadowfax_forward_mode ?? shadowfaxForwardMode,
+        shadowfax_service_mode: shadowfax_service_mode ?? shadowfaxServiceMode,
+      },
+      plan_id,
+    )
+
+    return res.json({ success: true, data: couriers ?? [] })
+  } catch (err: any) {
+    console.error('Error fetching couriers:', err.message)
+    return res.status(500).json({ success: false, error: err.message })
+  }
+}
+
+export const getShippingRatesController = async (req: Request, res: Response) => {
+  try {
+    let courierNames: string[] = []
+
+    const rawCourierNames = req.query['courier_name[]'] ?? req.query.courier_name
+
+    if (Array.isArray(rawCourierNames)) {
+      courierNames = rawCourierNames.flat().filter(Boolean).map(String)
+    } else if (typeof rawCourierNames === 'string') {
+      courierNames = [rawCourierNames]
+    }
+
+    const filters: ShippingRateFilters = {
+      courier_name: courierNames.length ? courierNames : undefined,
+      mode: req.query.mode as string | undefined,
+      min_weight:
+        (req.query.businessType as string | undefined)?.toLowerCase() === 'b2c'
+          ? undefined
+          : req.query.min_weight
+            ? Number(req.query.min_weight)
+            : undefined,
+      plan_id: req.query.planId as string | undefined,
+      business_type: (req.query.businessType as 'b2b' | 'b2c') || undefined,
+    }
+
+    const rates = await getShippingRates(filters)
+    res.json({ success: true, data: rates })
+  } catch (err) {
+    console.error('Error fetching shipping rates:', err)
+    res.status(500).json({ success: false, message: 'Internal Server Error' })
+  }
+}
+
+export const getAllCouriersController = async (req: Request, res: Response) => {
+  try {
+    const courierList = await db
+      .select({
+        id: couriers.id,
+        name: couriers.name,
+        serviceProvider: couriers.serviceProvider,
+        isEnabled: couriers.isEnabled,
+        createdAt: couriers.createdAt,
+      })
+      .from(couriers)
+      .orderBy(desc(couriers.createdAt))
+
+    res.json({ success: true, data: courierList })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false })
+  }
+}
+
+export const getAllCouriersListController = async (req: Request, res: Response) => {
+  try {
+    const { search, serviceProvider, businessType } = req.query
+
+    const whereClauses = []
+
+    // Filter by search (name or id)
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchTerm = `%${search.trim()}%`
+      whereClauses.push(
+        or(
+          ilike(couriers.name, searchTerm),
+          sql`CAST(${couriers.id} AS TEXT) ILIKE ${searchTerm}`,
+        )!,
+      )
+    }
+
+    // Filter by service provider
+    if (serviceProvider && typeof serviceProvider === 'string' && serviceProvider.trim()) {
+      whereClauses.push(eq(couriers.serviceProvider, serviceProvider.trim()))
+    }
+
+    // Filter by business type (b2c or b2b)
+    if (businessType && typeof businessType === 'string') {
+      const normalizedBusinessType = businessType.trim().toLowerCase()
+      if (normalizedBusinessType === 'b2c' || normalizedBusinessType === 'b2b') {
+        // Construct JSONB array string - value is validated above (only 'b2c' or 'b2b')
+        const jsonbArrayStr = JSON.stringify([normalizedBusinessType])
+        // Match the pattern from shiprocket.service.ts - construct the full JSONB literal
+        whereClauses.push(
+          sql`${couriers.businessType} @> ${sql.raw(
+            `'${jsonbArrayStr.replace(/'/g, "''")}'::jsonb`,
+          )}`,
+        )
+      }
+    }
+
+    const whereCondition = whereClauses.length > 0 ? and(...whereClauses) : undefined
+
+    const courierList = await db
+      .select()
+      .from(couriers)
+      .where(whereCondition)
+      .orderBy(desc(couriers.createdAt))
+
+    res.json({ success: true, data: courierList })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to fetch couriers' })
+  }
+}
+
+export const updateCourierStatusController = async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { serviceProvider, isEnabled, businessType } = req.body
+
+  try {
+    if (!serviceProvider) {
+      return res.status(400).json({
+        success: false,
+        message: 'serviceProvider is required',
+      })
+    }
+
+    // Build update object
+    const updateData: any = {
+      updatedAt: new Date(),
+    }
+
+    // Update isEnabled if provided
+    if (typeof isEnabled === 'boolean') {
+      updateData.isEnabled = isEnabled
+    }
+
+    // Update businessType if provided
+    if (businessType && Array.isArray(businessType) && businessType.length > 0) {
+      // Validate businessType values
+      const validTypes = businessType.filter((type) => type === 'b2c' || type === 'b2b')
+      if (validTypes.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'businessType must contain at least one valid value: "b2c" or "b2b"',
+        })
+      }
+      updateData.businessType = validTypes
+    }
+
+    // Check if there's anything to update
+    if (Object.keys(updateData).length === 1) {
+      // Only updatedAt was added, nothing to update
+      return res.status(400).json({
+        success: false,
+        message: 'No valid fields to update. Provide isEnabled and/or businessType',
+      })
+    }
+
+    const updated = await db
+      .update(couriers)
+      .set(updateData)
+      .where(and(eq(couriers.id, Number(id)), eq(couriers.serviceProvider, serviceProvider)))
+      .returning()
+
+    if (!updated.length) {
+      return res.status(404).json({ success: false, message: 'Courier not found' })
+    }
+
+    res.json({ success: true, data: updated[0] })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update courier' })
+  }
+}
+
+export const getServiceProvidersController = async (req: Request, res: Response) => {
+  try {
+    // Only expose the main integrated service providers in the enable/disable UI
+    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
+
+    const rows = await db
+      .select({
+        serviceProvider: couriers.serviceProvider,
+        totalCouriers: sql<number>`count(*)`,
+        enabledCouriers: sql<number>`sum(case when ${couriers.isEnabled} then 1 else 0 end)`,
+      })
+      .from(couriers)
+      .where(inArray(couriers.serviceProvider, allowedProviders))
+      .groupBy(couriers.serviceProvider)
+      .orderBy(couriers.serviceProvider)
+
+    const byProvider = new Map(
+      rows.map((row) => [
+        row.serviceProvider,
+        {
+          serviceProvider: row.serviceProvider,
+          totalCouriers: Number(row.totalCouriers || 0),
+          enabledCouriers: Number(row.enabledCouriers || 0),
+          isEnabled: Number(row.enabledCouriers || 0) > 0,
+        },
+      ]),
+    )
+
+    // Ensure allowed providers are always visible in admin UI,
+    // even when no rows exist in couriers table yet.
+    const providers = allowedProviders.map((provider) => ({
+      serviceProvider: provider,
+      totalCouriers: byProvider.get(provider)?.totalCouriers ?? 0,
+      enabledCouriers: byProvider.get(provider)?.enabledCouriers ?? 0,
+      isEnabled: byProvider.get(provider)?.isEnabled ?? false,
+    }))
+
+    res.json({ success: true, data: providers })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to fetch service providers' })
+  }
+}
+
+export const updateServiceProviderStatusController = async (req: Request, res: Response) => {
+  const { serviceProvider } = req.params
+  const { isEnabled } = req.body
+
+  try {
+    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
+
+    if (!serviceProvider || typeof isEnabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'serviceProvider (param) and boolean isEnabled (body) are required',
+      })
+    }
+    if (!allowedProviders.includes(String(serviceProvider).toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: `Only these providers are supported: ${allowedProviders.join(', ')}`,
+      })
+    }
+
+    const updated = await db
+      .update(couriers)
+      .set({
+        isEnabled,
+        updatedAt: new Date(),
+      })
+      .where(eq(couriers.serviceProvider, serviceProvider))
+      .returning()
+
+    if (!updated.length) {
+      return res.status(404).json({ success: false, message: 'No couriers found for provider' })
+    }
+
+    res.json({
+      success: true,
+      data: {
+        serviceProvider,
+        isEnabled,
+        affectedCouriers: updated.length,
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update service provider status' })
+  }
+}
+
+const buildAmazonCredentialResponse = (
+  row?: Partial<typeof courier_credentials.$inferSelect> | null,
+) => {
+  const credentials = buildAmazonShippingCredentialsFromRow(row)
+  const accessToken = normalizeAmazonCredentialValue(credentials.accessToken)
+  const refreshToken = normalizeAmazonCredentialValue(credentials.refreshToken)
+  const lwaClientId = normalizeAmazonCredentialValue(credentials.lwaClientId)
+  const lwaClientSecret = normalizeAmazonCredentialValue(credentials.lwaClientSecret)
+
+  return {
+    provider: AMAZON_CREDENTIALS_PROVIDER,
+    apiBase: normalizeAmazonCredentialValue(credentials.endpoint),
+    endpoint: normalizeAmazonCredentialValue(credentials.endpoint),
+    lwaClientId,
+    shippingBusinessId:
+      normalizeAmazonCredentialValue(credentials.shippingBusinessId) || AMAZON_DEFAULT_BUSINESS_ID,
+    region: normalizeAmazonCredentialValue(credentials.region) || AMAZON_DEFAULT_REGION,
+    sandbox: Boolean(credentials.sandbox),
+    lwaTokenUrl: normalizeAmazonCredentialValue(credentials.lwaTokenUrl),
+    hasAccessToken: Boolean(accessToken),
+    accessTokenMasked: maskAmazonCredential(accessToken),
+    hasRefreshToken: Boolean(refreshToken),
+    refreshTokenMasked: maskAmazonCredential(refreshToken),
+    hasLwaClientSecret: Boolean(lwaClientSecret),
+    configured: Boolean(accessToken || (refreshToken && lwaClientId && lwaClientSecret)),
+  }
+}
+
+const optionalCredentialString = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : undefined
+
+export const getCourierCredentialsController = async (req: Request, res: Response) => {
+  try {
+    const xpressbeesManualAwb = await getXpressbeesManualAwbSummary().catch((err: any) => {
+      console.warn('Failed to load Xpressbees manual AWB summary:', err?.message || err)
+      return {
+        configured: false,
+        active: false,
+        range: null,
+        recentAllocations: [],
+      }
+    })
+
+    const rows = await db
+      .select({
+        provider: courier_credentials.provider,
+        apiBase: courier_credentials.apiBase,
+        clientName: courier_credentials.clientName,
+        apiKey: courier_credentials.apiKey,
+        clientId: courier_credentials.clientId,
+        username: courier_credentials.username,
+        password: courier_credentials.password,
+        webhookSecret: courier_credentials.webhookSecret,
+        metadata: courier_credentials.metadata,
+      })
+      .from(courier_credentials)
+      .where(
+        inArray(courier_credentials.provider, [
+          'delhivery',
+          'ekart',
+          'xpressbees',
+          'shadowfax',
+          AMAZON_CREDENTIALS_PROVIDER,
+        ]),
+      )
+
+    const defaults = {
+      delhivery: {
+        provider: 'delhivery',
+        apiBase: 'https://track.delhivery.com',
+        clientName: '',
+        hasApiKey: false,
+        apiKeyMasked: '',
+      },
+      ekart: {
+        provider: 'ekart',
+        apiBase: 'https://api.ekartlogistics.com',
+        clientId: '',
+        username: '',
+        hasPassword: false,
+        hasWebhookSecret: false,
+      },
+      xpressbees: {
+        provider: 'xpressbees',
+        apiBase: 'https://shipment.xpressbees.com',
+        username: '',
+        hasApiKey: false,
+        apiKeyMasked: '',
+        hasPassword: false,
+        hasAuthBearer: false,
+        hasSecretKey: false,
+        hasXbKey: false,
+        hasXbAccessKey: false,
+        businessAccountName: '',
+        pickupVendorCode: '',
+        businessUnit: 'ECOM',
+        businessFlow: 'FORWARD',
+        businessService: '',
+        businessServices: 'SD,SDD,NDD,AIR,SFC,IntraSDD',
+        hasWebhookSecret: false,
+        pincodeBusinessUnit: 'eComm',
+        pincodeBusinessFlow: 'Forward',
+        pickupBusinessService: 'PickUp',
+        deliveryBusinessService: 'Delivery',
+        serviceabilityVersion: 'v1',
+        trackingVersion: 'v1',
+        manualAwb: xpressbeesManualAwb,
+      },
+      shadowfax: {
+        provider: 'shadowfax',
+        apiBase: 'https://dale.staging.shadowfax.in/api',
+        clientName: '',
+        hasApiKey: false,
+        apiKeyMasked: '',
+        hasWebhookSecret: false,
+      },
+      amazon: buildAmazonCredentialResponse(),
+    }
+
+    const data = rows.reduce<Record<string, any>>((acc, row) => {
+      const provider = (row.provider || '').toLowerCase()
+      if (!provider) return acc
+      if (provider === 'delhivery') {
+        const apiKey = row.apiKey || ''
+        acc.delhivery = {
+          provider: 'delhivery',
+          apiBase: row.apiBase || 'https://track.delhivery.com',
+          clientName: row.clientName || '',
+          hasApiKey: Boolean(apiKey.trim()),
+          apiKeyMasked: apiKey
+            ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(apiKey.length - 8, 0))}${apiKey.slice(-4)}`
+            : '',
+        }
+      } else if (provider === 'ekart') {
+        const hasPassword = Boolean((row.password || '').trim())
+        const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
+        acc.ekart = {
+          provider: 'ekart',
+          apiBase: row.apiBase || 'https://api.ekartlogistics.com',
+          clientId: row.clientId || '',
+          username: row.username || '',
+          hasPassword,
+          hasWebhookSecret,
+        }
+      } else if (provider === 'xpressbees') {
+        const apiKey = row.apiKey || ''
+        const hasPassword = Boolean((row.password || '').trim())
+        const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
+        const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+        const businessAccountName = String(
+          metadata.businessAccountName || metadata.business_account_name || '',
+        ).trim()
+        const pickupVendorCode = String(
+          metadata.pickupVendorCode || metadata.pickup_vendor_code || '',
+        ).trim()
+        acc.xpressbees = {
+          provider: 'xpressbees',
+          apiBase: row.apiBase || 'https://shipment.xpressbees.com',
+          username: row.username || '',
+          hasApiKey: Boolean(apiKey.trim()),
+          apiKeyMasked: apiKey
+            ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(apiKey.length - 8, 0))}${apiKey.slice(-4)}`
+            : '',
+          hasPassword,
+          hasAuthBearer: Boolean(
+            String(
+              metadata.authBearer || metadata.auth_bearer || metadata.authorizationBearer || '',
+            ).trim(),
+          ),
+          hasSecretKey: Boolean(String(metadata.secretKey || metadata.secret_key || '').trim()),
+          hasXbKey: Boolean(String(metadata.xbKey || metadata.xb_key || '').trim()),
+          hasXbAccessKey: Boolean(
+            String(metadata.xbAccessKey || metadata.xb_access_key || '').trim(),
+          ),
+          businessAccountName,
+          pickupVendorCode,
+          hasBusinessAccountName: Boolean(businessAccountName),
+          hasPickupVendorCode: Boolean(pickupVendorCode),
+          businessUnit: metadata.businessUnit || 'ECOM',
+          businessFlow: metadata.businessFlow || 'FORWARD',
+          businessService: metadata.businessService || '',
+          businessServices: metadata.businessServices || 'SD,SDD,NDD,AIR,SFC,IntraSDD',
+          manifestServiceType: metadata.manifestServiceType || 'SD',
+          manifestPickupType: metadata.manifestPickupType || 'Vendor',
+          hasWebhookSecret,
+          pincodeBusinessUnit: metadata.pincodeBusinessUnit || 'eComm',
+          pincodeBusinessFlow: metadata.pincodeBusinessFlow || 'Forward',
+          pickupBusinessService: metadata.pickupBusinessService || 'PickUp',
+          deliveryBusinessService: metadata.deliveryBusinessService || 'Delivery',
+          serviceabilityVersion: metadata.serviceabilityVersion || 'v1',
+          trackingVersion: metadata.trackingVersion || 'v1',
+          manualAwb: xpressbeesManualAwb,
+        }
+      } else if (provider === 'shadowfax') {
+        const apiKey = row.apiKey || ''
+        const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
+        acc.shadowfax = {
+          provider: 'shadowfax',
+          apiBase: row.apiBase || 'https://dale.staging.shadowfax.in/api',
+          clientName: row.clientName || '',
+          hasApiKey: Boolean(apiKey.trim()),
+          apiKeyMasked: apiKey
+            ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(apiKey.length - 8, 0))}${apiKey.slice(-4)}`
+            : '',
+          hasWebhookSecret,
+        }
+      } else if (provider === AMAZON_CREDENTIALS_PROVIDER) {
+        acc.amazon = buildAmazonCredentialResponse(row)
+      }
+      return acc
+    }, { ...defaults })
+
+    res.json({
+      success: true,
+      data,
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to fetch courier credentials' })
+  }
+}
+
+export const updateXpressbeesAwbRangeController = async (req: any, res: Response) => {
+  try {
+    const result = await createXpressbeesManualAwbRange({
+      startAwb: req.body?.startAwb ?? req.body?.awbStartNumber ?? req.body?.start,
+      endAwb: req.body?.endAwb ?? req.body?.awbEndNumber ?? req.body?.end,
+      createdBy: req.user?.sub || null,
+    })
+
+    res.json({
+      success: true,
+      message: 'Xpressbees manual AWB range updated successfully',
+      data: result,
+    })
+  } catch (err: any) {
+    console.error('Failed to update Xpressbees manual AWB range:', err)
+    const statusCode = typeof err?.statusCode === 'number' ? err.statusCode : 500
+    res.status(statusCode).json({
+      success: false,
+      message: err?.message || 'Failed to update Xpressbees manual AWB range',
+    })
+  }
+}
+
+export const updateDelhiveryCredentialsController = async (req: Request, res: Response) => {
+  const { apiBase, clientName, apiKey } = req.body || {}
+
+  try {
+    const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
+    const nextClientName = typeof clientName === 'string' ? clientName.trim() : undefined
+    const nextApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
+    const hasNewApiKey = typeof nextApiKey === 'string' && nextApiKey.length > 0
+
+    const [existing] = await db
+      .select({ id: courier_credentials.id })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'delhivery'))
+      .limit(1)
+
+    if (existing) {
+      const updatePayload: Record<string, any> = {
+        updatedAt: new Date(),
+      }
+      if (nextApiBase !== undefined) {
+        updatePayload.apiBase = nextApiBase || 'https://track.delhivery.com'
+      }
+      if (nextClientName !== undefined) {
+        updatePayload.clientName = nextClientName
+      }
+      if (hasNewApiKey) {
+        updatePayload.apiKey = nextApiKey
+      }
+
+      await db
+        .update(courier_credentials)
+        .set(updatePayload)
+        .where(eq(courier_credentials.provider, 'delhivery'))
+    } else {
+      await db.insert(courier_credentials).values({
+        provider: 'delhivery',
+        apiBase: nextApiBase || 'https://track.delhivery.com',
+        clientName: nextClientName || '',
+        apiKey: hasNewApiKey ? nextApiKey : '',
+      })
+    }
+
+    const [saved] = await db
+      .select({
+        apiBase: courier_credentials.apiBase,
+        clientName: courier_credentials.clientName,
+        apiKey: courier_credentials.apiKey,
+      })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'delhivery'))
+      .limit(1)
+
+    res.json({
+      success: true,
+      message: 'Delhivery credentials updated successfully',
+      data: {
+        provider: 'delhivery',
+        apiBase: saved?.apiBase || 'https://track.delhivery.com',
+        clientName: saved?.clientName || '',
+        hasApiKey: Boolean((saved?.apiKey || '').trim()),
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update Delhivery credentials' })
+  }
+}
+
+export const updateEkartCredentialsController = async (req: Request, res: Response) => {
+  const { apiBase, clientId, username, password, webhookSecret } = req.body || {}
+
+  try {
+    const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
+    const nextClientId = typeof clientId === 'string' ? clientId.trim() : undefined
+    const nextUsername = typeof username === 'string' ? username.trim() : undefined
+    const nextPassword = typeof password === 'string' ? password.trim() : undefined
+    const hasPassword = typeof nextPassword === 'string' && nextPassword.length > 0
+    const hasWebhookSecret = typeof webhookSecret === 'string' && webhookSecret.length > 0
+
+    const [existing] = await db
+      .select({ id: courier_credentials.id })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'ekart'))
+      .limit(1)
+
+    if (existing) {
+      const updatePayload: Record<string, any> = {
+        updatedAt: new Date(),
+      }
+      if (nextApiBase !== undefined) {
+        updatePayload.apiBase = nextApiBase || 'https://api.ekartlogistics.com'
+      }
+      if (nextClientId !== undefined) {
+        updatePayload.clientId = nextClientId
+      }
+      if (nextUsername !== undefined) {
+        updatePayload.username = nextUsername
+      }
+      if (hasPassword) {
+        updatePayload.password = nextPassword
+      }
+      if (hasWebhookSecret) {
+        updatePayload.webhookSecret = webhookSecret
+      }
+
+      await db
+        .update(courier_credentials)
+        .set(updatePayload)
+        .where(eq(courier_credentials.provider, 'ekart'))
+    } else {
+      await db.insert(courier_credentials).values({
+        provider: 'ekart',
+        apiBase: nextApiBase || 'https://api.ekartlogistics.com',
+        clientName: '',
+        apiKey: '',
+        clientId: nextClientId || '',
+        username: nextUsername || '',
+        password: hasPassword ? nextPassword : '',
+        webhookSecret: hasWebhookSecret ? webhookSecret : '',
+      })
+    }
+
+    const [saved] = await db
+      .select({
+        apiBase: courier_credentials.apiBase,
+        clientId: courier_credentials.clientId,
+        username: courier_credentials.username,
+        password: courier_credentials.password,
+        webhookSecret: courier_credentials.webhookSecret,
+      })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'ekart'))
+      .limit(1)
+
+    res.json({
+      success: true,
+      message: 'Ekart credentials updated successfully',
+      data: {
+        provider: 'ekart',
+        apiBase: saved?.apiBase || 'https://api.ekartlogistics.com',
+        clientId: saved?.clientId || '',
+        username: saved?.username || '',
+        hasPassword: Boolean((saved?.password || '').trim()),
+        hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update Ekart credentials' })
+  }
+}
+
+export const updateXpressbeesCredentialsController = async (req: Request, res: Response) => {
+  const {
+    apiBase,
+    username,
+    password,
+    apiKey,
+    webhookSecret,
+    authBearer,
+    secretKey,
+    xbKey,
+    xbAccessKey,
+    businessUnit,
+    businessFlow,
+    businessService,
+    businessServices,
+    businessAccountName,
+    pickupVendorCode,
+    manifestServiceType,
+    manifestPickupType,
+    pincodeBusinessUnit,
+    pincodeBusinessFlow,
+    pickupBusinessService,
+    deliveryBusinessService,
+    serviceabilityVersion,
+    trackingVersion,
+  } = req.body || {}
+
+  try {
+    const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
+    const nextUsername = typeof username === 'string' ? username.trim() : undefined
+    const nextPassword = typeof password === 'string' ? password.trim() : undefined
+    const nextApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
+    const nextWebhookSecret =
+      typeof webhookSecret === 'string' ? webhookSecret.trim() : undefined
+    const hasPassword = typeof nextPassword === 'string' && nextPassword.length > 0
+    const hasApiKey = typeof nextApiKey === 'string' && nextApiKey.length > 0
+    const hasWebhookSecret =
+      typeof nextWebhookSecret === 'string' && nextWebhookSecret.length > 0
+    const metadataInputs: Record<string, any> = {
+      authBearer,
+      secretKey,
+      xbKey,
+      xbAccessKey,
+      businessUnit,
+      businessFlow,
+      businessService,
+      businessServices,
+      businessAccountName,
+      pickupVendorCode,
+      manifestServiceType,
+      manifestPickupType,
+      pincodeBusinessUnit,
+      pincodeBusinessFlow,
+      pickupBusinessService,
+      deliveryBusinessService,
+      serviceabilityVersion,
+      trackingVersion,
+    }
+    const metadataUpdates = Object.entries(metadataInputs).reduce<Record<string, string>>(
+      (acc, [key, value]) => {
+        if (typeof value !== 'string') return acc
+        const normalized = value.trim()
+        if (!normalized && ['authBearer', 'secretKey', 'xbKey', 'xbAccessKey'].includes(key)) {
+          return acc
+        }
+        acc[key] = normalized
+        return acc
+      },
+      {},
+    )
+
+    const [existing] = await db
+      .select({ id: courier_credentials.id, metadata: courier_credentials.metadata })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'xpressbees'))
+      .limit(1)
+
+    if (existing) {
+      const updatePayload: Record<string, any> = {
+        updatedAt: new Date(),
+      }
+      if (nextApiBase !== undefined) {
+        updatePayload.apiBase = nextApiBase || 'https://shipment.xpressbees.com'
+      }
+      if (nextUsername !== undefined) {
+        updatePayload.username = nextUsername
+      }
+      if (hasPassword) {
+        updatePayload.password = nextPassword
+      }
+      if (hasApiKey) {
+        updatePayload.apiKey = nextApiKey
+      }
+      if (hasWebhookSecret) {
+        updatePayload.webhookSecret = nextWebhookSecret
+      }
+      if (Object.keys(metadataUpdates).length) {
+        const existingMetadata =
+          existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}
+        updatePayload.metadata = {
+          ...existingMetadata,
+          ...metadataUpdates,
+        }
+      }
+
+      await db
+        .update(courier_credentials)
+        .set(updatePayload)
+        .where(eq(courier_credentials.provider, 'xpressbees'))
+    } else {
+      await db.insert(courier_credentials).values({
+        provider: 'xpressbees',
+        apiBase: nextApiBase || 'https://shipment.xpressbees.com',
+        clientName: '',
+        apiKey: hasApiKey ? nextApiKey : '',
+        clientId: '',
+        username: nextUsername || '',
+        password: hasPassword ? nextPassword : '',
+        webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
+        metadata: {
+          pincodeBusinessUnit: 'eComm',
+          pincodeBusinessFlow: 'Forward',
+          pickupBusinessService: 'PickUp',
+          deliveryBusinessService: 'Delivery',
+          serviceabilityVersion: 'v1',
+          trackingVersion: 'v1',
+          ...metadataUpdates,
+        },
+      })
+    }
+
+    const [saved] = await db
+      .select({
+        apiBase: courier_credentials.apiBase,
+        username: courier_credentials.username,
+        password: courier_credentials.password,
+        apiKey: courier_credentials.apiKey,
+        webhookSecret: courier_credentials.webhookSecret,
+        metadata: courier_credentials.metadata,
+      })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'xpressbees'))
+      .limit(1)
+
+    XpressbeesService.clearCachedConfig()
+
+    res.json({
+      success: true,
+      message: 'Xpressbees credentials updated successfully',
+      data: {
+        provider: 'xpressbees',
+        apiBase: saved?.apiBase || 'https://shipment.xpressbees.com',
+        username: saved?.username || '',
+        hasPassword: Boolean((saved?.password || '').trim()),
+        hasApiKey: Boolean((saved?.apiKey || '').trim()),
+        hasAuthBearer: Boolean(
+          String(
+            (saved?.metadata as any)?.authBearer ||
+              (saved?.metadata as any)?.auth_bearer ||
+              (saved?.metadata as any)?.authorizationBearer ||
+              '',
+          ).trim(),
+        ),
+        hasSecretKey: Boolean(
+          String(
+            (saved?.metadata as any)?.secretKey || (saved?.metadata as any)?.secret_key || '',
+          ).trim(),
+        ),
+        hasXbKey: Boolean(
+          String((saved?.metadata as any)?.xbKey || (saved?.metadata as any)?.xb_key || '').trim(),
+        ),
+        hasXbAccessKey: Boolean(
+          String(
+            (saved?.metadata as any)?.xbAccessKey ||
+              (saved?.metadata as any)?.xb_access_key ||
+              '',
+          ).trim(),
+        ),
+        businessAccountName: String(
+          (saved?.metadata as any)?.businessAccountName ||
+            (saved?.metadata as any)?.business_account_name ||
+            '',
+        ).trim(),
+        pickupVendorCode: String(
+          (saved?.metadata as any)?.pickupVendorCode ||
+            (saved?.metadata as any)?.pickup_vendor_code ||
+            '',
+        ).trim(),
+        hasBusinessAccountName: Boolean(
+          String(
+            (saved?.metadata as any)?.businessAccountName ||
+              (saved?.metadata as any)?.business_account_name ||
+              '',
+          ).trim(),
+        ),
+        hasPickupVendorCode: Boolean(
+          String(
+            (saved?.metadata as any)?.pickupVendorCode ||
+              (saved?.metadata as any)?.pickup_vendor_code ||
+            '',
+          ).trim(),
+        ),
+        businessUnit: (saved?.metadata as any)?.businessUnit || 'ECOM',
+        businessFlow: (saved?.metadata as any)?.businessFlow || 'FORWARD',
+        businessService: (saved?.metadata as any)?.businessService || '',
+        businessServices:
+          (saved?.metadata as any)?.businessServices || 'SD,SDD,NDD,AIR,SFC,IntraSDD',
+        manifestServiceType: (saved?.metadata as any)?.manifestServiceType || 'SD',
+        manifestPickupType: (saved?.metadata as any)?.manifestPickupType || 'Vendor',
+        hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
+        pincodeBusinessUnit: (saved?.metadata as any)?.pincodeBusinessUnit || 'eComm',
+        pincodeBusinessFlow: (saved?.metadata as any)?.pincodeBusinessFlow || 'Forward',
+        pickupBusinessService: (saved?.metadata as any)?.pickupBusinessService || 'PickUp',
+        deliveryBusinessService: (saved?.metadata as any)?.deliveryBusinessService || 'Delivery',
+        serviceabilityVersion: (saved?.metadata as any)?.serviceabilityVersion || 'v1',
+        trackingVersion: (saved?.metadata as any)?.trackingVersion || 'v1',
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update Xpressbees credentials' })
+  }
+}
+
+export const updateShadowfaxCredentialsController = async (req: Request, res: Response) => {
+  const { apiBase, clientName, apiKey, webhookSecret } = req.body || {}
+
+  try {
+    const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
+    const nextClientName = typeof clientName === 'string' ? clientName.trim() : undefined
+    const nextApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
+    const nextWebhookSecret =
+      typeof webhookSecret === 'string' ? webhookSecret.trim() : undefined
+    const hasNewApiKey = typeof nextApiKey === 'string' && nextApiKey.length > 0
+    const hasWebhookSecret =
+      typeof nextWebhookSecret === 'string' && nextWebhookSecret.length > 0
+
+    const [existing] = await db
+      .select({ id: courier_credentials.id })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'shadowfax'))
+      .limit(1)
+
+    if (existing) {
+      const updatePayload: Record<string, any> = {
+        updatedAt: new Date(),
+      }
+      if (nextApiBase !== undefined) {
+        updatePayload.apiBase = nextApiBase || 'https://dale.staging.shadowfax.in/api'
+      }
+      if (nextClientName !== undefined) {
+        updatePayload.clientName = nextClientName
+      }
+      if (hasNewApiKey) {
+        updatePayload.apiKey = nextApiKey
+      }
+      if (hasWebhookSecret) {
+        updatePayload.webhookSecret = nextWebhookSecret
+      }
+
+      await db
+        .update(courier_credentials)
+        .set(updatePayload)
+        .where(eq(courier_credentials.provider, 'shadowfax'))
+    } else {
+      await db.insert(courier_credentials).values({
+        provider: 'shadowfax',
+        apiBase: nextApiBase || 'https://dale.staging.shadowfax.in/api',
+        clientName: nextClientName || '',
+        apiKey: hasNewApiKey ? nextApiKey : '',
+        webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
+      })
+    }
+
+    const [saved] = await db
+      .select({
+        apiBase: courier_credentials.apiBase,
+        clientName: courier_credentials.clientName,
+        apiKey: courier_credentials.apiKey,
+        webhookSecret: courier_credentials.webhookSecret,
+      })
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, 'shadowfax'))
+      .limit(1)
+
+    ShadowfaxService.clearCachedConfig()
+
+    res.json({
+      success: true,
+      message: 'Shadowfax credentials updated successfully',
+      data: {
+        provider: 'shadowfax',
+        apiBase: saved?.apiBase || 'https://dale.staging.shadowfax.in/api',
+        clientName: saved?.clientName || '',
+        hasApiKey: Boolean((saved?.apiKey || '').trim()),
+        hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update Shadowfax credentials' })
+  }
+}
+
+export const updateAmazonCredentialsController = async (req: Request, res: Response) => {
+  const {
+    apiBase,
+    endpoint,
+    accessToken,
+    refreshToken,
+    lwaClientId,
+    clientId,
+    lwaClientSecret,
+    clientSecret,
+    shippingBusinessId,
+    region,
+    sandbox,
+    lwaTokenUrl,
+    tokenUrl,
+  } = req.body || {}
+
+  try {
+    const [existing] = await db
+      .select()
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, AMAZON_CREDENTIALS_PROVIDER))
+      .limit(1)
+
+    const nextCredentials = { ...buildAmazonShippingCredentialsFromRow(existing) }
+    const nextEndpoint = optionalCredentialString(endpoint) ?? optionalCredentialString(apiBase)
+    const nextAccessToken = optionalCredentialString(accessToken)
+    const nextRefreshToken = optionalCredentialString(refreshToken)
+    const nextLwaClientId = optionalCredentialString(lwaClientId) ?? optionalCredentialString(clientId)
+    const nextLwaClientSecret =
+      optionalCredentialString(lwaClientSecret) ?? optionalCredentialString(clientSecret)
+    const nextShippingBusinessId = optionalCredentialString(shippingBusinessId)
+    const nextRegion = optionalCredentialString(region)
+    const nextLwaTokenUrl =
+      optionalCredentialString(lwaTokenUrl) ?? optionalCredentialString(tokenUrl)
+
+    if (nextEndpoint !== undefined) {
+      nextCredentials.endpoint = nextEndpoint
+    }
+    if (nextAccessToken) {
+      nextCredentials.accessToken = nextAccessToken
+    }
+    if (nextRefreshToken) {
+      nextCredentials.refreshToken = nextRefreshToken
+    }
+    if (nextLwaClientId !== undefined) {
+      nextCredentials.lwaClientId = nextLwaClientId
+    }
+    if (nextLwaClientSecret) {
+      nextCredentials.lwaClientSecret = nextLwaClientSecret
+    }
+    if (nextShippingBusinessId !== undefined) {
+      nextCredentials.shippingBusinessId = nextShippingBusinessId || AMAZON_DEFAULT_BUSINESS_ID
+    }
+    if (nextRegion !== undefined) {
+      nextCredentials.region = nextRegion || AMAZON_DEFAULT_REGION
+    }
+    if (sandbox !== undefined) {
+      nextCredentials.sandbox = parseAmazonSandboxFlag(sandbox)
+    }
+    if (nextLwaTokenUrl !== undefined) {
+      nextCredentials.lwaTokenUrl = nextLwaTokenUrl
+    }
+
+    const normalizedTokens = normalizeAmazonCredentialTokens({
+      accessToken: nextCredentials.accessToken,
+      refreshToken: nextCredentials.refreshToken,
+    })
+    nextCredentials.accessToken = normalizedTokens.accessToken
+    nextCredentials.refreshToken = normalizedTokens.refreshToken
+
+    const metadata = {
+      accessToken: normalizeAmazonCredentialValue(nextCredentials.accessToken),
+      refreshToken: normalizeAmazonCredentialValue(nextCredentials.refreshToken),
+      lwaClientId: normalizeAmazonCredentialValue(nextCredentials.lwaClientId),
+      lwaClientSecret: normalizeAmazonCredentialValue(nextCredentials.lwaClientSecret),
+      endpoint: normalizeAmazonCredentialValue(nextCredentials.endpoint),
+      region: normalizeAmazonCredentialValue(nextCredentials.region) || AMAZON_DEFAULT_REGION,
+      sandbox: Boolean(nextCredentials.sandbox),
+      shippingBusinessId:
+        normalizeAmazonCredentialValue(nextCredentials.shippingBusinessId) ||
+        AMAZON_DEFAULT_BUSINESS_ID,
+      lwaTokenUrl: normalizeAmazonCredentialValue(nextCredentials.lwaTokenUrl),
+    }
+
+    const values = {
+      provider: AMAZON_CREDENTIALS_PROVIDER,
+      apiBase: metadata.endpoint,
+      clientName: metadata.shippingBusinessId,
+      apiKey: metadata.refreshToken || metadata.accessToken,
+      clientId: metadata.lwaClientId,
+      username: metadata.region,
+      password: metadata.lwaClientSecret,
+      webhookSecret: String(metadata.sandbox),
+      metadata,
+      updatedAt: new Date(),
+    }
+
+    await db
+      .insert(courier_credentials)
+      .values(values)
+      .onConflictDoUpdate({
+        target: courier_credentials.provider,
+        set: values,
+      })
+
+    applyAmazonShippingCredentialsToEnv(nextCredentials, { overwriteExisting: true })
+
+    const [saved] = await db
+      .select()
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, AMAZON_CREDENTIALS_PROVIDER))
+      .limit(1)
+
+    res.json({
+      success: true,
+      message: 'Amazon credentials updated successfully',
+      data: buildAmazonCredentialResponse(saved),
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update Amazon credentials' })
+  }
+}
+
+export interface RateType {
+  forward?: string | number
+  rto?: string | number
+}
+
+// Utility: convert numbers to string for decimal fields
+export const numericToString = (val: string | number | null | undefined): string | null => {
+  if (val === null || val === undefined || val === '') return null
+  return String(val)
+}
+
+// ---------------- Controller ----------------
+export const updateShippingRateController = async (req: Request, res: Response) => {
+  try {
+    const courierId = Number(req.params.id) // courier_id from params
+    let planId: string | undefined = req.params.planId // plan_id from params
+
+    // Fallback: try to get planId from query or body if not in params
+    if (!planId || planId === 'undefined') {
+      planId = (req.query.planId as string) || (req.body.planId as string) || undefined
+    }
+
+    if (!courierId || isNaN(courierId)) {
+      return res.status(400).json({ success: false, message: 'Invalid courier ID' })
+    }
+
+    if (!planId || planId === 'undefined') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or missing plan ID. Please ensure a plan is selected.',
+      })
+    }
+
+    const updates: ShippingRateUpdatePayload = req.body
+
+    console.log(`[updateShippingRateController] courierId: ${courierId}, planId: ${planId}`)
+
+    const updated = await updateShippingRate(courierId, updates, planId)
+    if (!updated) return res.status(404).json({ success: false, message: 'Rate card not found' })
+
+    res.json({ success: true, data: updated })
+  } catch (err) {
+    console.log('Error updating shipping rate:', err)
+    const statusCode = isSlabValidationError(err) ? 400 : 500
+    res.status(statusCode).json({
+      success: false,
+      message: isSlabValidationError(err)
+        ? String((err as any)?.message || 'Invalid slab configuration')
+        : 'Internal Server Error',
+    })
+  }
+}
+
+const isExcelRateCard = (file: any) => {
+  const name = String(file?.originalname || '').toLowerCase()
+  const mime = String(file?.mimetype || '').toLowerCase()
+  return (
+    name.endsWith('.xlsx') ||
+    name.endsWith('.xls') ||
+    mime.includes('spreadsheet') ||
+    mime.includes('excel')
+  )
+}
+
+const parseRateCardFile = (file: any) => {
+  if (isExcelRateCard(file)) {
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' })
+    const firstSheetName = workbook.SheetNames[0]
+    if (!firstSheetName) {
+      return { data: [] as CSVRow[], errors: [{ message: 'Excel file has no sheets' }] }
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName]
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
+      defval: '',
+      raw: false,
+      blankrows: false,
+    })
+
+    return { data: rows.map(normalizeRateCardRow), errors: [] as any[] }
+  }
+
+  return parseRateCardCsvText(file.buffer.toString('utf8'))
+}
+
+export const importShippingRatesController = async (req: any, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' })
+    }
+
+    const { planId: plan_id, businessType: business_type } = req.query
+    if (!plan_id || !business_type) {
+      return res.status(400).json({ success: false, message: 'Missing plan_id or business_type' })
+    }
+
+    const normalizedBusinessType = String(business_type).toLowerCase()
+    if (normalizedBusinessType !== 'b2b' && normalizedBusinessType !== 'b2c') {
+      return res.status(400).json({ success: false, message: 'Invalid business_type' })
+    }
+
+    const { data, errors } = parseRateCardFile(req.file)
+
+    if (errors.length) {
+      console.error('Rate card parse errors:', errors)
+      return res.status(400).json({ success: false, message: 'Invalid rate card file', errors })
+    }
+
+    const zonesList = await getAllZones(normalizedBusinessType)
+
+    // Detect format: new slab-per-row format has a "Slab Type" column
+    const headers = data.length ? Object.keys(data[0]) : []
+    const isSlabFormat = headers.some((h) => h.trim() === 'Slab Type')
+    let savedRows = 0
+
+    if (normalizedBusinessType === 'b2c' && isSlabFormat) {
+      savedRows = await importB2CSlabFormat(data as CSVRow[], plan_id as string, zonesList)
+    } else {
+      savedRows = await importFlatFormat(data as CSVRow[], plan_id as string, normalizedBusinessType, zonesList)
+    }
+
+    if (savedRows === 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'No rate rows were imported. Check the plan, courier, mode, zone column names, and rate values in the file.',
+      })
+    }
+
+    res.json({
+      success: true,
+      message: `Shipping rates imported successfully. ${savedRows} rate rows saved.`,
+      data: { savedRows },
+    })
+  } catch (err) {
+    console.error('Error importing shipping rates:', err)
+    const statusCode = isSlabValidationError(err) ? 400 : 500
+    res.status(statusCode).json({
+      success: false,
+      message: isSlabValidationError(err)
+        ? String((err as any)?.message || 'Invalid slab configuration')
+        : 'Internal Server Error',
+    })
+  }
+}
+
+export const deleteShippingRateController = async (req: Request, res: Response) => {
+  try {
+    const courierId = Number(req.params.id)
+    const planId = req.params.planId
+    const businessType = req.query.businessType as 'b2b' | 'b2c'
+    const zoneId = req.query.zoneId as string | undefined
+    const serviceProvider = req.query.serviceProvider as string | undefined
+    const mode = req.query.mode as string | undefined
+
+    if (!courierId || !planId || !businessType) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'courierId, planId and businessType are required' })
+    }
+
+    const deleted = await deleteShippingRate(
+      courierId,
+      planId,
+      businessType,
+      zoneId,
+      serviceProvider,
+      mode,
+    )
+
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'No matching rate found' })
+    }
+
+    res.json({ success: true, message: 'Rate(s) deleted successfully', data: deleted })
+  } catch (err) {
+    console.error('Error deleting shipping rate:', err)
+    res.status(500).json({ success: false, message: 'Internal Server Error' })
+  }
+}
+
+export const deleteCourierController = async (req: Request, res: Response) => {
+  const { id } = req.params
+  const { serviceProvider } = req.body
+
+  try {
+    if (!serviceProvider) {
+      return res.status(400).json({ success: false, message: 'Service provider is required' })
+    }
+    await deleteCourierService(id, serviceProvider)
+    res.json({ success: true, message: 'Courier deleted successfully' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to delete courier' })
+  }
+}
