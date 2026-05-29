@@ -2,11 +2,11 @@
 import fs from 'fs'
 import path from 'path'
 import XLSX from 'xlsx'
-import { db } from '../models/client'
+import { db, pool } from '../models/client'
 import { locations } from '../schema/schema'
 
 const DATA_DIR = path.resolve('src/scripts/data')
-const CHUNK_SIZE = 10
+const CHUNK_SIZE = 500
 
 // ---------- Types ----------
 type Row = {
@@ -67,10 +67,7 @@ async function insertBatch(rows: Row[]) {
     created_at: new Date(),
   }))
 
-  for (const zone of values) {
-    console.log('inserting:', zone.pincode, 'tags:', JSON.stringify(zone.tags))
-    await db.insert(locations).values(zone) // Drizzle insert
-  }
+  await db.insert(locations).values(values)
 
   console.log(`✅ Inserted ${rows.length} rows`)
 }
@@ -90,12 +87,23 @@ async function importXlsx(filename: string) {
 
   console.log('Total rows parsed:', jsonRows.length)
 
+  const existingRows = await db.select({ pincode: locations.pincode }).from(locations)
+  const existingPincodes = new Set(existingRows.map((row) => row.pincode))
+  console.log('Existing location pincodes:', existingPincodes.size)
+
   let batch: Row[] = []
   let processed = 0
+  let skipped = 0
 
   for (const raw of jsonRows) {
     const mapped = mapRow(raw)
     if (!mapped) continue
+    if (existingPincodes.has(mapped.pincode)) {
+      skipped += 1
+      continue
+    }
+
+    existingPincodes.add(mapped.pincode)
 
     batch.push(mapped)
 
@@ -110,6 +118,10 @@ async function importXlsx(filename: string) {
   if (batch.length) {
     await insertBatch(batch)
     processed += batch.length
+  }
+
+  if (skipped) {
+    console.log(`Skipped existing rows: ${skipped}`)
   }
 
   console.log(`✅ Import finished. Total inserted: ${processed}`)
@@ -128,5 +140,7 @@ async function importXlsx(filename: string) {
   } catch (err) {
     console.error('Import failed:', (err as Error).message)
     process.exitCode = 1
+  } finally {
+    await pool.end()
   }
 })()

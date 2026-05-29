@@ -42,6 +42,14 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
           basicInfo: { ...(prev.basicInfo ?? {}), pincode: '' },
         }))
         setLocation({ city: '', state: '' })
+        setFormData((prev) => ({
+          ...prev,
+          basicInfo: {
+            ...prev.basicInfo,
+            state: '',
+            city: '',
+          },
+        }))
         return
       }
 
@@ -56,12 +64,29 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
             basicInfo: { ...(prev.basicInfo ?? {}), pincode: 'Invalid pincode or no location found.' },
           }))
           setLocation({ city: '', state: '' })
+          setFormData((prev) => ({
+            ...prev,
+            basicInfo: {
+              ...prev.basicInfo,
+              state: '',
+              city: '',
+            },
+          }))
         } else {
           setErrors((prev) => ({
             ...prev,
             basicInfo: { ...(prev.basicInfo ?? {}), pincode: '' },
           }))
           setLocation({ city: loc.city, state: loc.state })
+          setFormData((prev) => ({
+            ...prev,
+            basicInfo: {
+              ...prev.basicInfo,
+              pincode,
+              state: loc.state,
+              city: loc.city,
+            },
+          }))
         }
       } catch {
         if (!isActive) return
@@ -73,6 +98,14 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
           },
         }))
         setLocation({ city: '', state: '' })
+        setFormData((prev) => ({
+          ...prev,
+          basicInfo: {
+            ...prev.basicInfo,
+            state: '',
+            city: '',
+          },
+        }))
       } finally {
         if (isActive) setLoadingPincode(false)
       }
@@ -83,18 +116,7 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
     return () => {
       isActive = false
     }
-  }, [formData?.basicInfo?.pincode, setErrors])
-
-  useEffect(() => {
-    setFormData((prev) => ({
-      ...prev,
-      basicInfo: {
-        ...prev.basicInfo,
-        state: location.state,
-        city: location.city,
-      },
-    }))
-  }, [location?.state, location?.city, setFormData])
+  }, [formData?.basicInfo?.pincode, setErrors, setFormData])
 
   const basicErrors = errors?.basicInfo ?? {}
 
@@ -275,8 +297,10 @@ export default function StepOneForm({ formData, onChange, errors, setFormData, s
           onChange={(e) =>
             onChange(createSyntheticEvent('pincode', normalizePincode(e.target.value)), 'basicInfo')
           }
+          required
+          maxLength={6}
           error={!!basicErrors.pincode}
-          helperText={basicErrors.pincode}
+          helperText={basicErrors.pincode || (loadingPincode ? 'Validating pincode...' : '')}
           prefix={<MdLocationPin color={BRAND_ORANGE} />}
         />
       </Box>
