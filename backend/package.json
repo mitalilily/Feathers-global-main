@@ -18,6 +18,7 @@
     "check:order-csv-actions": "tsx src/scripts/checkOrderCsvAndActions.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "migrate": "drizzle-kit push",
+    "migrate:bootstrap": "tsx src/scripts/runAllMigrations.ts",
     "seed:holidays": "ts-node src/scripts/seedHolidays.ts",
     "seed:holidays:year": "ts-node src/scripts/seedHolidays.ts",
     "seed:locations": "ts-node src/scripts/seedLocations.ts locations.xlsx",
