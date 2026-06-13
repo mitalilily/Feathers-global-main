@@ -60,13 +60,15 @@ const runSqlMigrations = async () => {
   }
 }
 
-async function main() {
+export const runDatabaseBootstrap = async () => {
   runDrizzlePush()
   await runSqlMigrations()
   console.log('[migrate] Database bootstrap complete')
 }
 
-main().catch((error) => {
-  console.error('[migrate] Database bootstrap failed:', error)
-  process.exit(1)
-})
+if (require.main === module) {
+  runDatabaseBootstrap().catch((error) => {
+    console.error('[migrate] Database bootstrap failed:', error)
+    process.exit(1)
+  })
+}

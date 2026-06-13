@@ -1,8 +1,8 @@
 import * as dotenv from 'dotenv'
 import path from 'path'
 import { server } from './app'
-import './crons'
 import { pool, testDatabaseConnection } from './models/client'
+import { runDatabaseBootstrap } from './scripts/runAllMigrations'
 
 // Determine environment
 const env = process.env.NODE_ENV || 'development'
@@ -52,6 +52,9 @@ process.once('SIGINT', shutdown)
 
 // Test database connection before starting server
 async function startServer() {
+  console.log('🧱 Running database bootstrap migrations...')
+  await runDatabaseBootstrap()
+
   console.log('🔍 Testing database connection...')
   const dbConnected = await testDatabaseConnection()
 
@@ -59,6 +62,8 @@ async function startServer() {
     console.error('❌ Failed to connect to database. Server will not start.')
     process.exit(1)
   }
+
+  await import('./crons')
 
   // Set server timeout to 3.5 minutes (210000ms) to allow for slow external API calls
   // Default Node.js server timeout is 2 minutes (120000ms)

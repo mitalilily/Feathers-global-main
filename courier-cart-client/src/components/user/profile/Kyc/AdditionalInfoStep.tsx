@@ -141,6 +141,9 @@ export default function AdditionalDetailsStep({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     watch(`${field}_key` as any);
 
+  const getMimeFieldName = (field: keyof AdditionalKYCForm) =>
+    `${field.replace('Url', '')}Mime` as keyof AdditionalKYCForm
+
   const isRequiredField = (field: keyof AdditionalKYCForm) =>
     structure === "company" && companyType
       ? (
@@ -323,7 +326,7 @@ export default function AdditionalDetailsStep({
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       setValue(`${field}_key` as any, file?.originalName);
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      setValue(`${field}_mime` as any, file?.mime);
+                      setValue(getMimeFieldName(field) as any, file?.mime);
                       ctrl.onChange(fileKey);
                     }}
                   />
