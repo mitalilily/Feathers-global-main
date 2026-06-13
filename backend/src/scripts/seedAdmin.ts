@@ -19,24 +19,43 @@ export const seedAdmin = async ({
   email,
   role = 'admin',
 }: SeedAdminProps): Promise<User> => {
-  // check if user already exists
-  const existing = await db.select().from(users).where(eq(users.phone, phone))
-  if (existing.length > 0) return existing[0] as User
-
-  // hash password
+  const normalizedEmail = email?.trim().toLowerCase() ?? null
   const hashedPassword = await bcrypt.hash(password, 10)
+  const [existingByPhone] = await db.select().from(users).where(eq(users.phone, phone)).limit(1)
+  const [existingByEmail] = !existingByPhone && normalizedEmail
+    ? await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1)
+    : []
 
-  // insert new user
+  const existing = existingByPhone || existingByEmail
+
+  if (existing) {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        phone,
+        email: normalizedEmail,
+        passwordHash: hashedPassword,
+        role,
+        phoneVerified: true,
+        emailVerified: !!normalizedEmail,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, existing.id))
+      .returning()
+
+    return updatedUser as User
+  }
+
   const [newUser] = await db
     .insert(users)
     .values({
       id: uuidv4(),
       phone,
-      email: email ?? null,
+      email: normalizedEmail,
       passwordHash: hashedPassword,
       role,
       phoneVerified: true,
-      emailVerified: !!email,
+      emailVerified: !!normalizedEmail,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
