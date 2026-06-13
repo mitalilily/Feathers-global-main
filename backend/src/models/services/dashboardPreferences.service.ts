@@ -37,6 +37,7 @@ const defaultPreferences: DashboardPreferences = {
     metricsOverview: true,
     courierPerformance: true,
     topDestinations: true,
+    opsAnalytics: true,
   },
   widgetOrder: [
     'quickStats',
@@ -56,6 +57,7 @@ const defaultPreferences: DashboardPreferences = {
     'metricsOverview',
     'courierPerformance',
     'topDestinations',
+    'opsAnalytics',
   ],
   layout: {
     columns: 12,
@@ -66,6 +68,33 @@ const defaultPreferences: DashboardPreferences = {
   dateRange: {
     defaultRange: '7days',
   },
+}
+
+const normalizePreferences = (preferences: Partial<DashboardPreferences> | undefined): DashboardPreferences => {
+  const widgetVisibility = {
+    ...defaultPreferences.widgetVisibility,
+    ...(preferences?.widgetVisibility || {}),
+  }
+
+  const preferredOrder = Array.isArray(preferences?.widgetOrder) ? preferences.widgetOrder : []
+  const defaultOrder = defaultPreferences.widgetOrder
+  const orderedWidgets = [
+    ...preferredOrder.filter((widgetId) => defaultOrder.includes(widgetId)),
+    ...defaultOrder.filter((widgetId) => !preferredOrder.includes(widgetId)),
+  ]
+
+  return {
+    widgetVisibility,
+    widgetOrder: orderedWidgets,
+    layout: {
+      ...defaultPreferences.layout,
+      ...(preferences?.layout || {}),
+    },
+    dateRange: {
+      ...defaultPreferences.dateRange,
+      ...(preferences?.dateRange || {}),
+    },
+  }
 }
 
 export const getDashboardPreferences = async (userId: string): Promise<DashboardPreferences> => {
@@ -87,12 +116,12 @@ export const getDashboardPreferences = async (userId: string): Promise<Dashboard
     return defaultPreferences
   }
 
-  return {
-    widgetVisibility: (prefs.widgetVisibility as Record<string, boolean>) || defaultPreferences.widgetVisibility,
-    widgetOrder: (prefs.widgetOrder as string[]) || defaultPreferences.widgetOrder,
-    layout: (prefs.layout as any) || defaultPreferences.layout,
-    dateRange: (prefs.dateRange as any) || defaultPreferences.dateRange,
-  }
+  return normalizePreferences({
+    widgetVisibility: prefs.widgetVisibility as Record<string, boolean>,
+    widgetOrder: prefs.widgetOrder as string[],
+    layout: prefs.layout as any,
+    dateRange: prefs.dateRange as any,
+  })
 }
 
 export const saveDashboardPreferences = async (
@@ -106,17 +135,19 @@ export const saveDashboardPreferences = async (
       .where(eq(dashboardPreferences.userId, userId))
       .limit(1)
 
-    const updatedPrefs: DashboardPreferences = {
-      ...(existing[0]
-        ? {
-            widgetVisibility: (existing[0].widgetVisibility as Record<string, boolean>) || defaultPreferences.widgetVisibility,
-            widgetOrder: (existing[0].widgetOrder as string[]) || defaultPreferences.widgetOrder,
-            layout: (existing[0].layout as any) || defaultPreferences.layout,
-            dateRange: (existing[0].dateRange as any) || defaultPreferences.dateRange,
-          }
-        : defaultPreferences),
+    const currentPreferences = existing[0]
+      ? {
+          widgetVisibility: existing[0].widgetVisibility as Record<string, boolean>,
+          widgetOrder: existing[0].widgetOrder as string[],
+          layout: existing[0].layout as any,
+          dateRange: existing[0].dateRange as any,
+        }
+      : defaultPreferences
+
+    const updatedPrefs = normalizePreferences({
+      ...currentPreferences,
       ...preferences,
-    }
+    })
 
     if (existing[0]) {
       const [updated] = await db
@@ -132,12 +163,12 @@ export const saveDashboardPreferences = async (
         .returning()
       
       if (updated) {
-        return {
-          widgetVisibility: (updated.widgetVisibility as Record<string, boolean>) || updatedPrefs.widgetVisibility,
-          widgetOrder: (updated.widgetOrder as string[]) || updatedPrefs.widgetOrder,
-          layout: (updated.layout as any) || updatedPrefs.layout,
-          dateRange: (updated.dateRange as any) || updatedPrefs.dateRange,
-        }
+        return normalizePreferences({
+          widgetVisibility: updated.widgetVisibility as Record<string, boolean>,
+          widgetOrder: updated.widgetOrder as string[],
+          layout: updated.layout as any,
+          dateRange: updated.dateRange as any,
+        })
       }
     } else {
       const [newPrefs] = await db
@@ -152,12 +183,12 @@ export const saveDashboardPreferences = async (
         .returning()
       
       if (newPrefs) {
-        return {
-          widgetVisibility: (newPrefs.widgetVisibility as Record<string, boolean>) || updatedPrefs.widgetVisibility,
-          widgetOrder: (newPrefs.widgetOrder as string[]) || updatedPrefs.widgetOrder,
-          layout: (newPrefs.layout as any) || updatedPrefs.layout,
-          dateRange: (newPrefs.dateRange as any) || updatedPrefs.dateRange,
-        }
+        return normalizePreferences({
+          widgetVisibility: newPrefs.widgetVisibility as Record<string, boolean>,
+          widgetOrder: newPrefs.widgetOrder as string[],
+          layout: newPrefs.layout as any,
+          dateRange: newPrefs.dateRange as any,
+        })
       }
     }
 
@@ -167,4 +198,3 @@ export const saveDashboardPreferences = async (
     throw error
   }
 }
-

@@ -45,6 +45,7 @@ const widgetComponents: Record<string, React.ComponentType<any>> = {
   metricsOverview: MetricsOverviewCard,
   courierPerformance: CourierPerformanceCard,
   topDestinations: TopDestinationsCard,
+  opsAnalytics: OpsAnalyticsSection,
 }
 
 const BRAND_PRIMARY = '#047b85'
@@ -95,6 +96,7 @@ export default function Dashboard() {
     metricsOverview: { xs: 12, md: 4 },
     courierPerformance: { xs: 12, md: 6 },
     topDestinations: { xs: 12, md: 6 },
+    opsAnalytics: { xs: 12, md: 12 },
   }
 
   // Default widget order
@@ -113,6 +115,7 @@ export default function Dashboard() {
     'metricsOverview',
     'courierPerformance',
     'topDestinations',
+    'opsAnalytics',
   ]
 
   // All memoized values must be called before any conditional returns
@@ -253,6 +256,7 @@ export default function Dashboard() {
       topDestinations: {
         topDestinations: stats?.geographic?.topDestinations || [],
       },
+      opsAnalytics: {},
     }
   }, [
     todayOps,
@@ -508,10 +512,6 @@ export default function Dashboard() {
               )
             })}
         </Grid>
-      </Box>
-
-      <Box sx={{ mt: 3 }}>
-        <OpsAnalyticsSection />
       </Box>
 
       {/* Customization Dialog */}
