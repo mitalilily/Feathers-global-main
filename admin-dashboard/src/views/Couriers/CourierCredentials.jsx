@@ -7,7 +7,6 @@ import {
   FormLabel,
   Input,
   Spinner,
-  Switch,
   Text,
   useToast,
   VStack,
@@ -15,7 +14,6 @@ import {
 import { useEffect, useState } from 'react'
 import {
   useCourierCredentials,
-  useUpdateAmazonCredentials,
   useUpdateDelhiveryCredentials,
   useUpdateEkartCredentials,
   useUpdateShadowfaxCredentials,
@@ -31,7 +29,6 @@ const CourierCredentials = () => {
   const updateShadowfax = useUpdateShadowfaxCredentials()
   const updateXpressbees = useUpdateXpressbeesCredentials()
   const updateXpressbeesAwbRange = useUpdateXpressbeesAwbRange()
-  const updateAmazon = useUpdateAmazonCredentials()
 
   const [form, setForm] = useState({
     apiBase: '',
@@ -80,18 +77,6 @@ const CourierCredentials = () => {
     apiKey: '',
     webhookSecret: '',
   })
-  const [amazonForm, setAmazonForm] = useState({
-    apiBase: '',
-    lwaClientId: '',
-    lwaClientSecret: '',
-    refreshToken: '',
-    accessToken: '',
-    shippingBusinessId: '',
-    region: '',
-    sandbox: false,
-    lwaTokenUrl: '',
-  })
-
   useEffect(() => {
     if (data?.delhivery) {
       setForm({
@@ -142,19 +127,6 @@ const CourierCredentials = () => {
         clientName: data.shadowfax.clientName || '',
         apiKey: '',
         webhookSecret: '',
-      })
-    }
-    if (data?.amazon) {
-      setAmazonForm({
-        apiBase: data.amazon.apiBase || data.amazon.endpoint || '',
-        lwaClientId: data.amazon.lwaClientId || '',
-        lwaClientSecret: '',
-        refreshToken: '',
-        accessToken: '',
-        shippingBusinessId: data.amazon.shippingBusinessId || '',
-        region: data.amazon.region || '',
-        sandbox: Boolean(data.amazon.sandbox),
-        lwaTokenUrl: data.amazon.lwaTokenUrl || '',
       })
     }
   }, [data])
@@ -311,40 +283,6 @@ const CourierCredentials = () => {
         onError: (err) => {
           toast({
             title: 'Failed to update Shadowfax credentials',
-            description: err?.message,
-            status: 'error',
-          })
-        },
-      },
-    )
-  }
-
-  const handleSaveAmazon = () => {
-    updateAmazon.mutate(
-      {
-        apiBase: amazonForm.apiBase,
-        lwaClientId: amazonForm.lwaClientId,
-        shippingBusinessId: amazonForm.shippingBusinessId,
-        region: amazonForm.region,
-        sandbox: amazonForm.sandbox,
-        lwaTokenUrl: amazonForm.lwaTokenUrl,
-        ...(amazonForm.lwaClientSecret ? { lwaClientSecret: amazonForm.lwaClientSecret } : {}),
-        ...(amazonForm.refreshToken ? { refreshToken: amazonForm.refreshToken } : {}),
-        ...(amazonForm.accessToken ? { accessToken: amazonForm.accessToken } : {}),
-      },
-      {
-        onSuccess: () => {
-          toast({ title: 'Amazon credentials updated', status: 'success' })
-          setAmazonForm((prev) => ({
-            ...prev,
-            lwaClientSecret: '',
-            refreshToken: '',
-            accessToken: '',
-          }))
-        },
-        onError: (err) => {
-          toast({
-            title: 'Failed to update Amazon credentials',
             description: err?.message,
             status: 'error',
           })
@@ -1012,149 +950,6 @@ const CourierCredentials = () => {
           </VStack>
         </Box>
 
-        <Box borderWidth="1px" borderRadius="lg" p={5} minW="320px" flex="1" maxW="520px">
-          <VStack spacing={4} align="stretch">
-            <Flex justify="space-between" align="center">
-              <Text fontWeight="semibold">Amazon Shipping</Text>
-              <Badge colorScheme={data?.amazon?.configured ? 'green' : 'orange'}>
-                {data?.amazon?.configured ? 'Configured' : 'Missing credentials'}
-              </Badge>
-            </Flex>
-
-            <FormControl>
-              <FormLabel>API Base URL</FormLabel>
-              <Input
-                value={amazonForm.apiBase}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, apiBase: e.target.value }))
-                }
-                placeholder="https://sellingpartnerapi-eu.amazon.com"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Shipping Business ID</FormLabel>
-              <Input
-                value={amazonForm.shippingBusinessId}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, shippingBusinessId: e.target.value }))
-                }
-                placeholder="AmazonShipping_IN"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Region</FormLabel>
-              <Input
-                value={amazonForm.region}
-                onChange={(e) => setAmazonForm((prev) => ({ ...prev, region: e.target.value }))}
-                placeholder="eu"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>LWA Client ID</FormLabel>
-              <Input
-                value={amazonForm.lwaClientId}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, lwaClientId: e.target.value }))
-                }
-                placeholder="Amazon LWA client ID"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>LWA Token URL</FormLabel>
-              <Input
-                value={amazonForm.lwaTokenUrl}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, lwaTokenUrl: e.target.value }))
-                }
-                placeholder="https://api.amazon.com/auth/o2/token"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>LWA Client Secret</FormLabel>
-              <Input
-                type="password"
-                value={amazonForm.lwaClientSecret}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, lwaClientSecret: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing LWA secret"
-              />
-              {data?.amazon?.hasLwaClientSecret && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  LWA client secret already configured.
-                </Text>
-              )}
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Refresh Token</FormLabel>
-              <Input
-                type="password"
-                value={amazonForm.refreshToken}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, refreshToken: e.target.value }))
-                }
-                placeholder={data?.amazon?.refreshTokenMasked || 'Enter Amazon refresh token'}
-              />
-              {!!data?.amazon?.refreshTokenMasked && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Current refresh token: {data.amazon.refreshTokenMasked}
-                </Text>
-              )}
-              <Text fontSize="xs" color="gray.500" mt={1}>
-                Amazon refresh tokens usually start with Atzr|. If you only have an Atza| access token, add it below.
-              </Text>
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Access Token</FormLabel>
-              <Input
-                type="password"
-                value={amazonForm.accessToken}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, accessToken: e.target.value }))
-                }
-                placeholder={data?.amazon?.accessTokenMasked || 'Optional direct access token'}
-              />
-              {!!data?.amazon?.accessTokenMasked && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Current access token: {data.amazon.accessTokenMasked}
-                </Text>
-              )}
-              <Text fontSize="xs" color="gray.500" mt={1}>
-                Atza| access tokens expire quickly; use this only as a temporary fallback.
-              </Text>
-            </FormControl>
-
-            <FormControl display="flex" alignItems="center">
-              <FormLabel mb="0">Use Sandbox</FormLabel>
-              <Switch
-                isChecked={amazonForm.sandbox}
-                onChange={(e) =>
-                  setAmazonForm((prev) => ({ ...prev, sandbox: e.target.checked }))
-                }
-              />
-            </FormControl>
-
-            <Text fontSize="xs" color="gray.500">
-              Use refresh token + LWA credentials for automatic token generation. Leave token and secret fields blank to keep the saved values. If Amazon returns invalid_grant, re-authorize Amazon Shipping and save a new refresh token.
-            </Text>
-
-            <Button
-              colorScheme="blue"
-              onClick={handleSaveAmazon}
-              isLoading={updateAmazon.isPending}
-              alignSelf="flex-start"
-            >
-              Save Amazon Credentials
-            </Button>
-          </VStack>
-        </Box>
       </Flex>
     </Flex>
   )
