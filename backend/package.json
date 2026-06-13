@@ -25,6 +25,7 @@
     "seed:delhivery-b2c": "ts-node src/scripts/seedDelhiveryB2CRatecard.ts",
     "seed:basic-b2c-ratecard": "ts-node src/scripts/seedBasicPlanB2CRatecard.ts",
     "seed:basic-provider-ratecards": "ts-node src/scripts/seedBasicProviderRateCards.ts",
+    "seed:bootstrap": "ts-node src/scripts/seedBasicPlan.ts && ts-node src/scripts/assignBasicPlans.ts && ts-node src/scripts/seedAdmin.ts && ts-node src/scripts/seedLocations.ts locations.xlsx",
     "sync:basic-b2c-amazon-delhivery": "ts-node src/scripts/syncBasicB2CAmazonDelhiveryRates.ts",
     "sync:xpressbees-couriers": "ts-node src/scripts/syncXpressbeesCouriers.ts"
   },
