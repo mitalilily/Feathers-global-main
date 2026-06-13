@@ -27,17 +27,6 @@ import {
   createXpressbeesManualAwbRange,
   getXpressbeesManualAwbSummary,
 } from '../../models/services/xpressbeesAwbRange.service'
-import {
-  AMAZON_CREDENTIALS_PROVIDER,
-  AMAZON_DEFAULT_BUSINESS_ID,
-  AMAZON_DEFAULT_REGION,
-  applyAmazonShippingCredentialsToEnv,
-  buildAmazonShippingCredentialsFromRow,
-  maskAmazonCredential,
-  normalizeAmazonCredentialTokens,
-  normalizeAmazonCredentialValue,
-  parseAmazonSandboxFlag,
-} from '../../models/services/amazonShippingCredentials.service'
 
 export interface ShippingRateFilters {
   courier_name?: string[]
@@ -268,7 +257,7 @@ export const updateCourierStatusController = async (req: Request, res: Response)
 export const getServiceProvidersController = async (req: Request, res: Response) => {
   try {
     // Only expose the main integrated service providers in the enable/disable UI
-    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
+    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax']
 
     const rows = await db
       .select({
@@ -314,7 +303,7 @@ export const updateServiceProviderStatusController = async (req: Request, res: R
   const { isEnabled } = req.body
 
   try {
-    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
+    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax']
 
     if (!serviceProvider || typeof isEnabled !== 'boolean') {
       return res.status(400).json({
@@ -356,34 +345,6 @@ export const updateServiceProviderStatusController = async (req: Request, res: R
   }
 }
 
-const buildAmazonCredentialResponse = (
-  row?: Partial<typeof courier_credentials.$inferSelect> | null,
-) => {
-  const credentials = buildAmazonShippingCredentialsFromRow(row)
-  const accessToken = normalizeAmazonCredentialValue(credentials.accessToken)
-  const refreshToken = normalizeAmazonCredentialValue(credentials.refreshToken)
-  const lwaClientId = normalizeAmazonCredentialValue(credentials.lwaClientId)
-  const lwaClientSecret = normalizeAmazonCredentialValue(credentials.lwaClientSecret)
-
-  return {
-    provider: AMAZON_CREDENTIALS_PROVIDER,
-    apiBase: normalizeAmazonCredentialValue(credentials.endpoint),
-    endpoint: normalizeAmazonCredentialValue(credentials.endpoint),
-    lwaClientId,
-    shippingBusinessId:
-      normalizeAmazonCredentialValue(credentials.shippingBusinessId) || AMAZON_DEFAULT_BUSINESS_ID,
-    region: normalizeAmazonCredentialValue(credentials.region) || AMAZON_DEFAULT_REGION,
-    sandbox: Boolean(credentials.sandbox),
-    lwaTokenUrl: normalizeAmazonCredentialValue(credentials.lwaTokenUrl),
-    hasAccessToken: Boolean(accessToken),
-    accessTokenMasked: maskAmazonCredential(accessToken),
-    hasRefreshToken: Boolean(refreshToken),
-    refreshTokenMasked: maskAmazonCredential(refreshToken),
-    hasLwaClientSecret: Boolean(lwaClientSecret),
-    configured: Boolean(accessToken || (refreshToken && lwaClientId && lwaClientSecret)),
-  }
-}
-
 const optionalCredentialString = (value: unknown) =>
   typeof value === 'string' ? value.trim() : undefined
 
@@ -418,7 +379,6 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
           'ekart',
           'xpressbees',
           'shadowfax',
-          AMAZON_CREDENTIALS_PROVIDER,
         ]),
       )
 
@@ -472,7 +432,6 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         apiKeyMasked: '',
         hasWebhookSecret: false,
       },
-      amazon: buildAmazonCredentialResponse(),
     }
 
     const data = rows.reduce<Record<string, any>>((acc, row) => {
@@ -562,8 +521,6 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
             : '',
           hasWebhookSecret,
         }
-      } else if (provider === AMAZON_CREDENTIALS_PROVIDER) {
-        acc.amazon = buildAmazonCredentialResponse(row)
       }
       return acc
     }, { ...defaults })
@@ -1054,131 +1011,6 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
   } catch (err) {
     console.error(err)
     res.status(500).json({ success: false, message: 'Failed to update Shadowfax credentials' })
-  }
-}
-
-export const updateAmazonCredentialsController = async (req: Request, res: Response) => {
-  const {
-    apiBase,
-    endpoint,
-    accessToken,
-    refreshToken,
-    lwaClientId,
-    clientId,
-    lwaClientSecret,
-    clientSecret,
-    shippingBusinessId,
-    region,
-    sandbox,
-    lwaTokenUrl,
-    tokenUrl,
-  } = req.body || {}
-
-  try {
-    const [existing] = await db
-      .select()
-      .from(courier_credentials)
-      .where(eq(courier_credentials.provider, AMAZON_CREDENTIALS_PROVIDER))
-      .limit(1)
-
-    const nextCredentials = { ...buildAmazonShippingCredentialsFromRow(existing) }
-    const nextEndpoint = optionalCredentialString(endpoint) ?? optionalCredentialString(apiBase)
-    const nextAccessToken = optionalCredentialString(accessToken)
-    const nextRefreshToken = optionalCredentialString(refreshToken)
-    const nextLwaClientId = optionalCredentialString(lwaClientId) ?? optionalCredentialString(clientId)
-    const nextLwaClientSecret =
-      optionalCredentialString(lwaClientSecret) ?? optionalCredentialString(clientSecret)
-    const nextShippingBusinessId = optionalCredentialString(shippingBusinessId)
-    const nextRegion = optionalCredentialString(region)
-    const nextLwaTokenUrl =
-      optionalCredentialString(lwaTokenUrl) ?? optionalCredentialString(tokenUrl)
-
-    if (nextEndpoint !== undefined) {
-      nextCredentials.endpoint = nextEndpoint
-    }
-    if (nextAccessToken) {
-      nextCredentials.accessToken = nextAccessToken
-    }
-    if (nextRefreshToken) {
-      nextCredentials.refreshToken = nextRefreshToken
-    }
-    if (nextLwaClientId !== undefined) {
-      nextCredentials.lwaClientId = nextLwaClientId
-    }
-    if (nextLwaClientSecret) {
-      nextCredentials.lwaClientSecret = nextLwaClientSecret
-    }
-    if (nextShippingBusinessId !== undefined) {
-      nextCredentials.shippingBusinessId = nextShippingBusinessId || AMAZON_DEFAULT_BUSINESS_ID
-    }
-    if (nextRegion !== undefined) {
-      nextCredentials.region = nextRegion || AMAZON_DEFAULT_REGION
-    }
-    if (sandbox !== undefined) {
-      nextCredentials.sandbox = parseAmazonSandboxFlag(sandbox)
-    }
-    if (nextLwaTokenUrl !== undefined) {
-      nextCredentials.lwaTokenUrl = nextLwaTokenUrl
-    }
-
-    const normalizedTokens = normalizeAmazonCredentialTokens({
-      accessToken: nextCredentials.accessToken,
-      refreshToken: nextCredentials.refreshToken,
-    })
-    nextCredentials.accessToken = normalizedTokens.accessToken
-    nextCredentials.refreshToken = normalizedTokens.refreshToken
-
-    const metadata = {
-      accessToken: normalizeAmazonCredentialValue(nextCredentials.accessToken),
-      refreshToken: normalizeAmazonCredentialValue(nextCredentials.refreshToken),
-      lwaClientId: normalizeAmazonCredentialValue(nextCredentials.lwaClientId),
-      lwaClientSecret: normalizeAmazonCredentialValue(nextCredentials.lwaClientSecret),
-      endpoint: normalizeAmazonCredentialValue(nextCredentials.endpoint),
-      region: normalizeAmazonCredentialValue(nextCredentials.region) || AMAZON_DEFAULT_REGION,
-      sandbox: Boolean(nextCredentials.sandbox),
-      shippingBusinessId:
-        normalizeAmazonCredentialValue(nextCredentials.shippingBusinessId) ||
-        AMAZON_DEFAULT_BUSINESS_ID,
-      lwaTokenUrl: normalizeAmazonCredentialValue(nextCredentials.lwaTokenUrl),
-    }
-
-    const values = {
-      provider: AMAZON_CREDENTIALS_PROVIDER,
-      apiBase: metadata.endpoint,
-      clientName: metadata.shippingBusinessId,
-      apiKey: metadata.refreshToken || metadata.accessToken,
-      clientId: metadata.lwaClientId,
-      username: metadata.region,
-      password: metadata.lwaClientSecret,
-      webhookSecret: String(metadata.sandbox),
-      metadata,
-      updatedAt: new Date(),
-    }
-
-    await db
-      .insert(courier_credentials)
-      .values(values)
-      .onConflictDoUpdate({
-        target: courier_credentials.provider,
-        set: values,
-      })
-
-    applyAmazonShippingCredentialsToEnv(nextCredentials, { overwriteExisting: true })
-
-    const [saved] = await db
-      .select()
-      .from(courier_credentials)
-      .where(eq(courier_credentials.provider, AMAZON_CREDENTIALS_PROVIDER))
-      .limit(1)
-
-    res.json({
-      success: true,
-      message: 'Amazon credentials updated successfully',
-      data: buildAmazonCredentialResponse(saved),
-    })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ success: false, message: 'Failed to update Amazon credentials' })
   }
 }
 

@@ -171,9 +171,3 @@ export const updateShadowfaxCredentials = async (payload) => {
   if (!data?.success) throw new Error('Failed to update Shadowfax credentials')
   return data.data
 }
-
-export const updateAmazonCredentials = async (payload) => {
-  const { data } = await api.put('/admin/couriers/credentials/amazon', payload)
-  if (!data?.success) throw new Error('Failed to update Amazon credentials')
-  return data.data
-}

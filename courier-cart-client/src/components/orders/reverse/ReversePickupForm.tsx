@@ -38,7 +38,6 @@ const courierOptions = [
   { label: 'Shadowfax', value: 'shadowfax' },
   { label: 'Xpressbees', value: 'xpressbees' },
   { label: 'Ekart', value: 'ekart' },
-  { label: 'Amazon', value: 'amazon' },
 ]
 
 const formatDate = (value?: string | null) => {
@@ -116,7 +115,7 @@ export default function ReversePickupForm() {
     {
       label: 'Unsupported',
       value: Math.max(0, orders.length - reverseReadyOrders.length).toLocaleString('en-IN'),
-      hint: 'Ekart and Amazon reverse are blocked in this flow',
+      hint: 'Reverse is restricted to supported carriers only',
     },
   ]
 
@@ -389,9 +388,8 @@ export default function ReversePickupForm() {
                   ))}
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
-                  Ekart and Amazon reverse are intentionally blocked in this flow because the
-                  courier branches in this repo do not support reverse shipment creation for those
-                  carriers.
+                  Only Delhivery, Shadowfax, and Xpressbees are enabled for reverse pickup in
+                  this flow because the repo supports reverse shipment creation for those carriers.
                 </Typography>
               </CardContent>
             </Card>
