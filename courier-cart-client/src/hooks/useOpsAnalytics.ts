@@ -20,5 +20,6 @@ export const useMerchantOpsAnalytics = (filters: MerchantOpsAnalyticsFilters) =>
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchInterval: 5 * 60 * 1000,
+    retry: 1,
   })
 }

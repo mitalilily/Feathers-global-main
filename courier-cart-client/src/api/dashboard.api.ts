@@ -334,6 +334,7 @@ export const getMerchantOpsAnalytics = async (
 ): Promise<MerchantOpsAnalyticsData> => {
   const axiosConfig: AxiosRequestConfig = {
     ...config,
+    timeout: config?.timeout ?? 60000,
     params: {
       ...(config?.params ?? {}),
       ...filters,

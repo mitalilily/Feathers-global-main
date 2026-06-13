@@ -191,39 +191,6 @@ export default function OpsAnalyticsSection() {
     )
   }
 
-  if (error) {
-    return (
-      <Card
-        sx={{
-          borderRadius: 3,
-          boxShadow: '0 10px 32px rgba(15, 23, 42, 0.08)',
-          border: `1px solid ${alpha(theme.palette.divider, 0.12)}`,
-        }}
-      >
-        <CardContent sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}>
-          <Stack spacing={2} alignItems="center">
-            <Typography fontWeight={800} color="error.main" variant="h6">
-              Failed to load operations analytics
-            </Typography>
-            <Button
-              startIcon={<MdRefresh size={18} />}
-              variant="contained"
-              onClick={() => refetch()}
-              sx={{
-                borderRadius: 2,
-                textTransform: 'none',
-                bgcolor: BRAND.colors.teal,
-                '&:hover': { bgcolor: BRAND.colors.tealDark },
-              }}
-            >
-              Retry
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card>
-    )
-  }
-
   return (
     <Card
       id="ops-analytics"
@@ -236,6 +203,25 @@ export default function OpsAnalyticsSection() {
     >
       <CardContent sx={{ p: { xs: 2, md: 3 } }}>
         <Stack spacing={2.5}>
+          {error ? (
+            <Alert
+              severity="warning"
+              action={
+                <Button
+                  size="small"
+                  onClick={() => refetch()}
+                  sx={{ textTransform: 'none', fontWeight: 800 }}
+                >
+                  Retry
+                </Button>
+              }
+              sx={{ borderRadius: 2 }}
+            >
+              Operations analytics is temporarily unavailable. Showing empty states until the
+              data source responds.
+            </Alert>
+          ) : null}
+
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             justifyContent="space-between"
