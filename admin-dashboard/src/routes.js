@@ -4,7 +4,6 @@ import {
   IconArrowBackUp,
   IconBell,
   IconCoinRupee,
-  IconChartBar,
   IconDashboard,
   IconHelpCircle,
   IconInfoCircle,
@@ -41,7 +40,6 @@ import DeveloperLogs from 'views/Developer/DeveloperLogs'
 import ApiIntegration from 'views/Integrations/ApiIntegration'
 import AdminNdr from 'views/Ops/AdminNdr'
 import AdminRto from 'views/Ops/AdminRto'
-import OpsAnalytics from 'views/Ops/OpsAnalytics'
 import AdminNotificationsPage from 'views/Notifications/AdminNotificationsPage'
 import Orders from 'views/Orders/Orders'
 import PlanManagement from 'views/PlanManagement/PlanManagement'
@@ -103,17 +101,6 @@ const dashRoutes = [
     icon: <IconSettings size={20} />,
     layout: '/admin',
     views: [
-      {
-        path: '/ops/analytics',
-        name: 'Ops Analytics',
-        icon: <IconChartBar />,
-        component: () => (
-          <AdminRoute>
-            <OpsAnalytics />
-          </AdminRoute>
-        ),
-        layout: '/admin',
-      },
       {
         path: '/ops/ndr',
         name: 'NDR',

@@ -18,6 +18,7 @@ import InsightsCard from '../../components/dashboard/InsightsCard'
 import MetricsOverviewCard from '../../components/dashboard/MetricsOverviewCard'
 import OrderStatusChart from '../../components/dashboard/OrderStatusChart'
 import OrdersTrendChart from '../../components/dashboard/OrdersTrendChart'
+import OpsAnalyticsSection from '../../components/dashboard/OpsAnalyticsSection'
 import PerformanceMetricsCard from '../../components/dashboard/PerformanceMetricsCard'
 import QuickActionsCard from '../../components/dashboard/QuickActionsCard'
 import QuickStatsCards from '../../components/dashboard/QuickStatsCards'
@@ -507,6 +508,10 @@ export default function Dashboard() {
               )
             })}
         </Grid>
+      </Box>
+
+      <Box sx={{ mt: 3 }}>
+        <OpsAnalyticsSection />
       </Box>
 
       {/* Customization Dialog */}

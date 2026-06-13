@@ -10,6 +10,7 @@ type AnalyticsFilters = {
   fromDate?: string
   toDate?: string
   userId?: string
+  accountId?: string
   courier?: string
   zone?: string
   search?: string
@@ -231,10 +232,10 @@ const detectCategory = (productName: string) => {
 }
 
 const detectPriceRange = (amount: number) => {
-  if (amount < 500) return '₹0-499'
-  if (amount < 1000) return '₹500-999'
-  if (amount < 1500) return '₹1000-1499'
-  return '₹1500+'
+  if (amount < 500) return 'Rs 0-499'
+  if (amount < 1000) return 'Rs 500-999'
+  if (amount < 1500) return 'Rs 1000-1499'
+  return 'Rs 1500+'
 }
 
 const detectWeightSlab = (weight: number) => {
@@ -531,6 +532,7 @@ export const getAdminOpsAnalytics = async (filters: AnalyticsFilters = {}) => {
   const productStats = new Map<string, BaseStats>()
   const categoryStats = new Map<string, BaseStats>()
   const skuStats = new Map<string, BaseStats>()
+  const skuProductMap = new Map<string, string>()
   const sizeStats = new Map<string, BaseStats>()
   const dispatchStats = new Map<string, BaseStats>()
 
@@ -595,6 +597,11 @@ export const getAdminOpsAnalytics = async (filters: AnalyticsFilters = {}) => {
 
     const products = normalizeProductList(row.products)
     const tokens = collectProductTokens(products)
+    for (const skuProduct of tokens.skuProducts || []) {
+      if (!skuProductMap.has(skuProduct.sku)) {
+        skuProductMap.set(skuProduct.sku, skuProduct.product)
+      }
+    }
 
     for (const product of tokens.products) {
       applyOrderStats(getOrCreate(productStats, product, createBaseStats), row)
@@ -779,7 +786,11 @@ export const getAdminOpsAnalytics = async (filters: AnalyticsFilters = {}) => {
     .sort((a, b) => b.rtoRate - a.rtoRate)
 
   const skuWiseRto = buildPairMap(skuStats)
-    .map((item) => ({ sku: item.label, product: item.label, rtoRate: item.rtoRate }))
+    .map((item) => ({
+      sku: item.label,
+      product: skuProductMap.get(item.label) || item.label,
+      rtoRate: item.rtoRate,
+    }))
     .slice(0, 8)
 
   const sizeOrder = ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'Other']
@@ -845,6 +856,7 @@ export const getAdminOpsAnalytics = async (filters: AnalyticsFilters = {}) => {
         fromDate: filters.fromDate ?? null,
         toDate: filters.toDate ?? null,
         userId: filters.userId ?? null,
+        accountId: filters.accountId ?? null,
         courier: filters.courier ?? null,
         zone: filters.zone ?? null,
         search: filters.search ?? null,
@@ -885,6 +897,7 @@ const collectProductTokens = (products: unknown) => {
   const skuSet = new Set<string>()
   const sizeSet = new Set<string>()
   const colorSet = new Set<string>()
+  const skuProductMap = new Map<string, string>()
 
   for (const item of normalizeProductList(products)) {
     if (!item || typeof item !== 'object') continue
@@ -897,6 +910,9 @@ const collectProductTokens = (products: unknown) => {
     productSet.add(productName)
     categorySet.add(detectCategory(productName))
     if (sku) skuSet.add(sku)
+    if (sku && !skuProductMap.has(sku)) {
+      skuProductMap.set(sku, productName)
+    }
     if (size) sizeSet.add(size.toUpperCase())
     if (color) colorSet.add(color)
   }
@@ -907,6 +923,7 @@ const collectProductTokens = (products: unknown) => {
     skus: Array.from(skuSet),
     sizes: Array.from(sizeSet),
     colors: Array.from(colorSet),
+    skuProducts: Array.from(skuProductMap.entries()).map(([sku, product]) => ({ sku, product })),
   }
 }
 
