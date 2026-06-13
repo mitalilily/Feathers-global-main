@@ -10,6 +10,7 @@ import React from 'react'
 import { Redirect, Route, Switch } from 'react-router-dom'
 import routes from 'routes.js'
 import theme from 'theme/theme.js'
+import { BRAND } from '../constants/brand'
 
 export default function Pages(props) {
   const { ...rest } = props
@@ -17,6 +18,7 @@ export default function Pages(props) {
   const wrapper = React.createRef()
   React.useEffect(() => {
     document.body.style.overflow = 'unset'
+    document.title = `${BRAND.name} Admin`
     // Specify how to clean up after this effect:
     return function cleanup() {}
   })

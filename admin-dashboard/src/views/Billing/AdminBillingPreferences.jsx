@@ -26,6 +26,7 @@ import {
   adminUpdateUserBillingPreference,
 } from 'services/billingPreferences.service'
 import { getPresignedDownloadUrls } from 'services/upload.service'
+import { BRAND } from '../../constants/brand'
 
 export default function AdminBillingPreferences() {
   const toast = useToast()
@@ -497,7 +498,7 @@ export default function AdminBillingPreferences() {
               <Box>
                 <FormLabel>Issuer Name</FormLabel>
                 <Input
-                  placeholder="Shiplifi"
+                  placeholder={BRAND.name}
                   value={issuerForm.brandName}
                   onChange={(e) => handleIssuerFieldChange('brandName', e.target.value)}
                 />

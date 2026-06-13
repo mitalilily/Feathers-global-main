@@ -9,6 +9,8 @@ import {
 } from '@chakra-ui/react'
 import PropTypes from 'prop-types'
 import { useEffect, useState } from 'react'
+import { BRAND } from '../../constants/brand'
+import BrandMark from '../Brand/BrandMark'
 import AdminNavbarLinks from './AdminNavbarLinks'
 
 export default function AdminNavbar(props) {
@@ -25,14 +27,14 @@ export default function AdminNavbar(props) {
   let paddingX = '18px'
 
   const fixedNavbarShadow = useColorModeValue(
-    '0 16px 38px rgba(17, 17, 19, 0.08)',
+    '0 16px 38px rgba(7, 25, 35, 0.08)',
     '0 16px 38px rgba(5, 4, 10, 0.42)',
   )
   const fixedNavbarBg = useColorModeValue(
-    'rgba(255,255,255,0.92)',
+    'rgba(255,255,255,0.94)',
     'rgba(17,17,19,0.92)',
   )
-  const fixedNavbarBorder = useColorModeValue('1px solid rgba(17, 17, 19, 0.08)', '1px solid rgba(255, 255, 255, 0.08)')
+  const fixedNavbarBorder = useColorModeValue('1px solid rgba(215, 238, 241, 0.95)', '1px solid rgba(255, 255, 255, 0.08)')
 
   if (fixed === true && scrolled === true) {
     navbarPosition = 'fixed'
@@ -89,24 +91,15 @@ export default function AdminNavbar(props) {
     >
       <Flex w="100%" flexDirection={{ sm: 'column', md: 'row' }} alignItems={{ xl: 'center' }} gap={{ sm: 2, md: 0 }}>
         <Box mb={{ sm: '4px', md: '0px' }} display="flex" alignItems="center" gap="14px">
-          <Box
-            as="img"
-            src="/logo/shiplifi-logo.png"
-            alt="Shiplifi"
-            h="36px"
-            w="36px"
-            objectFit="contain"
-            display={{ base: 'none', md: 'block' }}
-            borderRadius="8px"
-            p="3px"
-            bg={useColorModeValue('rgba(217, 4, 22, 0.08)', 'rgba(255, 255, 255, 0.08)')}
-          />
+          <Box display={{ base: 'none', md: 'block' }}>
+            <BrandMark compact size={34} />
+          </Box>
 
           <Box>
             <Breadcrumb separator="/" spacing="8px" mb="3px">
               <BreadcrumbItem>
                 <BreadcrumbLink href="#" color={secondaryText} fontSize="xs" fontWeight="600" _hover={{ color: 'brand.500', textDecoration: 'none' }}>
-                  Admin
+                  {BRAND.name}
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbItem>

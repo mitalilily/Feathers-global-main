@@ -1,14 +1,15 @@
 /* eslint-disable */
-import { Flex, Link, Text, useColorModeValue } from "@chakra-ui/react";
+import { Flex, Link, Text, useColorModeValue } from '@chakra-ui/react'
+import { BRAND } from '../../constants/brand'
 
 export default function Footer() {
-  const textColor = useColorModeValue("gray.500", "gray.400");
-  const linkColor = useColorModeValue("brand.500", "brand.300");
+  const textColor = useColorModeValue('gray.500', 'gray.400')
+  const linkColor = useColorModeValue('brand.500', 'brand.300')
 
   return (
     <Flex
-      flexDirection={{ base: "column", xl: "row" }}
-      alignItems={{ base: "center", xl: "start" }}
+      flexDirection={{ base: 'column', xl: 'row' }}
+      alignItems={{ base: 'center', xl: 'start' }}
       justifyContent="space-between"
       px="30px"
       py="20px"
@@ -16,23 +17,16 @@ export default function Footer() {
     >
       <Text
         color={textColor}
-        textAlign={{ base: "center", xl: "start" }}
-        mb={{ base: "20px", xl: "0px" }}
+        textAlign={{ base: 'center', xl: 'start' }}
+        mb={{ base: '20px', xl: '0px' }}
         fontSize="sm"
       >
-        &copy; {new Date().getFullYear()}{" "}
+        &copy; {new Date().getFullYear()}{' '}
         <Text as="span">
-          {document.documentElement.dir === "rtl"
-            ? "كل الحقوق محفوظة لـ"
-            : "All rights reserved – "}
+          {document.documentElement.dir === 'rtl' ? 'ÙƒÙ„ Ø§Ù„Ø­Ù‚ÙˆÙ‚ Ù…Ø­ÙÙˆØ¸Ø© Ù„Ù€' : 'All rights reserved – '}
         </Text>
-        <Link
-          color={linkColor}
-          href="https://www.shiplifi.com"
-          target="_blank"
-          fontWeight="semibold"
-        >
-          Shiplifi Admin
+        <Link color={linkColor} href={`https://${BRAND.website}`} target="_blank" fontWeight="semibold">
+          {BRAND.name} Admin
         </Link>
       </Text>
       <Link
@@ -41,10 +35,10 @@ export default function Footer() {
         target="_blank"
         fontWeight="semibold"
         fontSize="sm"
-        _hover={{ color: linkColor, textDecoration: "none" }}
+        _hover={{ color: linkColor, textDecoration: 'none' }}
       >
         Crafted by SearchCraft Digital
       </Link>
     </Flex>
-  );
+  )
 }
