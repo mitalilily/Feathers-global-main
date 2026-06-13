@@ -1146,7 +1146,10 @@ const B2COrdersList = () => {
       label: 'Courier',
       type: 'select',
       options:
-        couriers?.map((c: { name: string; id: string }) => ({ label: c.name, value: c.id })) ?? [],
+        couriers?.map((c: { name?: string; id?: string }) => ({
+          label: String(c.name || ''),
+          value: String(c.id || ''),
+        })) ?? [],
       isAdvanced: true,
     },
     {
@@ -1155,8 +1158,8 @@ const B2COrdersList = () => {
       type: 'select',
       options:
         warehouses?.pickupAddresses?.map((w) => ({
-          label: w.pickup?.addressNickname,
-          value: w.pickup?.addressNickname,
+          label: String(w.pickup?.addressNickname || ''),
+          value: String(w.pickup?.addressNickname || ''),
         })) ?? [],
       isAdvanced: true,
     },

@@ -203,14 +203,14 @@ export const useShippingRates = (filters = {}) => {
 }
 
 export const useAllCouriers = () => {
-  return useQuery({
+  return useQuery<any[]>({
     queryKey: ['allCouriers'],
     queryFn: () => fetchAllCouriers(),
   })
 }
 
 export const useAllCouriersWithDetails = () => {
-  return useQuery({
+  return useQuery<any[]>({
     queryKey: ['allCouriers'],
     queryFn: () => fetchCouriersWithDetails(),
   })
