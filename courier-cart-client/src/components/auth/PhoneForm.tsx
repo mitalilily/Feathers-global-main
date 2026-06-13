@@ -113,6 +113,9 @@ export default function PhoneForm() {
       sendOtpRequest(normalizedEmail, {
         onSuccess: (data: RequestOtpResponse) => {
           const otpFromResponse = data?.devOtp ?? data?.otp ?? ''
+          if (otpFromResponse) {
+            console.log('[AUTH OTP]', { email: normalizedEmail, otp: otpFromResponse })
+          }
           setDebugOtp(otpFromResponse)
           sessionStorage.setItem('preferredMethod', 'email_otp')
           setOtpStep(1)

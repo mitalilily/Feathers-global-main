@@ -136,7 +136,11 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
 
     resendOtp(email.toLowerCase().trim(), {
       onSuccess: (data: { devOtp?: string; otp?: string }) => {
-        onDebugOtpChange?.(data?.devOtp ?? data?.otp ?? '')
+        const nextOtp = data?.devOtp ?? data?.otp ?? ''
+        if (nextOtp) {
+          console.log('[AUTH OTP]', { email: email.toLowerCase().trim(), otp: nextOtp })
+        }
+        onDebugOtpChange?.(nextOtp)
         setOtpDigits(Array(OTP_LENGTH).fill(''))
         setError('')
         setResendEnabled(false)
