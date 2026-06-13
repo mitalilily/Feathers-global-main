@@ -34,6 +34,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import type { TrackingHistory } from '../../api/tracking.service'
 import AWBLink from '../../components/UI/AWBLink'
 import CustomInput from '../../components/UI/inputs/CustomInput'
+import { DelhiveryLifecycleAdapter } from '../../components/tracking/DelhiveryLifecycleAdapter'
 import { SmartTabs } from '../../components/UI/tab/Tabs'
 import { useTracking } from '../../hooks/Orders/useTracking'
 import {
@@ -497,6 +498,11 @@ export default function OrderTrackingForm() {
               )}
             </CardContent>
           </Card>
+
+          <DelhiveryLifecycleAdapter
+            courierName={tracking.courier_name}
+            integrationType={tracking.integration_type}
+          />
 
           <Card sx={shellCardStyles}>
             <CardContent>
