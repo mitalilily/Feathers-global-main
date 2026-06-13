@@ -1,18 +1,33 @@
 import { io, type Socket } from 'socket.io-client'
 
+const DEFAULT_RAILWAY_API_URL = 'https://feathers-global-main-production.up.railway.app/api'
+
+const resolveApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase()
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
+      return 'http://localhost:4000/api'
+    }
+  }
+
+  return DEFAULT_RAILWAY_API_URL
+}
+
 const resolveSocketUrl = () => {
   if (import.meta.env.VITE_APP_SOCKET_URL) return import.meta.env.VITE_APP_SOCKET_URL
 
-  const apiUrl = import.meta.env.VITE_API_URL
+  const apiUrl = resolveApiBaseUrl()
   if (apiUrl) {
     try {
       return new URL(apiUrl, window.location.origin).origin
     } catch {
-      return window.location.origin
+      return apiUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '')
     }
   }
 
-  return window.location.origin
+  return DEFAULT_RAILWAY_API_URL.replace(/\/api\/?$/, '')
 }
 
 let socket: Socket | null = null
