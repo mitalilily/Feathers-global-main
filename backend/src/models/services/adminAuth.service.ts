@@ -9,7 +9,8 @@ import { findUserByEmail, findUserById, saveRefreshToken } from "./userService";
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const loginAdmin = async (email: string, password: string) => {
-  const user = await findUserByEmail(email);
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
+  const user = await findUserByEmail(normalizedEmail);
 
   if (!user || user.role !== "admin") {
     throw new Error("Unauthorized");

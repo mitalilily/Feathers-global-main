@@ -2,6 +2,7 @@ export const BRAND = {
   name: 'Feather Global',
   shortName: 'Feather',
   tagline: 'Seamless logistics to power smarter shipping operations.',
+  adminEmail: 'admin@feathersglobal.com',
   supportEmail: 'support@featherglobal.in',
   website: 'www.featherglobal.in',
   logo: '/feather-global-logo.svg',

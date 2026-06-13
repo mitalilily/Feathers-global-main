@@ -143,7 +143,7 @@ function SignUp() {
                     Work email
                   </FormLabel>
                   <Input
-                    placeholder={`admin@${BRAND.website.replace(/^https?:\/\//, '')}`}
+                    placeholder={BRAND.adminEmail}
                     type="email"
                     h="50px"
                     borderRadius="10px"

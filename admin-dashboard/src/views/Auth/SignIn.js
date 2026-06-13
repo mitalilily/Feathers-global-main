@@ -50,7 +50,7 @@ function SignIn() {
   const inputBorder = useColorModeValue('rgba(4,123,133,0.12)', 'rgba(255,255,255,0.1)')
   const iconHoverBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.08)')
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(BRAND.adminEmail)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -233,7 +233,7 @@ function SignIn() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder={`admin@${BRAND.website.replace(/^https?:\/\//, '')}`}
+                    placeholder={BRAND.adminEmail}
                     h="50px"
                     borderRadius="10px"
                     bg={inputBg}
