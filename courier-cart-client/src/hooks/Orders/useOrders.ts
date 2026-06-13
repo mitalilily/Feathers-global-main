@@ -102,6 +102,7 @@ interface Filters {
   search?: string
   warehouse?: string
   productQuery?: string
+  courier?: string
   fetchAll?: boolean
 }
 
@@ -226,6 +227,7 @@ export const useCreateReverseShipment = () => {
     onSuccess: () => {
       toast.open({ message: 'Reverse shipment created', severity: 'success' })
       queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (error: any) => {
