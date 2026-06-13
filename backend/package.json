@@ -61,7 +61,8 @@
     "tesseract.js": "^4.1.1",
     "twilio": "^5.7.0",
     "uuid": "^11.1.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "typescript": "^5.8.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
@@ -79,7 +80,6 @@
     "drizzle-orm": "^0.44.2",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "tsx": "^4.19.4"
   }
 }
