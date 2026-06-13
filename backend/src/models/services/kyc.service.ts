@@ -14,8 +14,13 @@ import { ensureKycSchemaCompatibility } from './kycSchemaCompatibility.service'
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/
 const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
-export const UpdateKYCDetails = async (userId: string, details: KycDetails) => {
+export const UpdateKYCDetails = async (
+  userId: string,
+  details: KycDetails,
+  options: { draft?: boolean } = {},
+) => {
   await ensureKycSchemaCompatibility()
+  const isDraft = Boolean(options.draft)
 
   const normalizedDetails: KycDetails = {
     ...details,
@@ -61,7 +66,7 @@ export const UpdateKYCDetails = async (userId: string, details: KycDetails) => {
     .filter(([field, isRequired]) => isRequired && !normalizedDetails[field as keyof KycDetails])
     .map(([field]) => field)
 
-  if (missing.length) {
+  if (!isDraft && missing.length) {
     throw new HttpError(400, `Missing required fields for ${structure}: ${missing.join(', ')}`)
   }
 

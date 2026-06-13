@@ -1,11 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { KycDetails } from "../../../types/user.types";
-import { getKyc, submitKyc } from "../../../api/kyc";
+import { getKyc, submitKyc, type SubmitKycPayload } from "../../../api/kyc";
 
 export const useSubmitKyc = () =>
   useMutation({
-    mutationFn: ({ details }: { details: Partial<KycDetails> }) =>
-      submitKyc(details),
+    mutationFn: ({ details, draft = false }: { details: Partial<KycDetails>; draft?: boolean }) =>
+      submitKyc({ ...details, draft } as SubmitKycPayload),
   });
 
 export const useUserKyc = () =>

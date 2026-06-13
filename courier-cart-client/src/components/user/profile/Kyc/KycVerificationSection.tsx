@@ -67,16 +67,23 @@ const KYCVerificationStep: React.FC<{
     })
   }
 
-  const submitKycDetails = async (data: Partial<KycDetails>) => {
+  const submitKycDetails = async (
+    data: Partial<KycDetails>,
+    options: { draft?: boolean; successMessage?: string } = {},
+  ) => {
     try {
       toast.open({ message: 'Submitting KYC details...', severity: 'info' })
 
       const result = await mutateAsync({
         details: data,
+        draft: options.draft ?? false,
       })
 
       toast.open({
-        message: result?.message ?? 'KYC details submitted successfully!',
+        message:
+          options.successMessage ??
+          result?.message ??
+          'KYC details submitted successfully!',
         severity: 'success',
       })
 
@@ -85,12 +92,13 @@ const KYCVerificationStep: React.FC<{
       queryClient.invalidateQueries({ queryKey: ['userKyc'] })
       queryClient.invalidateQueries({ queryKey: ['userProfile'] })
 
-      if (onComplete) {
+      if (onComplete && !options.draft) {
         // After a successful submission (new or edit), let the parent decide what to show next.
         onComplete()
-      } else {
+      } else if (!options.draft) {
         setActiveStep((prev) => Math.min(prev + 1, steps.length - 1))
       }
+      return true
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.open({
@@ -99,13 +107,23 @@ const KYCVerificationStep: React.FC<{
       })
 
       setIsStepValid(false)
+      return false
     }
   }
 
   const handleAdditionalInfoSubmit = async (data: AdditionalKYCForm) => {
     await handleAdditionalInfoChange(data)
     setIsStepValid(Boolean(kycDataRef.current.selfieUrl))
-    setActiveStep(2)
+    const saved = await submitKycDetails(
+      { ...kycDataRef.current, ...data },
+      {
+        draft: true,
+        successMessage: 'KYC documents saved. Continue with selfie verification.',
+      },
+    )
+    if (saved) {
+      setActiveStep(2)
+    }
   }
 
   const handleFinalSubmit = async (data: Partial<KycDetails>) => {
