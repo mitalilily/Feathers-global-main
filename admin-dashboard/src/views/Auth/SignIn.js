@@ -24,7 +24,7 @@ import { FiCheckCircle } from 'react-icons/fi'
 import { useHistory } from 'react-router-dom'
 import { loginAdmin } from '../../services/auth.service'
 import { useAuthStore } from '../../store/useAuthStore'
-import { BRAND, brandGradient } from '../../constants/brand'
+import { BRAND } from '../../constants/brand'
 
 function isTokenValid(token) {
   try {
@@ -39,10 +39,13 @@ function SignIn() {
   const pageBg = useColorModeValue(BRAND.colors.surface, '#111113')
   const shellBg = useColorModeValue('white', '#18181B')
   const shellBorder = useColorModeValue('rgba(215,238,241,0.95)', 'rgba(255,255,255,0.08)')
-  const leftBg = useColorModeValue(brandGradient, '#111113')
-  const leftBorder = useColorModeValue('rgba(215,238,241,0.95)', 'rgba(255,255,255,0.08)')
+  const leftBg = useColorModeValue(
+    'linear-gradient(145deg, #013f49 0%, #047b85 52%, #0d4f66 100%)',
+    '#111113',
+  )
+  const leftBorder = useColorModeValue('rgba(255,255,255,0.12)', 'rgba(255,255,255,0.08)')
   const textPrimary = useColorModeValue(BRAND.colors.ink, 'white')
-  const textSecondary = useColorModeValue(BRAND.colors.muted, 'rgba(255,255,255,0.72)')
+  const textSecondary = useColorModeValue('rgba(255,255,255,0.88)', 'rgba(255,255,255,0.72)')
   const inputBg = useColorModeValue('#F8FCFD', 'rgba(255,255,255,0.04)')
   const inputBorder = useColorModeValue('rgba(4,123,133,0.12)', 'rgba(255,255,255,0.1)')
   const iconHoverBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.08)')
@@ -145,7 +148,7 @@ function SignIn() {
                 border="1px solid rgba(17,17,19,0.08)"
               />
               <VStack align="start" spacing={0.5}>
-                <Text fontSize="xs" fontWeight="800" letterSpacing="0.18em" textTransform="uppercase" color="rgba(255,255,255,0.52)">
+                <Text fontSize="xs" fontWeight="800" letterSpacing="0.18em" textTransform="uppercase" color="rgba(255,255,255,0.72)">
                   {BRAND.name}
                 </Text>
                 <Text fontSize="sm" fontWeight="700" color="white">
@@ -158,7 +161,7 @@ function SignIn() {
               <Heading fontSize={{ base: '3xl', md: '4xl' }} lineHeight="1.02" letterSpacing="-0.04em" color="white">
                 Run {BRAND.name} operations from one sharper admin command layer.
               </Heading>
-              <Text color="rgba(255,255,255,0.72)" fontSize="md" lineHeight="1.9">
+              <Text color="rgba(255,255,255,0.88)" fontSize="md" lineHeight="1.9">
                 Oversee pricing, users, serviceability, support, billing, and logistics execution
                 from a cleaner admin console built for daily operational control.
               </Text>
@@ -174,13 +177,13 @@ function SignIn() {
                   key={item.title}
                   p={4}
                   borderRadius="10px"
-                  bg="rgba(255,255,255,0.06)"
-                  border="1px solid rgba(255,255,255,0.08)"
+                  bg="rgba(255,255,255,0.1)"
+                  border="1px solid rgba(255,255,255,0.16)"
                 >
                   <Text fontSize="sm" fontWeight="800" color="white">
                     {item.title}
                   </Text>
-                  <Text mt={2} fontSize="sm" lineHeight="1.7" color="rgba(255,255,255,0.68)">
+                  <Text mt={2} fontSize="sm" lineHeight="1.7" color="rgba(255,255,255,0.82)">
                     {item.body}
                   </Text>
                 </Box>
@@ -197,7 +200,7 @@ function SignIn() {
                   <Box pt="1">
                     <FiCheckCircle color="#F86B78" size={15} />
                   </Box>
-                  <Text color="white" fontSize="sm" fontWeight="600">
+                  <Text color="rgba(255,255,255,0.95)" fontSize="sm" fontWeight="600">
                     {item}
                   </Text>
                 </HStack>
@@ -214,7 +217,7 @@ function SignIn() {
                   <Text fontSize="xs" fontWeight="800" letterSpacing="0.16em" color="brand.500" mb={2}>
                     Secure Access
                   </Text>
-                <Heading fontSize={{ base: '2xl', md: '3xl' }} fontWeight="800" color={textPrimary} lineHeight="1.08" letterSpacing="-0.03em">
+                  <Heading fontSize={{ base: '2xl', md: '3xl' }} fontWeight="800" color={textPrimary} lineHeight="1.08" letterSpacing="-0.03em">
                     Sign in to {BRAND.name} Admin
                   </Heading>
                   <Text mt={2} color={textSecondary} fontSize="sm" lineHeight="1.8">
