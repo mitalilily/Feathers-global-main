@@ -14,7 +14,6 @@ import { uploadFileToStorage } from '../../../../api/upload.api'
 import { usePresignedDownloadUrls } from '../../../../hooks/Uploads/usePresignedDownloadUrls'
 import type { KycDetails } from '../../../../types/user.types'
 import { toast } from '../../../UI/Toast'
-import FileUploader from '../../../UI/uploader/FileUploader'
 
 type CameraVerificationPayload = Pick<KycDetails, 'selfieUrl'> & {
   selfieMime?: string
@@ -329,24 +328,6 @@ export default function CameraVerificationStep({
                 Face the camera, keep the frame well lit, and avoid masks or heavy glare.
               </Typography>
             </Box>
-            <FileUploader
-              folderKey="kyc"
-              fullWidth
-              accept="image/jpeg,image/png"
-              variant="button"
-              label="Selfie image fallback"
-              placeholder={uploaded.selfieUrl ? 'Selfie uploaded' : undefined}
-              onUploaded={(files) => {
-                const file = files?.[0]
-                if (!file?.key) return
-                const payload = { selfieUrl: file.key, selfieMime: file.mime || 'image/jpeg' }
-                setUploaded(payload)
-                setPreviewUrl(file.url)
-                setShowExistingPreview(false)
-                onChange?.(payload)
-                stopCamera()
-              }}
-            />
           </Stack>
 
           <Button

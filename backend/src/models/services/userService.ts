@@ -849,7 +849,11 @@ export async function getAllUsersWithRoleUser({
 export const updateUserApprovalStatus = async (userId: string, approved: boolean) => {
   const [updated] = await db
     .update(schema.userProfiles)
-    .set({ approved })
+    .set({
+      approved,
+      approvedAt: approved ? new Date() : null,
+      ...(approved ? { profileComplete: true } : {}),
+    })
     .where(eq(schema.userProfiles.userId, userId))
     .returning()
 
