@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "check:rate-apis": "node -r ts-node/register src/scripts/checkRateCalculatorApis.ts",
+    "check:kyc-flow": "node -r ts-node/register src/scripts/checkKycFlow.ts",
     "check:amazon-shipping-apis": "node -r ts-node/register src/scripts/checkAmazonShippingApis.ts",
     "check:ekart-apis": "node -r ts-node/register src/scripts/checkEkartApis.ts",
     "check:shopify-apis": "node -r ts-node/register src/scripts/checkShopifyApis.ts",
