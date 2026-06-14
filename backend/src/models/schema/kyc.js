@@ -50,6 +50,7 @@ exports.kyc = (0, pg_core_1.pgTable)("kyc", {
     companyAddressProofStatus: (0, exports.kycDocStatusEnum)("companyAddressProofStatus")
         .default("pending")
         .notNull(),
+    companyAddressProofRejectionReason: (0, pg_core_1.text)("companyAddressProofRejectionReason"),
     cancelledChequeRejectionReason: (0, pg_core_1.text)("cancelledChequeRejectionReason")
         .default("pending")
         .notNull(),

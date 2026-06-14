@@ -36,6 +36,11 @@ const runKycSchemaCompatibility = async () => {
   `)
 
   await pool.query(`
+    ALTER TABLE "kyc"
+      ADD COLUMN IF NOT EXISTS "companyAddressProofRejectionReason" text;
+  `)
+
+  await pool.query(`
     DO $$
     BEGIN
       IF EXISTS (

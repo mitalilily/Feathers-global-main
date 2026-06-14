@@ -66,6 +66,7 @@ export const kyc = pgTable("kyc", {
   companyAddressProofStatus: kycDocStatusEnum("companyAddressProofStatus")
     .default("pending")
     .notNull(),
+  companyAddressProofRejectionReason: text("companyAddressProofRejectionReason"),
   cancelledChequeRejectionReason: text("cancelledChequeRejectionReason")
     .default("pending")
     .notNull(),
