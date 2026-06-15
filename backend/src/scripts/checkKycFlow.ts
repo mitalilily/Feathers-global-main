@@ -34,24 +34,52 @@ const assertExcludesAll = (name: string, haystack: string, needles: string[]) =>
 }
 
 const clientKycConstants = read('courier-cart-client/src/utils/constants.ts')
+const clientKycVerificationSection = read(
+  'courier-cart-client/src/components/user/profile/Kyc/KycVerificationSection.tsx',
+)
+const clientKycAdditionalInfoStep = read(
+  'courier-cart-client/src/components/user/profile/Kyc/AdditionalInfoStep.tsx',
+)
+const clientKycDetailsCard = read(
+  'courier-cart-client/src/components/user/profile/Kyc/KycDetailsCard.tsx',
+)
 const backendKycService = read('backend/src/models/services/kyc.service.ts')
+const backendKycConstants = read('backend/src/utils/constants.ts')
 const backendKycSchema = read('backend/src/models/schema/kyc.ts')
 const backendApprovalService = read('backend/src/models/services/userService.ts')
-const cameraVerificationStep = read(
-  'courier-cart-client/src/components/user/profile/Kyc/CameraVerificationStep.tsx',
+const adminKycTab = read(
+  'admin-dashboard/src/views/Dashboard/Profile/components/UserKycTab.jsx',
 )
 
 assertIncludesAll('Client required KYC docs', clientKycConstants, [
   'panCardUrl',
   'aadhaarUrl',
   'cancelledChequeUrl',
-  'selfieUrl',
   'gstCertificateUrl',
   'companyAddressProofUrl',
   'businessPanUrl',
   'boardResolutionUrl',
   'partnershipDeedUrl',
   'llpAgreementUrl',
+])
+
+assertExcludesAll('Client KYC stepper removed camera step', clientKycVerificationSection, [
+  'Camera Verification',
+  'CameraVerificationStep',
+  'selfieUrl',
+  'selfieMime',
+])
+
+assertExcludesAll('Client KYC details card removed selfie docs', clientKycDetailsCard, [
+  'selfieUrl',
+  'Camera Verification',
+  'MdCameraAlt',
+])
+
+assertExcludesAll('Client KYC additional step removed selfie docs', clientKycAdditionalInfoStep, [
+  'selfieUrl',
+  'selfieMime',
+  'Camera Verification',
 ])
 
 assertIncludesAll('Backend KYC persistence fields', backendKycService, [
@@ -64,7 +92,6 @@ assertIncludesAll('Backend KYC persistence fields', backendKycService, [
   'businessPanUrl',
   'gstCertificateUrl',
   'llpAgreementUrl',
-  'selfieUrl',
   'panCardMime',
   'aadhaarMime',
   'cancelledChequeMime',
@@ -74,7 +101,6 @@ assertIncludesAll('Backend KYC persistence fields', backendKycService, [
   'companyAddressProofMime',
   'businessPanMime',
   'gstCertificateMime',
-  'selfieMime',
 ])
 
 assertIncludesAll('Backend KYC schema columns', backendKycSchema, [
@@ -84,10 +110,21 @@ assertIncludesAll('Backend KYC schema columns', backendKycSchema, [
   'boardResolutionUrl',
   'partnershipDeedUrl',
   'llpAgreementUrl',
-  'selfieUrl',
   'businessPanUrl',
   'companyAddressProofUrl',
   'gstCertificateUrl',
+])
+
+assertIncludesAll('Backend KYC constants', backendKycConstants, [
+  'panCardUrl',
+  'aadhaarUrl',
+  'cancelledChequeUrl',
+  'gstCertificateUrl',
+  'companyAddressProofUrl',
+  'businessPanUrl',
+  'boardResolutionUrl',
+  'partnershipDeedUrl',
+  'llpAgreementUrl',
 ])
 
 assertIncludesAll('Approval bookkeeping', backendApprovalService, [
@@ -95,10 +132,9 @@ assertIncludesAll('Approval bookkeeping', backendApprovalService, [
   'profileComplete: true',
 ])
 
-assertExcludesAll('Camera fallback removed', cameraVerificationStep, [
-  'Selfie image fallback',
-  'import FileUploader',
-  'placeholder={uploaded.selfieUrl ? \'Selfie uploaded\' : undefined}',
+assertExcludesAll('Admin KYC viewer removed selfie docs', adminKycTab, [
+  'selfieUrl',
+  'Selfie',
 ])
 
 const failed = results.filter((item) => !item.ok)

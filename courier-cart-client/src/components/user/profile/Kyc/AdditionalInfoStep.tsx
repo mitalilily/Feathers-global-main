@@ -25,7 +25,6 @@ export interface AdditionalKYCForm {
   boardResolutionUrl?: string;
   llpAgreementUrl?: string;
   cancelledChequeUrl?: string;
-  selfieUrl?: string;
 }
 
 interface Props {
@@ -49,7 +48,6 @@ const fieldLabels: Record<keyof AdditionalKYCForm, string> = {
   boardResolutionUrl: "Upload Board Resolution",
   cancelledChequeUrl: "Upload Cancelled Cheque",
   llpAgreementUrl: "Upload LLP Agreement",
-  selfieUrl: "Camera Verification",
 };
 
 const inputPlaceholders: Partial<Record<keyof AdditionalKYCForm, string>> = {
@@ -78,7 +76,6 @@ const allowedMimeTypes: Partial<Record<keyof AdditionalKYCForm, string>> = {
   businessPanUrl: "image/jpeg,image/png,application/pdf",
   gstCertificateUrl: "image/jpeg,image/png,application/pdf",
   llpAgreementUrl: "application/pdf",
-  selfieUrl: "image/jpeg,image/png",
 };
 
 const isFileField = (field: keyof AdditionalKYCForm) =>
@@ -92,7 +89,6 @@ const isFileField = (field: keyof AdditionalKYCForm) =>
     "cancelledChequeUrl",
     "businessPanUrl",
     "gstCertificateUrl",
-    "selfieUrl",
   ].includes(field);
 
 export default function AdditionalDetailsStep({
@@ -159,10 +155,7 @@ export default function AdditionalDetailsStep({
         )?.[field] ?? false;
 
   const displayedFields = React.useMemo(
-    () =>
-      [...requiredFields, ...optionalFields.filter((field) => !requiredFields.includes(field))].filter(
-        (field) => field !== "selfieUrl"
-      ),
+    () => [...requiredFields, ...optionalFields.filter((field) => !requiredFields.includes(field))],
     [requiredFields, optionalFields]
   );
 

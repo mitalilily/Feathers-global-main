@@ -9,9 +9,8 @@ import type { KycDetails } from '../../../../types/user.types'
 import { toast } from '../../../UI/Toast'
 import AdditionalDetailsStep, { type AdditionalKYCForm } from './AdditionalInfoStep'
 import { BusinessStructureStep } from './BusinessStructureStep'
-import CameraVerificationStep from './CameraVerificationStep'
 
-const steps = ['Business Structure', 'Additional Details', 'Camera Verification']
+const steps = ['Business Structure', 'Additional Details']
 const { teal, tealDark, orange, ink, muted } = BRAND.colors
 
 const KYCVerificationStep: React.FC<{
@@ -113,22 +112,12 @@ const KYCVerificationStep: React.FC<{
 
   const handleAdditionalInfoSubmit = async (data: AdditionalKYCForm) => {
     await handleAdditionalInfoChange(data)
-    setIsStepValid(Boolean(kycDataRef.current.selfieUrl))
-    const saved = await submitKycDetails(
+    await submitKycDetails(
       { ...kycDataRef.current, ...data },
       {
-        draft: true,
-        successMessage: 'KYC documents saved. Continue with selfie verification.',
+        successMessage: 'KYC details submitted successfully!',
       },
     )
-    if (saved) {
-      setActiveStep(2)
-    }
-  }
-
-  const handleFinalSubmit = async (data: Partial<KycDetails>) => {
-    updateKycData(data)
-    await submitKycDetails({ ...kycDataRef.current, ...data })
   }
 
   const handleNext = async () => {
@@ -171,22 +160,12 @@ const KYCVerificationStep: React.FC<{
             structure={kycData?.structure}
             companyType={kycData?.companyType}
             defaultValue={kycData}
-            submitLabel="Continue to Camera"
+            submitLabel="Submit KYC"
             onComplete={(data) => handleAdditionalInfoSubmit(data ?? {})}
           />
         )
       default:
-        return (
-          <CameraVerificationStep
-            defaultValue={kycData}
-            submitting={isPending}
-            onChange={(data) => {
-              updateKycData(data)
-              setIsStepValid(Boolean(data.selfieUrl))
-            }}
-            onComplete={handleFinalSubmit}
-          />
-        )
+        return null
     }
   }
 

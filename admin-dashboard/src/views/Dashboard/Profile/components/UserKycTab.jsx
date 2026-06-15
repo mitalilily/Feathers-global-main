@@ -162,7 +162,6 @@ const DOC_LABELS = {
   llpAgreementUrl: 'LLP Agreement',
   panCardUrl: 'PAN Card',
   partnershipDeedUrl: 'Partnership Deed',
-  selfieUrl: 'Selfie',
 }
 
 const DOC_ORDER = [
@@ -175,7 +174,6 @@ const DOC_ORDER = [
   'llpAgreementUrl',
   'panCardUrl',
   'partnershipDeedUrl',
-  'selfieUrl',
 ]
 
 const prettyDocLabel = (key) =>
@@ -276,18 +274,7 @@ const UserKycPage = ({ userId }) => {
       }
     }).filter(Boolean)
 
-    const extraDocFields = Object.entries(kyc || {})
-      .filter(([key, value]) => key.toLowerCase().includes('url') && value && !seen.has(key))
-      .map(([key]) => {
-        const statusKey = `${key.replace('Url', '')}Status`
-        return {
-          label: DOC_LABELS[key] || prettyDocLabel(key),
-          key,
-          status: kyc?.[statusKey],
-        }
-      })
-
-    return [...orderedDocFields, ...extraDocFields]
+    return orderedDocFields
   }, [kyc])
 
   return (
