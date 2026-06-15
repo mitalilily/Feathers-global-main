@@ -14,15 +14,17 @@ export const uploadFileToStorage = async (
   folder?: string,
   onProgress?: (progress: number) => void
 ): Promise<UploadedFileInfo> => {
+  const contentType = file.type || "application/octet-stream";
+
   const { data } = await axiosInstance.post("/uploads/presign", {
-    contentType: file.type || "application/octet-stream",
+    contentType,
     filename: file.name,
     folder,
   });
 
   await axios.put(data.uploadUrl, file, {
     withCredentials: false,
-    headers: { "Content-Type": file.type },
+    headers: { "Content-Type": contentType },
     onUploadProgress: (event) => {
       if (event.total && onProgress) {
         onProgress(Math.round((event.loaded * 100) / event.total));
@@ -35,7 +37,7 @@ export const uploadFileToStorage = async (
     key: data.key,
     originalName: file.name,
     size: file.size,
-    mime: file.type,
+    mime: contentType,
   };
 };
 

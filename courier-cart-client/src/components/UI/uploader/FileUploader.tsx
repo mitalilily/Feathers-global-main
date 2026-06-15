@@ -192,6 +192,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({
     async (files: File[] | FileList) => {
       const uploaded: UploadedFileInfo[] = []
       const arr = Array.from(files)
+      const getContentType = (file: File) => file.type || 'application/octet-stream'
       for (const file of arr) {
         if (file.size / 1024 / 1024 > maxSizeMb) {
           alert(`${file.name} exceeds ${maxSizeMb} MB limit`)
@@ -203,8 +204,9 @@ const FileUploader: React.FC<FileUploaderProps> = ({
 
       try {
         for (const file of arr) {
+          const contentType = getContentType(file)
           const { data } = await axiosInstance.post('/uploads/presign', {
-            contentType: file.type || 'application/octet-stream',
+            contentType,
             filename: file.name,
             folder: folderKey,
           })
@@ -212,7 +214,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({
           // Upload directly to R2 using presigned URL - no credentials needed
           await axios.put(data.uploadUrl, file, {
             withCredentials: false, // Don't send credentials for presigned URL uploads
-            headers: { 'Content-Type': file.type },
+            headers: { 'Content-Type': contentType },
             onUploadProgress: (e) => e.total && setProgress(Math.round((e.loaded * 100) / e.total)),
           })
 
@@ -221,20 +223,20 @@ const FileUploader: React.FC<FileUploaderProps> = ({
             key: data.key,
             originalName: file.name,
             size: file.size,
-            mime: file.type,
+            mime: contentType,
           })
 
-          if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+          if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
             setPreviewUrl(URL.createObjectURL(file)) // optional
             const preview = {
               url: URL.createObjectURL(file),
               name: file.name,
-              type: file.type,
+              type: contentType,
             }
             setFileMeta(preview)
             if (multiple) setPreviewFiles((prev) => [...prev, preview])
           } else {
-            setFileMeta({ type: file.type, name: file.name })
+            setFileMeta({ type: contentType, name: file.name })
           }
 
           // setShowPlaceholder(false);
