@@ -24,6 +24,25 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.SHIPLIFI_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Resolve deploy root
+        run: |
+          DEPLOY_ROOT=$(ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" '
+            if [ -d /srv/shiplifi/current/backend ]; then
+              printf "%s" /srv/shiplifi/current
+            elif [ -d /var/www/shiplifi/backend ]; then
+              printf "%s" /var/www/shiplifi
+            else
+              printf "%s" /srv/shiplifi/current
+            fi
+          ' | tr -d "\r\n")
+
+          echo "DEPLOY_ROOT=$DEPLOY_ROOT" >> "$GITHUB_ENV"
+          echo "Using deploy root: $DEPLOY_ROOT"
+
+      - name: Ensure deploy root exists
+        run: |
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "mkdir -p '$DEPLOY_ROOT'"
+
       - name: Sync project to server
         run: |
           rsync -az --delete \
@@ -39,7 +58,7 @@ jobs:
             --exclude 'landing/dist' \
             --exclude 'courier-cart-client/dist' \
             --exclude 'admin-dashboard/build' \
-            ./ "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}:/srv/shiplifi/current/"
+            ./ "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}:${DEPLOY_ROOT}/"
 
       - name: Sync backend Amazon env
         env:
@@ -53,7 +72,7 @@ jobs:
             exit 0
           fi
 
-          python3 - <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && umask 077 && python3 -'
+          python3 - <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && umask 077 && python3 -"
           import os
 
           token = os.environ["AMAZON_SHIPPING_REFRESH_TOKEN"]
@@ -106,7 +125,7 @@ jobs:
 
       - name: Backfill Amazon LWA env from DB
         run: |
-          cat <<'NODE' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && node -'
+          cat <<'NODE' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && node -"
           const fs = require('fs')
           const path = require('path')
           const dotenv = require('dotenv')
@@ -208,7 +227,7 @@ jobs:
 
       - name: Verify Amazon LWA env
         run: |
-          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && python3 -'
+          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && python3 -"
           from pathlib import Path
           from urllib import parse, request, error
           import hashlib
@@ -285,12 +304,8 @@ jobs:
 
       - name: Deploy on server
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" '
-            cd /srv/shiplifi/current
-            chmod +x deploy/release.sh
-            ./deploy/release.sh
-          '
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd \"$DEPLOY_ROOT\" && chmod +x deploy/release.sh && ./deploy/release.sh"
 
       - name: Mark deployed commit
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "printf '%s\n' '${{ github.sha }}' > /srv/shiplifi/current/.deployed_commit"
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "printf '%s\n' '${{ github.sha }}' > \"$DEPLOY_ROOT/.deployed_commit\""

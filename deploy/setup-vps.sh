@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="/var/www/shiplifi"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$APP_ROOT/backend"
 LANDING_DIR="$APP_ROOT/landing"
 
