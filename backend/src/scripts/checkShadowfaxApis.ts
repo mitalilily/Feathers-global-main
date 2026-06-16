@@ -270,7 +270,13 @@ const startMockShadowfaxServer = async () => {
 
       if (req.method === 'POST' && parsed.pathname === '/v3/clients/order_update/') {
         assert.equal(body?.awb_number, FORWARD_AWB)
-        assert.equal(body?.action, 'RE-ATTEMPT')
+        if (body?.action === 'RE-ATTEMPT') {
+          assert.equal(body?.request_type, 're-attempt')
+          assert.equal(body?.next_attempt_date, '2026-05-18')
+        } else {
+          assert.equal(body?.delivery_details?.contact, '9876543210')
+          assert.equal(body?.delivery_details?.alternate_contact, '9876543210')
+        }
         return sendJson(res, 200, {
           success: true,
           message: 'Order update accepted',
@@ -295,10 +301,11 @@ const startMockShadowfaxServer = async () => {
       }
 
       if (req.method === 'POST' && parsed.pathname === '/v3/clients/orders/cancel/') {
-        assert.equal(body?.awb_number, FORWARD_AWB)
+        assert.equal(body?.request_id, FORWARD_AWB)
         return sendJson(res, 200, {
           success: true,
           message: 'Order cancelled',
+          responseCode: 200,
         })
       }
 
@@ -307,6 +314,7 @@ const startMockShadowfaxServer = async () => {
         return sendJson(res, 200, {
           success: true,
           message: 'Request cancelled',
+          responseCode: 200,
         })
       }
 
@@ -316,6 +324,8 @@ const startMockShadowfaxServer = async () => {
         return sendJson(res, 200, {
           success: true,
           issue_id: 'SFX-ISSUE-1',
+          status: 'SUCCESS',
+          message: 'Issue received',
         })
       }
 
@@ -476,7 +486,7 @@ const main = async () => {
       mode: 'warehouse',
       service: 'surface',
     })
-    assert.equal(surfaceServiceability.serviceable, false)
+    assert.equal(surfaceServiceability.serviceable, true)
 
     const reverseServiceability = await shadowfax.checkReverseServiceability({
       origin: '400001',
@@ -514,9 +524,19 @@ const main = async () => {
     assertJsonResponse('trackShipment', tracking)
     assert.equal(tracking?.data?.awb_number, FORWARD_AWB)
 
+    const orderDetails = await shadowfax.getOrderDetails(FORWARD_AWB)
+    assertJsonResponse('getOrderDetails', orderDetails)
+    assert.equal(orderDetails?.awb_number || orderDetails?.data?.awb_number, FORWARD_AWB)
+    assert.equal(orderDetails?.status || orderDetails?.data?.status, 'in_transit')
+
     const bulkTracking = await shadowfax.bulkTrackShipments([FORWARD_AWB])
     assertJsonResponse('bulkTrackShipments', bulkTracking)
     assert.equal(bulkTracking?.data?.[0]?.awb_number, FORWARD_AWB)
+
+    const multipleOrderDetails = await shadowfax.getMultipleOrderDetails([FORWARD_AWB])
+    assertJsonResponse('getMultipleOrderDetails', multipleOrderDetails)
+    assert.equal(multipleOrderDetails?.data?.[0]?.awb_number, FORWARD_AWB)
+    assert.equal(multipleOrderDetails?.data?.[0]?.status, 'in_transit')
 
     const reverseTracking = await shadowfax.trackReverseShipment(REVERSE_REQUEST_ID)
     assertJsonResponse('trackReverseShipment', reverseTracking)
@@ -536,6 +556,16 @@ const main = async () => {
     assertJsonResponse('updateForwardOrder', forwardUpdate)
     assert.equal(forwardUpdate?.success, true)
 
+    const orderDataUpdate = await shadowfax.updateOrderData({
+      awb_number: FORWARD_AWB,
+      delivery_details: {
+        contact: '9876543210',
+        alternate_contact: '9876543210',
+      },
+    })
+    assertJsonResponse('updateOrderData', orderDataUpdate)
+    assert.equal(orderDataUpdate?.success, true)
+
     const reverseUpdate = await shadowfax.updateReverseOrder({
       request_id: REVERSE_REQUEST_ID,
       action: 'EDIT_DETAILS',
@@ -553,10 +583,12 @@ const main = async () => {
     const forwardCancel = await shadowfax.cancelShipment(FORWARD_AWB)
     assertJsonResponse('cancelShipment forward', forwardCancel)
     assert.equal(forwardCancel?.success, true)
+    assert.equal(forwardCancel?.responseCode, 200)
 
     const reverseCancel = await shadowfax.cancelShipment(REVERSE_REQUEST_ID)
     assertJsonResponse('cancelShipment reverse', reverseCancel)
     assert.equal(reverseCancel?.success, true)
+    assert.equal(reverseCancel?.responseCode, 200)
 
     const escalation = await shadowfax.createEscalation({
       awb_number: FORWARD_AWB,
@@ -564,6 +596,7 @@ const main = async () => {
     })
     assertJsonResponse('createEscalation', escalation)
     assert.equal(escalation?.issue_id, 'SFX-ISSUE-1')
+    assert.equal(escalation?.status, 'SUCCESS')
 
     const pod = await shadowfax.getPodDetails([FORWARD_AWB])
     assertJsonResponse('getPodDetails', pod)

@@ -187,12 +187,6 @@ export const ndrReattemptController = async (req: Request, res: Response) => {
         {
           waybill: wb,
           act: 'RE-ATTEMPT',
-          action_data: {
-            next_attempt_date: nextAttemptDate,
-            ...(comments ? { comments } : {}),
-            ...(alternateAddress ? { alternate_address: alternateAddress } : {}),
-            ...(alternateNumber ? { alternate_number: alternateNumber } : {}),
-          },
         },
       ])
       if (!hasDelhiveryActionAccepted(resp)) {
@@ -747,16 +741,15 @@ export const ndrChangePhoneController = async (req: Request, res: Response) => {
  */
 export const delhiveryPickupRescheduleController = async (req: Request, res: Response) => {
   try {
-    const { awbs, defermentDate } = req.body as { awbs: string[]; defermentDate?: string }
+    const { awbs } = req.body as { awbs: string[]; defermentDate?: string }
     if (!Array.isArray(awbs) || awbs.length === 0) {
       return res.status(400).json({ success: false, message: 'awbs array is required' })
     }
     const delhivery = new DelhiveryService()
-    // Backward-compatible endpoint name; internally mapped to documented Delhivery DEFER_DLV action.
+    // Keep the route name for compatibility, but send the documented Delhivery action.
     const actions = awbs.map((wb) => ({
       waybill: wb,
       act: 'PICKUP_RESCHEDULE' as const,
-      ...(defermentDate ? { action_data: { deferred_date: defermentDate } } : {}),
     }))
     const resp = await delhivery.submitNdrAction(actions)
     if (!hasDelhiveryActionAccepted(resp)) {
@@ -884,7 +877,6 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
             return {
               waybill: c.awb,
               act: c.action as 'RE-ATTEMPT' | 'PICKUP_RESCHEDULE',
-              ...(c.data ? { action_data: c.data } : {}),
             }
           throw new Error(`Unsupported Delhivery action: ${c.action}`)
         })

@@ -1,0 +1,1220 @@
+{
+  "info": {
+    "_postman_id": "f1f4f0e4-7f0a-4cc4-95a1-ekart-booking",
+    "name": "Shiplifi Ekart Booking",
+    "description": "Postman collection for the production booking flow that routes through the Shiplifi backend and ultimately calls the live Ekart integration. Use a production or staging backend URL, a valid x-api-key, and a payload that has a registered Ekart pickup warehouse. Create order returns 201 by design because it creates a new resource.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('request succeeds', function () {",
+          "  pm.expect([200, 201]).to.include(pm.response.code);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Ekart Auth Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/integrations/v2/auth/token/{{ekartClientId}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["integrations", "v2", "auth", "token", "{{ekartClientId}}"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{ekartUsername}}\",\n  \"password\": \"{{ekartPassword}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('auth request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('token response includes access_token', function () {",
+              "  pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+              "  pm.expect(body.token_type).to.eql('Bearer');",
+              "});",
+              "pm.environment.set('ekartAccessToken', String(body.access_token || ''));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/serviceability",
+          "host": ["{{baseUrl}}"],
+          "path": ["serviceability"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartServiceabilityPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});",
+              "if (body.data && Array.isArray(body.data.couriers) && body.data.couriers.length) {",
+              "  pm.environment.set('ekartCourierId', String(body.data.couriers[0].courier_id || body.data.couriers[0].id || ''));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Pair Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/data/v3/serviceability",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["data", "v3", "serviceability"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartPairServiceabilityPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('pair serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('provider returns a courier list', function () {",
+              "  pm.expect(Array.isArray(body)).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Pair Serviceability",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/serviceability",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "serviceability"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartPairServiceabilityPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend pair serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Bulk Serviceability",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/data/serviceability/bulk/{{ekartBulkServiceabilityType}}?format={{ekartBulkServiceabilityFormat}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["data", "serviceability", "bulk", "{{ekartBulkServiceabilityType}}"],
+          "query": [
+            { "key": "format", "value": "{{ekartBulkServiceabilityFormat}}" }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('bulk serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('bulk serviceability response includes serviceability data', function () {",
+              "  pm.expect(body).to.have.property('serviceability');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Bulk Serviceability",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/serviceability/bulk/{{ekartBulkServiceabilityType}}?format={{ekartBulkServiceabilityFormat}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "serviceability", "bulk", "{{ekartBulkServiceabilityType}}"],
+          "query": [
+            { "key": "format", "value": "{{ekartBulkServiceabilityFormat}}" }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend bulk serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Pincode Serviceability",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v2/serviceability/{{ekartPincodeServiceabilityPincode}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v2", "serviceability", "{{ekartPincodeServiceabilityPincode}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('pincode serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('provider marks the pincode serviceable', function () {",
+              "  pm.expect(body.status).to.eql(true);",
+              "  pm.expect(body.pincode).to.be.a('number');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Pincode Serviceability",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/serviceability/{{ekartPincodeServiceabilityPincode}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "serviceability", "{{ekartPincodeServiceabilityPincode}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend pincode serviceability request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Pricing Estimate",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/data/pricing/estimate",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["data", "pricing", "estimate"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartPricingEstimatePayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('pricing estimate request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('estimate response includes shipping total', function () {",
+              "  pm.expect(body.total).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Pricing Estimate",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/pricing/estimate",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "pricing", "estimate"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartPricingEstimatePayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend pricing estimate request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});",
+              "pm.test('estimate data contains total', function () {",
+              "  pm.expect(body.data.total).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Ekart Order",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartOrderPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('create order returns 201', function () {",
+              "  pm.expect(pm.response.code).to.eql(201);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});",
+              "if (body.data) {",
+              "  pm.environment.set('ekartOrderId', String(body.data.order_id || ''));",
+              "  pm.environment.set('ekartOrderNumber', String(body.data.order_number || ''));",
+              "  pm.environment.set('ekartAwbNumber', String(body.data.awb_number || ''));",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Ekart Reverse Order",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartReverseOrderPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('reverse order returns 201', function () {",
+              "  pm.expect(pm.response.code).to.eql(201);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Ekart Template Order",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartTemplateOrderPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('template order returns 201', function () {",
+              "  pm.expect(pm.response.code).to.eql(201);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Set Ekart Dispatch Date",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders/{{ekartOrderId}}/ekart/dispatch-date",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders", "{{ekartOrderId}}", "ekart", "dispatch-date"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"dispatchDate\": \"{{ekartDispatchDate}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('dispatch date request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Update Ekart EWBN",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders/{{ekartOrderId}}/ekart/ewbn",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders", "{{ekartOrderId}}", "ekart", "ewbn"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": \"{{ekartAwbNumber}}\",\n  \"ewbn\": \"{{ekartEwbn}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('ewbn update request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Track Ekart Order",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders/track?awb={{ekartAwbNumber}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders", "track"],
+          "query": [
+            { "key": "awb", "value": "{{ekartAwbNumber}}" }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('track request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Track Ekart Shipment",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v1/track/{{ekartAwbNumber}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v1", "track", "{{ekartAwbNumber}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('track shipment request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('response contains track object', function () {",
+              "  pm.expect(body.track).to.be.an('object');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Raw Track",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/data/v1/elite/track/{{ekartAwbNumber}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["data", "v1", "elite", "track", "{{ekartAwbNumber}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('raw track request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('raw track response contains shipment data', function () {",
+              "  pm.expect(body).to.be.an('object');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Raw Track",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/track/{{ekartAwbNumber}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "track", "{{ekartAwbNumber}}"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend raw track request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('raw track data is present', function () {",
+              "  pm.expect(body.data).to.be.an('object');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Labels JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v1/package/label?json_only={{ekartLabelsJsonOnly}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v1", "package", "label"],
+          "query": [
+            { "key": "json_only", "value": "{{ekartLabelsJsonOnly}}" }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ids\": [\"{{ekartAwbNumber}}\"]\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('labels request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('labels response includes data', function () {",
+              "  pm.expect(body.data).to.exist;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Labels JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/package/label?json_only={{ekartLabelsJsonOnly}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "package", "label"],
+          "query": [
+            { "key": "json_only", "value": "{{ekartLabelsJsonOnly}}" }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ids\": [\"{{ekartAwbNumber}}\"]\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend labels request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Manifest JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/data/v2/generate/manifest",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["data", "v2", "generate", "manifest"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartManifestPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('manifest request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('manifest response includes manifestDownloadUrl', function () {",
+              "  pm.expect(body.manifestDownloadUrl).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Manifest JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/package/manifest",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "package", "manifest"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartManifestPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend manifest request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Address JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v2/address",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v2", "address"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartAddressPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('address request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('address response marks success', function () {",
+              "  pm.expect(body.status).to.eql(true);",
+              "  pm.expect(body.alias).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Address JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/address",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "address"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartAddressPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend address request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart Address List",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v2/addresses",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v2", "addresses"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('address list request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('address list is an array', function () {",
+              "  pm.expect(body).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart Address List",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/addresses",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "addresses"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend address list request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "  pm.expect(body.data).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart NDR Re-Attempt",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v2/package/ndr",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v2", "package", "ndr"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartNdrReattemptPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "var tomorrow = new Date();",
+              "tomorrow.setDate(tomorrow.getDate() + 1);",
+              "tomorrow.setHours(0, 0, 0, 0);",
+              "pm.environment.set('ekartNdrDateMs', String(tomorrow.getTime()));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('NDR reattempt request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('NDR response marks success', function () {",
+              "  pm.expect(body.status).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart NDR Re-Attempt",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/package/ndr",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "package", "ndr"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartNdrReattemptPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "var tomorrow = new Date();",
+              "tomorrow.setDate(tomorrow.getDate() + 1);",
+              "tomorrow.setHours(0, 0, 0, 0);",
+              "pm.environment.set('ekartNdrDateMs', String(tomorrow.getTime()));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend NDR reattempt request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ekart NDR RTO",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v2/package/ndr",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v2", "package", "ndr"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartNdrRtoPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('NDR RTO request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('NDR response marks success', function () {",
+              "  pm.expect(body.status).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend Ekart NDR RTO",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/ekart/package/ndr",
+          "host": ["{{baseUrl}}"],
+          "path": ["ekart", "package", "ndr"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{{ekartNdrRtoPayloadJson}}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('backend NDR RTO request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cancel Ekart Shipment",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{ekartAccessToken}}" }
+        ],
+        "url": {
+          "raw": "https://app.elite.ekartlogistics.in/api/v1/package/cancel?tracking_id={{ekartAwbNumber}}",
+          "protocol": "https",
+          "host": ["app", "elite", "ekartlogistics", "in"],
+          "path": ["api", "v1", "package", "cancel"],
+          "query": [
+            { "key": "tracking_id", "value": "{{ekartAwbNumber}}" }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('cancel shipment request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "var body = pm.response.json();",
+              "pm.test('success flag is true', function () {",
+              "  pm.expect(body.status || body.success).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cancel Ekart Order",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "x-api-key", "value": "{{xApiKey}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/orders/{{ekartOrderId}}/cancel",
+          "host": ["{{baseUrl}}"],
+          "path": ["orders", "{{ekartOrderId}}", "cancel"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"reason\": \"Postman production smoke test\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('cancel request returns 200', function () {",
+              "  pm.expect(pm.response.code).to.eql(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

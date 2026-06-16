@@ -390,7 +390,7 @@ const CourierCredentials = () => {
                 onChange={(e) =>
                   setShadowfaxForm((prev) => ({ ...prev, apiBase: e.target.value }))
                 }
-                placeholder="https://dale.staging.shadowfax.in/api"
+                placeholder="https://dale.shadowfax.in/api"
               />
             </FormControl>
 
@@ -454,7 +454,7 @@ const CourierCredentials = () => {
               <Input
                 value={ekartForm.apiBase}
                 onChange={(e) => setEkartForm((prev) => ({ ...prev, apiBase: e.target.value }))}
-                placeholder="https://api.ekartlogistics.com"
+                placeholder="https://app.elite.ekartlogistics.in"
               />
             </FormControl>
 

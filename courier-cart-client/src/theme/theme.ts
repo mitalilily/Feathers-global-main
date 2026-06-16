@@ -68,18 +68,18 @@ const theme = createTheme({
     borderRadius: 8,
   },
   typography: {
-    fontFamily: '"Poppins", "Segoe UI", sans-serif',
-    h1: { color: ink, fontWeight: 800, letterSpacing: 0 },
-    h2: { color: ink, fontWeight: 800, letterSpacing: 0 },
-    h3: { color: ink, fontWeight: 800, letterSpacing: 0 },
-    h4: { color: ink, fontWeight: 800, letterSpacing: 0 },
-    h5: { color: ink, fontWeight: 700, letterSpacing: 0 },
-    h6: { color: ink, fontWeight: 700, letterSpacing: 0 },
-    subtitle1: { color: text, fontWeight: 700, letterSpacing: 0 },
-    subtitle2: { color: muted, fontWeight: 700, letterSpacing: '0.02em' },
+    fontFamily: '"Inter", "Segoe UI", sans-serif',
+    h1: { color: ink, fontWeight: 700, letterSpacing: 0 },
+    h2: { color: ink, fontWeight: 700, letterSpacing: 0 },
+    h3: { color: ink, fontWeight: 600, letterSpacing: 0 },
+    h4: { color: ink, fontWeight: 600, letterSpacing: 0 },
+    h5: { color: ink, fontWeight: 600, letterSpacing: 0 },
+    h6: { color: ink, fontWeight: 600, letterSpacing: 0 },
+    subtitle1: { color: text, fontWeight: 600, letterSpacing: 0 },
+    subtitle2: { color: muted, fontWeight: 600, letterSpacing: '0.02em' },
     body1: { color: text, lineHeight: 1.65, letterSpacing: 0 },
     body2: { color: muted, lineHeight: 1.55, letterSpacing: 0 },
-    button: { fontWeight: 700, textTransform: 'none', letterSpacing: 0 },
+    button: { fontWeight: 600, textTransform: 'none', letterSpacing: 0 },
   },
   components: {
     MuiCssBaseline: {
@@ -135,7 +135,7 @@ const theme = createTheme({
           borderRadius: 8,
           paddingInline: 18,
           minHeight: 42,
-          fontWeight: 700,
+          fontWeight: 600,
           '&.Mui-disabled': {
             opacity: 0.72,
           },
@@ -179,7 +179,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           borderRadius: 8,
-          fontWeight: 700,
+          fontWeight: 600,
           letterSpacing: '0.02em',
         },
       },
@@ -219,7 +219,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           color: muted,
-          fontWeight: 600,
+          fontWeight: 500,
           '&.Mui-focused': {
             color: teal,
           },
@@ -269,7 +269,7 @@ const theme = createTheme({
       styleOverrides: {
         head: {
           color: ink,
-          fontWeight: 800,
+          fontWeight: 700,
           fontSize: '0.78rem',
           textTransform: 'uppercase',
           letterSpacing: '0.08em',
@@ -311,7 +311,7 @@ const theme = createTheme({
         root: {
           textTransform: 'none',
           minHeight: 46,
-          fontWeight: 700,
+          fontWeight: 600,
           color: muted,
           '&.Mui-selected': {
             color: teal,

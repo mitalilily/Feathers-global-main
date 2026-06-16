@@ -1,4 +1,5 @@
 import { Response } from 'express'
+import { DelhiveryService } from '../../models/services/couriers/delhivery.service'
 import { getNdrTimeline, listNdrEvents } from '../../models/services/ndr.service'
 
 /**
@@ -68,6 +69,39 @@ export const getNdrTimelineController = async (req: any, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch NDR timeline',
+      message: error.message || 'Internal server error',
+    })
+  }
+}
+
+/**
+ * Get Delhivery UPL status
+ * GET /api/v1/ndr/delhivery/upl-status?uplId=...
+ */
+export const getDelhiveryUplStatusController = async (req: any, res: Response) => {
+  try {
+    const uplId = String(req.query.uplId || '').trim()
+    if (!uplId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing parameter',
+        message: 'uplId is required',
+      })
+    }
+
+    const verbose = String(req.query.verbose ?? 'true').toLowerCase() !== 'false'
+    const delhivery = new DelhiveryService()
+    const data = await delhivery.getNdrStatus(uplId, verbose)
+
+    res.status(200).json({
+      success: true,
+      data,
+    })
+  } catch (error: any) {
+    console.error('Error fetching Delhivery UPL status via API:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch Delhivery UPL status',
       message: error.message || 'Internal server error',
     })
   }

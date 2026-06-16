@@ -8,6 +8,33 @@ import {
 } from '../../models/services/pickupAddresses.service'
 import { addresses, b2c_orders, pickupAddresses } from '../../schema/schema'
 
+const normalizePickupLocation = (value: unknown) => String(value ?? '').trim()
+
+const getOrderPickupLocation = (order: {
+  pickup_details?: unknown
+  pickup_location_id?: string | null
+}) => {
+  const details = (order.pickup_details || {}) as Record<string, any>
+
+  return normalizePickupLocation(
+    details.warehouse_name ||
+      details.name ||
+      details.address_nickname ||
+      details.addressNickname ||
+      details.pickup_location ||
+      order.pickup_location_id ||
+      '',
+  )
+}
+
+const getDefaultPickupSchedule = () => {
+  const now = new Date()
+  const pickup_date = now.toISOString().split('T')[0]
+  const pickup_time = new Date(now.getTime() + 60 * 60 * 1000).toTimeString().split(' ')[0]
+
+  return { pickup_date, pickup_time }
+}
+
 /**
  * Create/Register pickup address
  * POST /api/v1/pickup-addresses
@@ -379,17 +406,35 @@ export const updatePickupAddressController = async (req: any, res: Response) => 
 export const requestPickupController = async (req: any, res: Response) => {
   try {
     const userId = req.userId
-    const { awbs, order_numbers, pickup_date, pickup_time, pickup_address_id } = req.body
+    const {
+      awbs,
+      order_numbers,
+      pickup_date,
+      pickup_time,
+      pickup_address_id,
+      pickup_location,
+      expected_package_count,
+    } = req.body
+
+    const pickupLocationFromBody = normalizePickupLocation(pickup_location)
+    const requestedPackageCount = Number(expected_package_count)
+    const directPackageCount =
+      Number.isFinite(requestedPackageCount) && requestedPackageCount > 0
+        ? Math.max(1, Math.round(requestedPackageCount))
+        : 0
 
     // Validate input
     if (
       (!awbs || !Array.isArray(awbs) || awbs.length === 0) &&
-      (!order_numbers || !Array.isArray(order_numbers) || order_numbers.length === 0)
+      (!order_numbers || !Array.isArray(order_numbers) || order_numbers.length === 0) &&
+      !pickupLocationFromBody &&
+      !pickup_address_id
     ) {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields',
-        message: 'awbs or order_numbers (array) is required',
+        message:
+          'awbs, order_numbers (array), pickup_location, or pickup_address_id is required',
       })
     }
 
@@ -402,6 +447,88 @@ export const requestPickupController = async (req: any, res: Response) => {
 
     const identifiers = targetAwbs.length ? targetAwbs : targetOrderNumbers
     const identifierColumn = targetAwbs.length ? b2c_orders.awb_number : b2c_orders.order_number
+    const pickupAddressName = pickup_address_id
+      ? await (async () => {
+          const [pickupAddress] = await db
+            .select({
+              addressNickname: addresses.addressNickname,
+              contactName: addresses.contactName,
+            })
+            .from(pickupAddresses)
+            .innerJoin(addresses, eq(pickupAddresses.addressId, addresses.id))
+            .where(
+              and(
+                eq(pickupAddresses.id, String(pickup_address_id)),
+                eq(pickupAddresses.userId, userId),
+              ),
+            )
+            .limit(1)
+
+          if (!pickupAddress) {
+            return null
+          }
+
+          return (
+            pickupAddress.addressNickname?.trim() ||
+            pickupAddress.contactName?.trim() ||
+            ''
+          )
+        })()
+      : ''
+
+    if (pickup_address_id && !pickupAddressName) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pickup address not found',
+        message: 'pickup_address_id does not exist or is not owned by this user',
+      })
+    }
+
+    const { pickup_date: defaultPickupDate, pickup_time: defaultPickupTime } =
+      getDefaultPickupSchedule()
+    const resolvedPickupDate = String(pickup_date || defaultPickupDate)
+    const resolvedPickupTime = String(pickup_time || defaultPickupTime)
+    const delhivery = new DelhiveryService()
+
+    // Direct warehouse pickup request: caller already knows the warehouse location.
+    if (pickupLocationFromBody || pickupAddressName) {
+      if (!directPackageCount) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required fields',
+          message: 'expected_package_count is required when pickup_location is provided directly',
+        })
+      }
+
+      const pickupLocation = pickupLocationFromBody || pickupAddressName || ''
+      const delhiveryResponse = await delhivery.createPickupRequest({
+        pickup_date: resolvedPickupDate,
+        pickup_time: resolvedPickupTime,
+        pickup_location: pickupLocation,
+        expected_package_count: directPackageCount,
+      })
+
+      return res.status(200).json({
+        success: true,
+        message: 'Pickup request submitted successfully to Delhivery',
+        data: {
+          pickup_requests: [
+            {
+              pickup_location: pickupLocation,
+              pickup_date: resolvedPickupDate,
+              pickup_time: resolvedPickupTime,
+              expected_package_count: directPackageCount,
+              provider: 'delhivery',
+              provider_response: delhiveryResponse,
+            },
+          ],
+          total_locations: 1,
+          total_packages: directPackageCount,
+          pickup_date: resolvedPickupDate,
+          pickup_time: resolvedPickupTime,
+        },
+      })
+    }
 
     const orders = await db
       .select({
@@ -411,6 +538,7 @@ export const requestPickupController = async (req: any, res: Response) => {
         awb_number: b2c_orders.awb_number,
         integration_type: b2c_orders.integration_type,
         pickup_details: b2c_orders.pickup_details,
+        pickup_location_id: b2c_orders.pickup_location_id,
       })
       .from(b2c_orders)
       .where(and(eq(b2c_orders.user_id, userId), inArray(identifierColumn, identifiers)))
@@ -443,79 +571,84 @@ export const requestPickupController = async (req: any, res: Response) => {
       })
     }
 
-    let pickupLocation = ''
-    if (pickup_address_id) {
-      const [pickupAddress] = await db
-        .select({
-          addressNickname: addresses.addressNickname,
-          contactName: addresses.contactName,
-        })
-        .from(pickupAddresses)
-        .innerJoin(addresses, eq(pickupAddresses.addressId, addresses.id))
-        .where(and(eq(pickupAddresses.id, String(pickup_address_id)), eq(pickupAddresses.userId, userId)))
-        .limit(1)
+    const pickupGroups = new Map<
+      string,
+      {
+        pickup_location: string
+        orders: typeof orders
+      }
+    >()
 
-      if (!pickupAddress) {
-        return res.status(404).json({
+    for (const order of orders) {
+      const orderLocation = getOrderPickupLocation(order) || pickupAddressName || pickupLocationFromBody
+
+      if (!orderLocation) {
+        return res.status(400).json({
           success: false,
-          error: 'Pickup address not found',
-          message: 'pickup_address_id does not exist or is not owned by this user',
+          error: 'Missing pickup location',
+          message:
+            'pickup_details.warehouse_name or pickup_location is required for each order to create a Delhivery pickup request',
         })
       }
 
-      pickupLocation =
-        pickupAddress.addressNickname?.trim() || pickupAddress.contactName?.trim() || ''
-    } else {
-      const details = (orders[0].pickup_details || {}) as Record<string, any>
-      pickupLocation = String(details.warehouse_name || '').trim()
-    }
-
-    if (!pickupLocation) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing pickup location',
-        message:
-          'pickup_location is missing. Provide pickup_address_id or ensure order has pickup_details.warehouse_name',
-      })
-    }
-
-    const now = new Date()
-    const defaultPickupDate = now.toISOString().split('T')[0]
-    const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000)
-    const defaultPickupTime = oneHourLater.toTimeString().split(' ')[0]
-
-    const delhivery = new DelhiveryService()
-    const delhiveryResponse = await delhivery.createPickupRequest({
-      pickup_date: String(pickup_date || defaultPickupDate),
-      pickup_time: String(pickup_time || defaultPickupTime),
-      pickup_location: pickupLocation,
-      expected_package_count: orders.length,
-    })
-
-    const orderIds = orders.map((o) => o.id)
-    if (orderIds.length) {
-      await db
-        .update(b2c_orders)
-        .set({
-          order_status: 'pickup_initiated',
-          updated_at: new Date(),
+      const key = orderLocation.toLowerCase()
+      const existing = pickupGroups.get(key)
+      if (existing) {
+        existing.orders.push(order)
+      } else {
+        pickupGroups.set(key, {
+          pickup_location: orderLocation,
+          orders: [order],
         })
-        .where(inArray(b2c_orders.id, orderIds))
+      }
+    }
+
+    const pickupRequests = []
+    for (const group of pickupGroups.values()) {
+      const delhiveryResponse = await delhivery.createPickupRequest({
+        pickup_date: resolvedPickupDate,
+        pickup_time: resolvedPickupTime,
+        pickup_location: group.pickup_location,
+        expected_package_count: group.orders.length,
+      })
+
+      const orderIds = group.orders.map((o) => o.id)
+      if (orderIds.length) {
+        await db
+          .update(b2c_orders)
+          .set({
+            order_status: 'pickup_initiated',
+            updated_at: new Date(),
+          })
+          .where(inArray(b2c_orders.id, orderIds))
+      }
+
+      pickupRequests.push({
+        pickup_location: group.pickup_location,
+        pickup_date: resolvedPickupDate,
+        pickup_time: resolvedPickupTime,
+        expected_package_count: group.orders.length,
+        requested_awbs: group.orders.map((o) => o.awb_number).filter(Boolean),
+        requested_order_numbers: group.orders.map((o) => o.order_number).filter(Boolean),
+        provider: 'delhivery',
+        provider_response: delhiveryResponse,
+      })
     }
 
     res.status(200).json({
       success: true,
-      message: 'Pickup request submitted successfully to Delhivery',
+      message:
+        pickupRequests.length > 1
+          ? 'Pickup requests submitted successfully to Delhivery'
+          : 'Pickup request submitted successfully to Delhivery',
       data: {
-        requested_awbs: orders.map((o) => o.awb_number).filter(Boolean),
-        requested_order_numbers: orders.map((o) => o.order_number).filter(Boolean),
-        pickup_date: String(pickup_date || defaultPickupDate),
-        pickup_time: String(pickup_time || defaultPickupTime),
-        pickup_location: pickupLocation,
-        expected_package_count: orders.length,
+        pickup_requests: pickupRequests,
+        total_locations: pickupRequests.length,
+        total_packages: pickupRequests.reduce((count, request) => count + request.expected_package_count, 0),
+        pickup_date: resolvedPickupDate,
+        pickup_time: resolvedPickupTime,
         status: 'pickup_initiated',
         provider: 'delhivery',
-        provider_response: delhiveryResponse,
       },
     })
   } catch (error: any) {

@@ -16,6 +16,7 @@ import {
   amazonShippingTrackingWebhookHandler,
 } from './controllers/webhooks/amazonShipping.webhook'
 import { AMAZON_SHIPPING_WEBHOOK_PATH } from './config/amazonShippingWebhook'
+import { EKART_WEBHOOK_LEGACY_PATH, EKART_WEBHOOK_PATH } from './config/ekartWebhook'
 import { ekartWebhookHandler } from './controllers/webhooks/ekart.webhook'
 import { shadowfaxWebhookHandler } from './controllers/webhooks/shadowfax.webhook'
 import { xpressbeesWebhookHandler } from './controllers/webhooks/xpressbees.webhook'
@@ -251,8 +252,13 @@ app.get(AMAZON_SHIPPING_WEBHOOK_PATH, amazonShippingTrackingWebhookHealthHandler
 app.post(AMAZON_SHIPPING_WEBHOOK_PATH, express.json(), amazonShippingTrackingWebhookHandler)
 app.post('/api/webhook/amazon-shipping/tracking', express.json(), amazonShippingTrackingWebhookHandler)
 // Ekart webhook
-app.post('/api/webhook/ekart', express.json(), ekartWebhookHandler)
-app.post('/api/webhook/ekart/track', express.json(), ekartWebhookHandler)
+const ekartWebhookJson = express.json({
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf.toString('utf8')
+  },
+})
+app.post(EKART_WEBHOOK_LEGACY_PATH, ekartWebhookJson, ekartWebhookHandler)
+app.post(EKART_WEBHOOK_PATH, ekartWebhookJson, ekartWebhookHandler)
 app.post(
   '/api/webhook/xpressbees',
   express.json({

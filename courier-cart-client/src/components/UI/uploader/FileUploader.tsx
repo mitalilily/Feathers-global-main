@@ -20,6 +20,7 @@ import { useDropzone, type Accept } from 'react-dropzone'
 import { IoCloudUploadOutline } from 'react-icons/io5'
 import { MdClose, MdEdit } from 'react-icons/md' // ← new
 import axiosInstance from '../../../api/axiosInstance'
+import { uploadKycPdfToBackend } from '../../../api/upload.api'
 import { toast } from '../Toast'
 import styles from './uploader.module.css'
 
@@ -205,26 +206,46 @@ const FileUploader: React.FC<FileUploaderProps> = ({
       try {
         for (const file of arr) {
           const contentType = getContentType(file)
-          const { data } = await axiosInstance.post('/uploads/presign', {
-            contentType,
-            filename: file.name,
-            folder: folderKey,
-          })
+          const fileName = String(file.name || '').toLowerCase()
+          const shouldStoreKycPdfLocally =
+            folderKey === 'kyc' &&
+            (contentType.toLowerCase().includes('pdf') || fileName.endsWith('.pdf'))
 
-          // Upload directly to R2 using presigned URL - no credentials needed
-          await axios.put(data.uploadUrl, file, {
-            withCredentials: false, // Don't send credentials for presigned URL uploads
-            headers: { 'Content-Type': contentType },
-            onUploadProgress: (e) => e.total && setProgress(Math.round((e.loaded * 100) / e.total)),
-          })
+          if (shouldStoreKycPdfLocally) {
+            const stored = await uploadKycPdfToBackend(file, (progressValue) =>
+              setProgress(progressValue),
+            )
 
-          uploaded.push({
-            url: data.publicUrl,
-            key: data.key,
-            originalName: file.name,
-            size: file.size,
-            mime: contentType,
-          })
+            uploaded.push({
+              url: stored.url,
+              key: stored.key,
+              originalName: stored.originalName,
+              size: stored.size,
+              mime: stored.mime,
+            })
+          } else {
+            const { data } = await axiosInstance.post('/uploads/presign', {
+              contentType,
+              filename: file.name,
+              folder: folderKey,
+            })
+
+            // Upload directly to R2 using presigned URL - no credentials needed
+            await axios.put(data.uploadUrl, file, {
+              withCredentials: false, // Don't send credentials for presigned URL uploads
+              headers: { 'Content-Type': contentType },
+              onUploadProgress: (e) =>
+                e.total && setProgress(Math.round((e.loaded * 100) / e.total)),
+            })
+
+            uploaded.push({
+              url: data.publicUrl,
+              key: data.key,
+              originalName: file.name,
+              size: file.size,
+              mime: contentType,
+            })
+          }
 
           if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
             setPreviewUrl(URL.createObjectURL(file)) // optional

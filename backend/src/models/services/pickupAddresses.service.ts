@@ -7,6 +7,7 @@ import { addresses, pickupAddresses } from '../schema/pickupAddresses'
 import { createAmazonShippingWarehouse } from './amazonShipping.service'
 import { DelhiveryService } from './couriers/delhivery.service'
 import { EkartService } from './couriers/ekart.service'
+import { findUserById } from './userService'
 
 function parseCoordinate(value: string | null | undefined) {
   if (value === null || value === undefined) return undefined
@@ -26,6 +27,28 @@ function buildGeo(latitude: string | null | undefined, longitude: string | null 
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return undefined
 
   return { lat, lon }
+}
+
+function formatWarehouseAddress(parts: Array<string | null | undefined>) {
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+function resolveRegisteredName(user: any, pickupAddr: any) {
+  return (
+    String(
+      user?.companyInfo?.businessName ||
+        user?.companyInfo?.brandName ||
+        user?.companyName ||
+        user?.brandName ||
+        pickupAddr?.addressNickname ||
+        pickupAddr?.contactName ||
+        'Feather Global',
+    )
+      .trim() || 'Feather Global'
+  )
 }
 
 const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => ({
@@ -219,17 +242,34 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
 
     // 🚚 Register pickup in Delhivery
     try {
+      const user = await findUserById(userId)
       const delhivery = new DelhiveryService()
+      const pickupAddressLine = formatWarehouseAddress([
+        pickupAddr.addressLine1,
+        pickupAddr.addressLine2,
+        pickupAddr.landmark,
+        pickupAddr.city,
+        pickupAddr.state,
+        pickupAddr.pincode,
+      ])
+      const returnAddressLine = formatWarehouseAddress([
+        rtoAddressData.addressLine1,
+        rtoAddressData.addressLine2,
+        rtoAddressData.landmark,
+        rtoAddressData.city,
+        rtoAddressData.state,
+        rtoAddressData.pincode,
+      ])
       const delhiveryResp = await delhivery.createWarehouse({
         name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? 'Default Warehouse',
-        registered_name: 'Feather Global',
+        registered_name: resolveRegisteredName(user, pickupAddr),
         phone: pickupAddr.contactPhone,
         email: pickupAddr.contactEmail ?? '',
-        address: pickupAddr.addressLine1,
+        address: pickupAddressLine || pickupAddr.addressLine1,
         city: pickupAddr.city,
         pin: pickupAddr.pincode.toString(),
         country: pickupAddr.country ?? 'India',
-        return_address: rtoAddressData.addressLine1 ?? pickupAddr.addressLine1,
+        return_address: returnAddressLine || rtoAddressData.addressLine1 || pickupAddr.addressLine1,
         return_city: rtoAddressData.city ?? pickupAddr.city,
         return_pin: rtoAddressData.pincode?.toString() ?? pickupAddr.pincode?.toString(),
         return_state: rtoAddressData.state ?? pickupAddr.state,
@@ -488,10 +528,18 @@ export async function updatePickupAddressService(
       try {
         if (updatedPickup) {
           const delhivery = new DelhiveryService()
+          const updatedPickupAddressLine = formatWarehouseAddress([
+            updatedPickup?.addressLine1,
+            updatedPickup?.addressLine2,
+            updatedPickup?.landmark,
+            updatedPickup?.city,
+            updatedPickup?.state,
+            updatedPickup?.pincode,
+          ])
           const delhiveryResp = await delhivery.updateWarehouse({
             name:
               updatedPickup?.addressNickname ?? updatedPickup?.contactName ?? 'Default Warehouse',
-            address: updatedPickup?.addressLine1,
+            address: updatedPickupAddressLine || updatedPickup?.addressLine1,
             pin: updatedPickup?.pincode?.toString(),
             phone: updatedPickup?.contactPhone,
           })

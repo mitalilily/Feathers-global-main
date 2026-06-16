@@ -41,6 +41,30 @@ export const uploadFileToStorage = async (
   };
 };
 
+export const uploadKycPdfToBackend = async (
+  file: File,
+  onProgress?: (progress: number) => void,
+): Promise<UploadedFileInfo> => {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const { data } = await axiosInstance.post('/uploads/kyc/pdf', formData, {
+    onUploadProgress: (event) => {
+      if (event.total && onProgress) {
+        onProgress(Math.round((event.loaded * 100) / event.total))
+      }
+    },
+  })
+
+  return {
+    url: data.url,
+    key: data.key,
+    originalName: data.originalName || file.name,
+    size: data.size || file.size,
+    mime: data.mime || file.type || 'application/pdf',
+  }
+}
+
 export const getPresignedDownloadUrls = async (
   keys: string | string[]
 ): Promise<string | Array<string | null>> => {

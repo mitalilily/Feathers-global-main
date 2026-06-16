@@ -1,6 +1,11 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import { Response } from 'express'
 import { db } from '../../models/client'
+import {
+  findEkartOrderForDispatchDate,
+  updateEkartEwbnForOrder,
+  updateEkartDispatchDateForOrder,
+} from '../../models/services/ekartDispatchDate.service'
 import { DelhiveryService } from '../../models/services/couriers/delhivery.service'
 import { EkartService } from '../../models/services/couriers/ekart.service'
 import { ShadowfaxService } from '../../models/services/couriers/shadowfax.service'
@@ -49,20 +54,40 @@ const queueWebhookEvent = (
 }
 
 const resolveExternalOrder = async (userId: string, orderId: string) => {
-  const { orders } = await getB2COrdersByUserService(userId, 1, 20, {
-    search: orderId,
-  })
+  const identifier = String(orderId || '').trim()
+  if (!identifier) return null
+
+  const [order] = await db
+    .select()
+    .from(b2c_orders)
+    .where(
+      and(
+        eq(b2c_orders.user_id, userId),
+        or(
+          eq(b2c_orders.id, identifier),
+          eq(b2c_orders.order_id, identifier),
+          eq(b2c_orders.order_number, identifier),
+          eq(b2c_orders.awb_number, identifier),
+          eq(b2c_orders.provider_reference, identifier),
+          eq(b2c_orders.provider_request_id, identifier),
+          eq(b2c_orders.shipment_id, identifier),
+        ),
+      ),
+    )
+    .limit(1)
+
+  return order || null
+}
+
+const isShadowfaxReverseReference = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return false
 
   return (
-    orders.find(
-      (o: any) =>
-        o.order_number === orderId ||
-        o.order_id === orderId ||
-        o.id === orderId ||
-        o.awb_number === orderId ||
-        o.provider_reference === orderId ||
-        o.provider_request_id === orderId,
-    ) || null
+    normalized.startsWith('r') ||
+    normalized.includes('rev') ||
+    normalized.includes('return') ||
+    normalized.includes('rto')
   )
 }
 
@@ -371,13 +396,18 @@ export const cancelOrderController = async (req: any, res: Response) => {
       })
     }
 
+    const orderProviderMeta = (order.provider_meta || {}) as Record<string, any>
+    const awbNumber = String(order.awb_number || '').trim()
+    const providerRequestId = String(order.provider_request_id || '').trim()
+    const providerReference = String(order.provider_reference || '').trim()
+
     const amazonShipmentId = String(
       order.shipment_id ||
         order.provider_reference ||
         order.order_id ||
-        order.provider_meta?.shipment_id ||
-        order.provider_meta?.provider_reference ||
-        order.provider_meta?.shipmentId ||
+        orderProviderMeta?.shipment_id ||
+        orderProviderMeta?.provider_reference ||
+        orderProviderMeta?.shipmentId ||
         '',
     ).trim()
 
@@ -389,7 +419,7 @@ export const cancelOrderController = async (req: any, res: Response) => {
       })
     }
 
-    if (provider !== 'amazon' && !order.awb_number) {
+    if (provider !== 'amazon' && !awbNumber) {
       return res.status(400).json({
         success: false,
         error: 'Missing AWB',
@@ -400,14 +430,14 @@ export const cancelOrderController = async (req: any, res: Response) => {
     try {
       if (provider === 'delhivery') {
         const delhivery = new DelhiveryService()
-        cancellationResult = await delhivery.cancelShipment(order.awb_number)
+        cancellationResult = await delhivery.cancelShipment(awbNumber)
       } else if (provider === 'ekart') {
         const ekart = new EkartService()
-        cancellationResult = await ekart.cancelShipment(order.awb_number)
+        cancellationResult = await ekart.cancelShipment(awbNumber)
       } else if (provider === 'shadowfax') {
         const shadowfax = new ShadowfaxService()
         cancellationResult = await shadowfax.cancelShipment(
-          order.provider_request_id || order.provider_reference || order.awb_number,
+          providerRequestId || providerReference || awbNumber,
           reason || 'Cancelled By Customer',
         )
       } else if (provider === 'amazon') {
@@ -421,7 +451,7 @@ export const cancelOrderController = async (req: any, res: Response) => {
         )
       } else {
         const xpressbees = new XpressbeesService()
-        cancellationResult = await xpressbees.cancelShipment(order.awb_number)
+        cancellationResult = await xpressbees.cancelShipment(awbNumber)
       }
     } catch (err: any) {
       console.error('Courier cancellation error:', err)
@@ -456,7 +486,7 @@ export const cancelOrderController = async (req: any, res: Response) => {
           `${String(order.integration_type || 'Courier')} did not confirm cancellation`,
         data: {
           provider: provider,
-          awb_number: order.awb_number,
+          awb_number: awbNumber,
           provider_response: cancellationResult,
         },
       })
@@ -477,7 +507,7 @@ export const cancelOrderController = async (req: any, res: Response) => {
     queueWebhookEvent(userId, 'order.cancelled', {
       order_id: order.id,
       order_number: order.order_number,
-      awb_number: order.awb_number,
+      awb_number: awbNumber,
       status: 'cancelled',
       cancellation_reason: reason || 'Cancelled via API',
       cancelled_at: new Date().toISOString(),
@@ -489,7 +519,7 @@ export const cancelOrderController = async (req: any, res: Response) => {
       data: {
         order_id: order.id,
         order_number: order.order_number,
-        awb_number: order.awb_number,
+        awb_number: awbNumber,
         status: 'cancelled',
         cancellation_reason: reason || 'Cancelled via API',
       },
@@ -524,7 +554,10 @@ export const getOrderLabelController = async (req: any, res: Response) => {
       })
     }
 
-    if (!order.label) {
+    const labelKey = String(order.label || '').trim()
+    const awbNumber = String(order.awb_number || '').trim()
+
+    if (!labelKey) {
       return res.status(404).json({
         success: false,
         error: 'Label not found',
@@ -535,11 +568,13 @@ export const getOrderLabelController = async (req: any, res: Response) => {
     // Generate presigned URL for label
     let labelUrl: string
     try {
-      const signed = await presignDownload(order.label)
-      labelUrl = Array.isArray(signed) ? signed[0] || order.label : signed
+      const signed = await presignDownload(labelKey)
+      labelUrl = Array.isArray(signed)
+        ? String(signed[0] || labelKey || '')
+        : String(signed || labelKey || '')
     } catch (err) {
       // Fallback to stored URL if presigning fails
-      labelUrl = order.label
+      labelUrl = labelKey
     }
 
     res.status(200).json({
@@ -547,7 +582,7 @@ export const getOrderLabelController = async (req: any, res: Response) => {
       data: {
         order_id: order.id,
         order_number: order.order_number,
-        awb_number: order.awb_number,
+        awb_number: awbNumber,
         label_url: labelUrl,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
       },
@@ -583,7 +618,7 @@ export const getOrderPodController = async (req: any, res: Response) => {
     ).trim()
     const reverse =
       String(order.order_type || '').toLowerCase() === 'reverse' ||
-      reference.toUpperCase().startsWith('R')
+      isShadowfaxReverseReference(reference)
 
     const pod = await shadowfax.getPodDetails([reference], reverse)
     return res.status(200).json({ success: true, data: pod })
@@ -623,7 +658,7 @@ export const escalateOrderController = async (req: any, res: Response) => {
 
     const shadowfax = new ShadowfaxService()
     const escalation = await shadowfax.createEscalation({
-      awb_number: String(order.awb_number || order.provider_request_id || ''),
+      awb_number: String(order.awb_number || order.provider_request_id || '').trim(),
       issue_category: issueCategory,
     })
 
@@ -655,8 +690,8 @@ export const generateOrderQrController = async (req: any, res: Response) => {
 
     const shadowfax = new ShadowfaxService()
     const qr = await shadowfax.generateQrCode({
-      awb_number: order.awb_number,
-      client_request_id: order.provider_request_id || undefined,
+      awb_number: String(order.awb_number || '').trim(),
+      client_request_id: order.provider_request_id ? String(order.provider_request_id).trim() : undefined,
       ...req.body,
     })
 
@@ -692,10 +727,10 @@ export const updateOrderProviderController = async (req: any, res: Response) => 
     ).trim()
     const reverse =
       String(order.order_type || '').toLowerCase() === 'reverse' ||
-      reference.toUpperCase().startsWith('R')
+      isShadowfaxReverseReference(reference)
 
     const payload = {
-      awb_number: order.awb_number || undefined,
+      awb_number: String(order.awb_number || '').trim() || undefined,
       request_id: reverse ? reference : undefined,
       client_request_id: reverse ? reference : undefined,
       client_order_id: order.order_number,
@@ -711,7 +746,15 @@ export const updateOrderProviderController = async (req: any, res: Response) => 
           })
         : reverse
         ? await shadowfax.updateReverseOrder(payload)
-        : await shadowfax.updateForwardOrder(payload)
+        : await shadowfax.updateOrderData({
+            ...req.body,
+            awb_number: String(order.awb_number || '').trim() || reference,
+            order: {
+              awb_number: String(order.awb_number || '').trim() || reference,
+              provider_request_id: order.provider_request_id,
+              provider_reference: order.provider_reference,
+            },
+          })
 
     return res.status(200).json({ success: true, data: result })
   } catch (error: any) {
@@ -720,6 +763,56 @@ export const updateOrderProviderController = async (req: any, res: Response) => 
       success: false,
       error: 'Failed to update provider order',
       message: error.message || 'Internal server error',
+    })
+  }
+}
+
+export const updateEkartDispatchDateController = async (req: any, res: Response) => {
+  try {
+    const order = await findEkartOrderForDispatchDate({
+      orderIdentifier: String(req.params.orderId || '').trim(),
+      userId: req.userId,
+    })
+
+    const result = await updateEkartDispatchDateForOrder({
+      order,
+      dispatchDate: String(req.body?.dispatchDate || '').trim(),
+      ids: req.body?.ids,
+    })
+
+    return res.status(200).json({ success: true, data: result })
+  } catch (error: any) {
+    const statusCode = error?.statusCode || 500
+    console.error('Error updating Ekart dispatch date via API:', error)
+    return res.status(statusCode).json({
+      success: false,
+      error: error?.message || 'Failed to update Ekart dispatch date',
+      message: error?.message || 'Internal server error',
+    })
+  }
+}
+
+export const updateEkartEwbnController = async (req: any, res: Response) => {
+  try {
+    const order = await findEkartOrderForDispatchDate({
+      orderIdentifier: String(req.params.orderId || '').trim(),
+      userId: req.userId,
+    })
+
+    const result = await updateEkartEwbnForOrder({
+      order,
+      ewbn: String(req.body?.ewbn || '').trim(),
+      id: req.body?.id,
+    })
+
+    return res.status(200).json({ success: true, data: result })
+  } catch (error: any) {
+    const statusCode = error?.statusCode || 500
+    console.error('Error updating Ekart EWBN via API:', error)
+    return res.status(statusCode).json({
+      success: false,
+      error: error?.message || 'Failed to update Ekart EWBN',
+      message: error?.message || 'Internal server error',
     })
   }
 }

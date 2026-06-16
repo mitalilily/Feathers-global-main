@@ -259,6 +259,61 @@ export class DelhiveryService {
     }
   }
 
+  // 🔹 3. Calculate Shipping Cost
+  async calculateShippingCost(params: {
+    md: 'E' | 'S' | string
+    cgm: number | string
+    o_pin: number | string
+    d_pin: number | string
+    ss: string
+    pt: 'Pre-paid' | 'COD' | string
+    l?: number | string
+    b?: number | string
+    h?: number | string
+    ipkg_type?: 'box' | 'flyer' | string
+  }) {
+    try {
+      await this.ensureCredentials()
+
+      const md = String(params.md ?? '').trim().toUpperCase()
+      const cgm = String(params.cgm ?? '').trim()
+      const oPin = String(params.o_pin ?? '').trim()
+      const dPin = String(params.d_pin ?? '').trim()
+      const ss = String(params.ss ?? '').trim()
+      const pt = String(params.pt ?? '').trim()
+
+      if (!md || !cgm || !oPin || !dPin || !ss || !pt) {
+        throw new HttpError(
+          400,
+          'md, cgm, o_pin, d_pin, ss, and pt are required for Delhivery shipping cost calculation.',
+        )
+      }
+
+      const query = qs.stringify({
+        md,
+        cgm,
+        o_pin: oPin,
+        d_pin: dPin,
+        ss,
+        pt,
+        ...(params.l !== undefined ? { l: String(params.l).trim() } : {}),
+        ...(params.b !== undefined ? { b: String(params.b).trim() } : {}),
+        ...(params.h !== undefined ? { h: String(params.h).trim() } : {}),
+        ...(params.ipkg_type ? { ipkg_type: String(params.ipkg_type).trim() } : {}),
+      })
+
+      const url = `${this.apiBase}/api/kinko/v1/invoice/charges/.json?${query}`
+      const res = await this.getWithTimeout(url, { headers: this.headers })
+      return res.data
+    } catch (err: any) {
+      console.error('Delhivery shipping cost API error:', err.response?.data || err.message)
+      throw new Error(
+        extractProviderErrorMessage(err.response?.data) ||
+          'Delhivery shipping cost calculation failed',
+      )
+    }
+  }
+
   // 🔹 3. Fetch Waybills
   async fetchWaybills(count: number = 10) {
     try {
@@ -281,6 +336,16 @@ export class DelhiveryService {
   }
 
   // 🔹 4. Create Shipment (Manifestation)
+  private normalizeWaybill(value: unknown) {
+    return String(value ?? '').trim()
+  }
+
+  private normalizeWaybillList(value: unknown): string[] {
+    if (!value) return []
+    const values = Array.isArray(value) ? value : String(value).split(',')
+    return [...new Set(values.map((entry) => this.normalizeWaybill(entry)).filter(Boolean))]
+  }
+
   async createShipment(params: ShipmentParams, waybill?: string) {
     try {
       const normalizedCourierId = normalizeCourierId(params.courier_id)
@@ -323,7 +388,12 @@ export class DelhiveryService {
 
       const pickup = params.pickup || ({} as ShipmentParams['pickup'])
       const consignee = params.consignee || ({} as ShipmentParams['consignee'])
-      const boxes = Array.isArray(params.boxes) ? params.boxes : []
+      const boxes = Array.isArray(params.boxes) ? params.boxes.filter(Boolean) : []
+      const explicitShipmentType = String((params as any).shipment_type || '')
+        .trim()
+        .toUpperCase()
+      const isMpsShipment =
+        Boolean(params.mps) || boxes.length > 1 || explicitShipmentType === 'MPS'
       const orderNumber = sanitizeString(params.order_number)
       const invoiceNumber = sanitizeString(params.invoice_number)
       const pickupDate = sanitizeString(params.pickup_date || pickup.pickup_date)
@@ -365,11 +435,8 @@ export class DelhiveryService {
           'order_amount is required and must be a positive number when booking with Delhivery.',
         )
       }
-      if ((params.mps || boxes.length > 1) && !waybill) {
-        throw new HttpError(
-          400,
-          'Delhivery multi-piece shipment is not supported in the current B2C flow. Use a single-package shipment.',
-        )
+      if (isMpsShipment && boxes.length === 0) {
+        throw new HttpError(400, 'MPS shipments require a boxes array with at least one box.')
       }
 
       const pickupAddressParts = [
@@ -419,7 +486,7 @@ export class DelhiveryService {
       const codAmount = paymentMode === 'COD' ? orderAmount : 0
       const packageWeightGrams = normalizeDelhiveryWeightGrams(params.package_weight)
 
-      const manifestShipment: Record<string, any> = {
+      const manifestShipmentBase: Record<string, any> = {
         order: orderNumber,
         order_date: orderDate,
         name: sanitizeString(consignee.name),
@@ -460,34 +527,33 @@ export class DelhiveryService {
         shipping_mode: shippingMode,
         client_name: this.clientName || sellerName,
         client_gst_tin: sellerGst,
-        waybill: waybill || undefined,
       }
 
       if (params.transport_speed) {
-        manifestShipment.transport_speed = sanitizeString(params.transport_speed)
+        manifestShipmentBase.transport_speed = sanitizeString(params.transport_speed)
       }
       if (params.address_type) {
-        manifestShipment.address_type = sanitizeString(params.address_type)
+        manifestShipmentBase.address_type = sanitizeString(params.address_type)
       }
       const ewbnValue =
         params.ewbn || params.ewb || params.ewbn_number || params.ewaybill_number || undefined
       if (ewbnValue) {
-        manifestShipment.ewbn = sanitizeString(ewbnValue)
+        manifestShipmentBase.ewbn = sanitizeString(ewbnValue)
       }
       if (params.dangerous_good !== undefined) {
-        manifestShipment.dangerous_good = sanitizeBoolean(params.dangerous_good)
+        manifestShipmentBase.dangerous_good = sanitizeBoolean(params.dangerous_good)
       }
       if (params.fragile_shipment !== undefined) {
-        manifestShipment.fragile_shipment = sanitizeBoolean(params.fragile_shipment)
+        manifestShipmentBase.fragile_shipment = sanitizeBoolean(params.fragile_shipment)
       }
       if (params.plastic_packaging !== undefined) {
-        manifestShipment.plastic_packaging = sanitizeBoolean(params.plastic_packaging)
+        manifestShipmentBase.plastic_packaging = sanitizeBoolean(params.plastic_packaging)
       }
       if (params.quantity !== undefined && params.quantity !== null) {
-        manifestShipment.quantity = sanitizeString(String(params.quantity))
+        manifestShipmentBase.quantity = sanitizeString(String(params.quantity))
       }
       if (params.country) {
-        manifestShipment.country = sanitizeString(params.country)
+        manifestShipmentBase.country = sanitizeString(params.country)
       }
 
       const resolvedReturnAddress =
@@ -498,7 +564,7 @@ export class DelhiveryService {
             : null
 
       if (resolvedReturnAddress) {
-        Object.assign(manifestShipment, {
+        Object.assign(manifestShipmentBase, {
           return_name: resolvedReturnAddress.name,
           return_add: resolvedReturnAddress.address,
           return_address: resolvedReturnAddress.address,
@@ -510,8 +576,88 @@ export class DelhiveryService {
         })
       }
 
+      const buildMpsShipment = (box: any, index: number, masterWaybill: string, boxWaybill: string) => {
+        const boxProductsDesc =
+          sanitizeString(box?.products_desc ?? box?.productsDesc) || productsDesc
+        const boxOrder =
+          sanitizeString(box?.order) || (index === 0 ? orderNumber : `${orderNumber}-${index + 1}`)
+        const boxWeightGrams = normalizeDelhiveryWeightGrams(
+          box?.weight ?? box?.weightKg ?? params.package_weight,
+        )
+        const boxLength = Number(
+          box?.shipment_length ?? box?.length ?? box?.lengthCm ?? params.package_length ?? 10,
+        )
+        const boxBreadth = Number(
+          box?.shipment_width ?? box?.width ?? box?.breadth ?? box?.breadthCm ?? params.package_breadth ?? 10,
+        )
+        const boxHeight = Number(
+          box?.shipment_height ?? box?.height ?? box?.heightCm ?? params.package_height ?? 10,
+        )
+
+        return {
+          ...manifestShipmentBase,
+          order: boxOrder,
+          name: sanitizeString(box?.name ?? consignee.name),
+          phone: sanitizePhone(box?.phone ?? consignee.phone),
+          add: sanitizeString(box?.add ?? box?.address ?? consignee.address),
+          city: sanitizeString(box?.city ?? consignee.city),
+          state: sanitizeString(box?.state ?? consignee.state),
+          pin: sanitizePincode(box?.pin ?? box?.pincode ?? consignee.pincode),
+          total_amount: Number(box?.total_amount ?? box?.mps_amount ?? orderAmount),
+          products_desc: boxProductsDesc,
+          weight: boxWeightGrams,
+          shipment_length: boxLength,
+          shipment_width: boxBreadth,
+          shipment_height: boxHeight,
+          shipment_type: 'MPS',
+          mps_amount: paymentMode === 'COD' ? orderAmount : 0,
+          mps_children: boxes.length,
+          master_id: masterWaybill,
+          waybill: boxWaybill,
+        }
+      }
+
+      if (!isMpsShipment && waybill) {
+        manifestShipmentBase.waybill = waybill
+      }
+
+      let shipmentPayloads: Record<string, any>[]
+      if (isMpsShipment) {
+        const collectedWaybills = this.normalizeWaybillList([
+          waybill,
+          (params as any).master_waybill,
+          ...(Array.isArray((params as any).waybills) ? (params as any).waybills : []),
+          ...boxes.map((box: any) => box?.waybill),
+        ])
+        const waybillPool =
+          collectedWaybills.length >= boxes.length
+            ? collectedWaybills.slice(0, boxes.length)
+            : this.normalizeWaybillList([
+                ...collectedWaybills,
+                ...this.normalizeWaybillList(await this.fetchWaybills(boxes.length - collectedWaybills.length)),
+              ]).slice(0, boxes.length)
+
+        if (waybillPool.length < boxes.length) {
+          throw new HttpError(
+            400,
+            `MPS shipments require ${boxes.length} waybill numbers, but only ${waybillPool.length} were available.`,
+          )
+        }
+
+        const masterWaybill = waybillPool[0]
+        if (!masterWaybill) {
+          throw new HttpError(400, 'MPS shipments require a master waybill number.')
+        }
+
+        shipmentPayloads = boxes.map((box: any, index: number) =>
+          buildMpsShipment(box, index, masterWaybill, waybillPool[index]),
+        )
+      } else {
+        shipmentPayloads = [manifestShipmentBase]
+      }
+
       const payload = {
-        shipments: [manifestShipment],
+        shipments: shipmentPayloads,
         pickup_location: {
           name: sanitizeString(pickup.warehouse_name) || 'Default Warehouse',
         },
@@ -524,6 +670,8 @@ export class DelhiveryService {
         pickup_time: payload.shipments[0].pickup_time ?? null,
         weight_g: packageWeightGrams,
         payment_mode: paymentMode,
+        shipment_type: isMpsShipment ? 'MPS' : 'SPS',
+        boxes: shipmentPayloads.length,
         hsn_present: hsnCodes.length,
         invoice_number: invoiceNumber,
         shipping_mode: shippingMode,
@@ -718,9 +866,95 @@ export class DelhiveryService {
   }
 
   // 🔹 7. Track Shipment
-  async trackShipment(awb: string) {
+  async updateShipment(
+    waybill: string,
+    payload: {
+      name?: string
+      phone?: string | string[]
+      pt?: 'COD' | 'Prepaid' | 'Pickup' | 'REPL'
+      add?: string
+      products_desc?: string
+      gm?: number
+      shipment_height?: number
+      shipment_width?: number
+      shipment_length?: number
+    },
+  ) {
+    const normalizedWaybill = String(waybill || '').trim()
+    if (!normalizedWaybill) {
+      throw new HttpError(400, 'Delhivery waybill is required for shipment updates')
+    }
+
+    try {
+      await this.ensureCredentials()
+      const body = {
+        waybill: normalizedWaybill,
+        ...(payload.name ? { name: String(payload.name).trim() } : {}),
+        ...(payload.phone ? { phone: payload.phone } : {}),
+        ...(payload.pt ? { pt: payload.pt } : {}),
+        ...(payload.add ? { add: String(payload.add).trim() } : {}),
+        ...(payload.products_desc ? { products_desc: String(payload.products_desc).trim() } : {}),
+        ...(payload.gm !== undefined ? { gm: Number(payload.gm) } : {}),
+        ...(payload.shipment_height !== undefined
+          ? { shipment_height: Number(payload.shipment_height) }
+          : {}),
+        ...(payload.shipment_width !== undefined
+          ? { shipment_width: Number(payload.shipment_width) }
+          : {}),
+        ...(payload.shipment_length !== undefined
+          ? { shipment_length: Number(payload.shipment_length) }
+          : {}),
+      }
+
+      const res = await this.postWithTimeout(`${this.apiBase}/api/p/edit`, body, {
+        headers: {
+          Authorization: `Token ${this.token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+      })
+
+      return res.data
+    } catch (err: any) {
+      console.error('❌ Delhivery shipment update error:', {
+        waybill: normalizedWaybill,
+        status: err.response?.status,
+        data: JSON.stringify(err.response?.data, null, 2),
+        message: err.message,
+      })
+
+      const error = new Error(
+        extractProviderErrorMessage(err.response?.data) || 'Delhivery shipment update failed',
+      )
+      ;(error as any).statusCode = typeof err.response?.status === 'number' ? err.response.status : 500
+      ;(error as any).details = err.response?.data || null
+      throw error
+    }
+  }
+
+  async trackShipment(waybill: string): Promise<any>
+  async trackShipment(waybill: string[], refIds?: string | string[]): Promise<any>
+  async trackShipment(waybill: string | string[], refIds?: string | string[]) {
     await this.ensureCredentials()
-    const res = await this.getWithTimeout(`${this.apiBase}/api/v1/packages/json/?waybill=${awb}`, {
+
+    const normalizedWaybills = this.normalizeWaybillList(waybill)
+    if (!normalizedWaybills.length) {
+      throw new HttpError(400, 'Waybill number is required for Delhivery tracking')
+    }
+
+    if (normalizedWaybills.length > 50) {
+      throw new HttpError(400, 'Delhivery tracking supports up to 50 waybills per request')
+    }
+
+    const normalizedRefIds = this.normalizeWaybillList(refIds)
+    const url = new URL(`${this.apiBase}/api/v1/packages/json/`)
+    url.searchParams.set('waybill', normalizedWaybills.join(','))
+
+    if (normalizedRefIds.length) {
+      url.searchParams.set('ref_ids', normalizedRefIds.join(','))
+    }
+
+    const res = await this.getWithTimeout(url.toString(), {
       headers: this.headers,
     })
     return res.data
@@ -730,7 +964,7 @@ export class DelhiveryService {
   async submitNdrAction(
     actions: Array<{
       waybill: string
-      act: 'RE-ATTEMPT' | 'DEFER_DLV' | 'EDIT_DETAILS' | 'PICKUP_RESCHEDULE'
+      act: 'RE-ATTEMPT' | 'PICKUP_RESCHEDULE' | 'DEFER_DLV' | 'EDIT_DETAILS'
       action_data?: Record<string, any>
     }>,
   ) {
@@ -738,23 +972,19 @@ export class DelhiveryService {
       await this.ensureCredentials()
       const url = `${this.apiBase}/api/p/update`
       const payload = actions.map((action) => {
-        const mappedAct = action.act === 'PICKUP_RESCHEDULE' ? 'DEFER_DLV' : action.act
-        const actionData = { ...(action.action_data || {}) } as Record<string, any>
+        const normalizedAct = action.act === 'DEFER_DLV' ? 'PICKUP_RESCHEDULE' : action.act
 
-        if (mappedAct === 'DEFER_DLV') {
-          const normalizedDeferredDate =
-            actionData.deferred_date || actionData.deferment_date || actionData.defermentDate
-          if (normalizedDeferredDate) {
-            actionData.deferred_date = normalizedDeferredDate
+        if (normalizedAct === 'EDIT_DETAILS' && action.action_data && Object.keys(action.action_data).length) {
+          return {
+            waybill: action.waybill,
+            act: normalizedAct,
+            action_data: action.action_data,
           }
-          delete actionData.deferment_date
-          delete actionData.defermentDate
         }
 
         return {
           waybill: action.waybill,
-          act: mappedAct,
-          ...(Object.keys(actionData).length ? { action_data: actionData } : {}),
+          act: normalizedAct,
         }
       })
       const res = await this.postWithTimeout(url, { data: payload }, { headers: this.headers })
@@ -869,12 +1099,83 @@ export class DelhiveryService {
     package_breadth?: number
     package_height?: number
     order_items?: ShipmentParams['order_items']
+    qc_details?: ShipmentParams['qc_details']
   }) {
     try {
       const reverseDrop = params.rto ?? params.pickup
+      const customQcSource =
+        Array.isArray((params.qc_details as any)?.custom_qc)
+          ? (params.qc_details as any).custom_qc
+          : Array.isArray((params.qc_details as any)?.customQc)
+            ? (params.qc_details as any).customQc
+            : Array.isArray(params.qc_details)
+              ? params.qc_details
+              : []
+
+      const normalizeList = (value: unknown) =>
+        Array.isArray(value)
+          ? value
+              .flatMap((entry) => (Array.isArray(entry) ? entry : [entry]))
+              .map((entry) => String(entry ?? '').trim())
+              .filter(Boolean)
+          : typeof value === 'string'
+            ? value
+                .split(',')
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+            : []
+
+      const normalizeQuestions = (questions: unknown) =>
+        Array.isArray(questions)
+          ? questions.map((question: any) => ({
+              questions_id: String(question?.questions_id ?? question?.question_id ?? '').trim(),
+              options: normalizeList(question?.options),
+              value: normalizeList(question?.value),
+              required: Boolean(question?.required),
+              type: String(question?.type ?? '').trim(),
+              ...(question?.ques_images !== undefined
+                ? { ques_images: normalizeList(question?.ques_images) }
+                : {}),
+            }))
+          : []
+
+      const normalizedCustomQc = Array.isArray(customQcSource)
+        ? customQcSource
+            .map((item: any) => ({
+              ...(item?.item !== undefined ? { item: String(item.item).trim() } : {}),
+              ...(item?.description !== undefined
+                ? { description: String(item.description).trim() }
+                : {}),
+              ...(item?.images !== undefined ? { images: normalizeList(item.images) } : {}),
+              ...(item?.return_reason !== undefined
+                ? { return_reason: String(item.return_reason).trim() }
+                : {}),
+              ...(item?.quantity !== undefined ? { quantity: Number(item.quantity) || 1 } : { quantity: 1 }),
+              ...(item?.brand !== undefined ? { brand: String(item.brand).trim() } : {}),
+              ...(item?.product_category !== undefined
+                ? { product_category: String(item.product_category).trim() }
+                : {}),
+              questions: normalizeQuestions(item?.questions),
+            }))
+            .filter((item) => {
+              const images = Array.isArray(item.images) ? item.images : []
+              const questions = Array.isArray(item.questions) ? item.questions : []
+              return Boolean(
+                item.item ||
+                  item.description ||
+                  images.length ||
+                  item.return_reason ||
+                  item.brand ||
+                  item.product_category ||
+                  questions.length,
+              )
+            })
+        : []
+
       const reversePayload: any = {
         shipments: [
           {
+            client: this.clientName || params.pickup?.name || 'Feather Global',
             order: params.originalOrderId || `REVERSE-${params.originalAwb}`,
             name: params.consignee?.name || '',
             phone: String(params.consignee?.phone || '')
@@ -912,6 +1213,8 @@ export class DelhiveryService {
               .replace(/\D/g, '')
               .slice(-10),
             return_country: 'India',
+            qc_type: normalizedCustomQc.length > 0 ? 'param' : undefined,
+            ...(normalizedCustomQc.length > 0 ? { custom_qc: normalizedCustomQc } : {}),
           },
         ],
       }
@@ -964,10 +1267,10 @@ export class DelhiveryService {
       }
 
       const payload = {
-        name: data.name,
-        address: data.address,
-        pin: data.pin,
-        phone: data.phone,
+        name: String(data.name || '').trim(),
+        pin: String(data.pin || '').trim(),
+        ...(typeof data.address === 'string' && data.address.trim() ? { address: data.address.trim() } : {}),
+        ...(typeof data.phone === 'string' && data.phone.trim() ? { phone: data.phone.trim() } : {}),
       }
 
       const res = await this.postWithTimeout(url, payload, { headers })
@@ -1070,23 +1373,94 @@ export class DelhiveryService {
   // 🔹 9. Fetch Shipping Label from Delhivery packing_slip API
   // format=json -> metadata (barcodes, sort code, etc.)
   // format=pdf  -> raw PDF bytes (used to ensure provider-side label generation activity)
-  async generateLabel(awb: string, options: { format?: 'json' | 'pdf' } = { format: 'json' }) {
+  async generateLabel(
+    awb: string,
+    options: { format?: 'json' | 'pdf'; pdfSize?: 'A4' | '4R' | string } = { format: 'json' },
+  ) {
     await this.ensureCredentials()
     const format = options.format || 'json'
-    const url = `${this.apiBase}/api/p/packing_slip?wbns=${encodeURIComponent(awb)}${
-      format === 'pdf' ? '&pdf=true' : '&pdf=false'
-    }`
+    const query = qs.stringify({
+      wbns: awb,
+      pdf: format === 'pdf' ? 'true' : 'false',
+      ...(options.pdfSize ? { pdf_size: String(options.pdfSize).trim() } : {}),
+    })
+    const url = `${this.apiBase}/api/p/packing_slip?${query}`
     const responseType = format === 'pdf' ? 'arraybuffer' : 'json'
     const res = await this.getWithTimeout(
       url,
       {
-      headers: this.headers,
-      responseType,
+        headers: this.headers,
+        responseType,
       },
       format === 'pdf' ? this.labelTimeoutMs : this.requestTimeoutMs,
     )
 
     return format === 'pdf' ? Buffer.from(res.data) : res.data
+  }
+
+  // 🔹 10. Update E-Waybill
+  async updateEwaybill(
+    waybill: string,
+    payload: {
+      dcn: string
+      ewbn: string
+    },
+  ) {
+    const normalizedWaybill = String(waybill || '').trim()
+    const normalizedDcn = String(payload?.dcn || '').trim()
+    const normalizedEwbn = String(payload?.ewbn || '').trim()
+
+    if (!normalizedWaybill) {
+      throw new HttpError(400, 'Delhivery waybill is required for E-waybill update')
+    }
+    if (!normalizedDcn) {
+      throw new HttpError(400, 'dcn is required for Delhivery E-waybill update')
+    }
+    if (!normalizedEwbn) {
+      throw new HttpError(400, 'ewbn is required for Delhivery E-waybill update')
+    }
+
+    await this.ensureCredentials()
+
+    try {
+      const url = `${this.apiBase}/api/rest/ewaybill/${encodeURIComponent(normalizedWaybill)}/`
+      const body = {
+        data: [
+          {
+            dcn: normalizedDcn,
+            ewbn: normalizedEwbn,
+          },
+        ],
+      }
+
+      const res = await axios.put(url, body, {
+        headers: {
+          Authorization: `Token ${this.token}`,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        timeout: this.requestTimeoutMs,
+      })
+
+      return res.data
+    } catch (err: any) {
+      console.error('Delhivery e-waybill update error:', {
+        waybill: normalizedWaybill,
+        dcn: normalizedDcn,
+        ewbn: normalizedEwbn,
+        status: err.response?.status,
+        data: JSON.stringify(err.response?.data, null, 2),
+        message: err.message,
+      })
+
+      const error = new Error(
+        extractProviderErrorMessage(err.response?.data) ||
+          'Delhivery e-waybill update failed',
+      )
+      ;(error as any).statusCode = typeof err.response?.status === 'number' ? err.response.status : 500
+      ;(error as any).details = err.response?.data || null
+      throw error
+    }
   }
 
   // COD Settlement APIs not publicly available

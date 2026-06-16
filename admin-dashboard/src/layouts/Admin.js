@@ -3,10 +3,6 @@ import { Box, ChakraProvider, Portal, useColorModeValue, useDisclosure } from '@
 import Configurator from 'components/Configurator/Configurator'
 import Footer from 'components/Footer/Footer.js'
 // Layout components
-import '@fontsource/open-sans/400.css'
-import '@fontsource/open-sans/600.css'
-import '@fontsource/raleway/600.css'
-import '@fontsource/raleway/700.css'
 import AdminNavbar from 'components/Navbars/AdminNavbar.js'
 import Sidebar from 'components/Sidebar'
 import { useEffect, useState } from 'react'

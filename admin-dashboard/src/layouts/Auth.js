@@ -2,10 +2,6 @@
 import { Box, ChakraProvider } from '@chakra-ui/react'
 import Footer from 'components/Footer/Footer.js'
 // core components
-import '@fontsource/open-sans/400.css'
-import '@fontsource/open-sans/600.css'
-import '@fontsource/raleway/600.css'
-import '@fontsource/raleway/700.css'
 import React from 'react'
 import { Redirect, Route, Switch } from 'react-router-dom'
 import routes from 'routes.js'

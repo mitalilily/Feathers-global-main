@@ -14,9 +14,6 @@ import theme from 'theme/theme.js';
 import FixedPlugin from '../components/FixedPlugin/FixedPlugin';
 import { BRAND } from '../constants/brand';
 // Custom components
-import '@fontsource/roboto/400.css';
-import '@fontsource/roboto/500.css';
-import '@fontsource/roboto/700.css';
 import MainPanel from '../components/Layout/MainPanel';
 import PanelContainer from '../components/Layout/PanelContainer';
 import PanelContent from '../components/Layout/PanelContent';

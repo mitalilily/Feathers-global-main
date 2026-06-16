@@ -392,7 +392,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       ekart: {
         provider: 'ekart',
-        apiBase: 'https://api.ekartlogistics.com',
+        apiBase: 'https://app.elite.ekartlogistics.in',
         clientId: '',
         username: '',
         hasPassword: false,
@@ -426,7 +426,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       shadowfax: {
         provider: 'shadowfax',
-        apiBase: 'https://dale.staging.shadowfax.in/api',
+        apiBase: 'https://dale.shadowfax.in/api',
         clientName: '',
         hasApiKey: false,
         apiKeyMasked: '',
@@ -453,7 +453,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.ekart = {
           provider: 'ekart',
-          apiBase: row.apiBase || 'https://api.ekartlogistics.com',
+          apiBase: row.apiBase || 'https://app.elite.ekartlogistics.in',
           clientId: row.clientId || '',
           username: row.username || '',
           hasPassword,
@@ -513,7 +513,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.shadowfax = {
           provider: 'shadowfax',
-          apiBase: row.apiBase || 'https://dale.staging.shadowfax.in/api',
+          apiBase: row.apiBase || 'https://dale.shadowfax.in/api',
           clientName: row.clientName || '',
           hasApiKey: Boolean(apiKey.trim()),
           apiKeyMasked: apiKey
@@ -648,7 +648,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://api.ekartlogistics.com'
+        updatePayload.apiBase = nextApiBase || 'https://app.elite.ekartlogistics.in'
       }
       if (nextClientId !== undefined) {
         updatePayload.clientId = nextClientId
@@ -670,7 +670,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
     } else {
       await db.insert(courier_credentials).values({
         provider: 'ekart',
-        apiBase: nextApiBase || 'https://api.ekartlogistics.com',
+        apiBase: nextApiBase || 'https://app.elite.ekartlogistics.in',
         clientName: '',
         apiKey: '',
         clientId: nextClientId || '',
@@ -697,7 +697,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
       message: 'Ekart credentials updated successfully',
       data: {
         provider: 'ekart',
-        apiBase: saved?.apiBase || 'https://api.ekartlogistics.com',
+        apiBase: saved?.apiBase || 'https://app.elite.ekartlogistics.in',
         clientId: saved?.clientId || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
@@ -958,7 +958,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://dale.staging.shadowfax.in/api'
+        updatePayload.apiBase = nextApiBase || 'https://dale.shadowfax.in/api'
       }
       if (nextClientName !== undefined) {
         updatePayload.clientName = nextClientName
@@ -977,7 +977,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
     } else {
       await db.insert(courier_credentials).values({
         provider: 'shadowfax',
-        apiBase: nextApiBase || 'https://dale.staging.shadowfax.in/api',
+        apiBase: nextApiBase || 'https://dale.shadowfax.in/api',
         clientName: nextClientName || '',
         apiKey: hasNewApiKey ? nextApiKey : '',
         webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
@@ -1002,7 +1002,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
       message: 'Shadowfax credentials updated successfully',
       data: {
         provider: 'shadowfax',
-        apiBase: saved?.apiBase || 'https://dale.staging.shadowfax.in/api',
+        apiBase: saved?.apiBase || 'https://dale.shadowfax.in/api',
         clientName: saved?.clientName || '',
         hasApiKey: Boolean((saved?.apiKey || '').trim()),
         hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),

@@ -14,7 +14,7 @@ async function createDummyAdmin() {
     console.log('🚀 Creating dummy admin user...')
 
     const email = 'admin@shiplifi.local'
-    const password = 'Admin@12345'
+    const password = 'Admin@1234!'
     const hashedPassword = await bcryptjs.hash(password, 10)
 
     // Check if user already exists
@@ -85,7 +85,7 @@ async function createDummyAdmin() {
 
     console.log('\n✅ Dummy admin setup complete!')
     console.log('📧 Email: admin@shiplifi.local')
-    console.log('🔐 Password: Admin@12345')
+    console.log('🔐 Password: Admin@1234!')
     console.log('\nYou can now login to the admin panel with these credentials.')
 
     process.exit(0)

@@ -2760,6 +2760,18 @@ const convertKgToGrams = (value: unknown) => {
   return Math.round(numericValue * 1000)
 }
 
+const isShadowfaxReverseReference = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return false
+
+  return (
+    normalized.startsWith('r') ||
+    normalized.includes('rev') ||
+    normalized.includes('return') ||
+    normalized.includes('rto')
+  )
+}
+
 const normalizeServiceabilityWeightToGrams = (value: unknown) => {
   const numericValue = Number(value ?? 0)
   if (!Number.isFinite(numericValue) || numericValue <= 0) return 0
@@ -5139,6 +5151,7 @@ export interface ShipmentParams {
   plastic_packaging?: boolean | string | number
   quantity?: string | number
   country?: string
+  return_reason?: string
   consignee: {
     name: string
     company_name?: string
@@ -5187,6 +5200,8 @@ export interface ShipmentParams {
   preferred_dispatch_date?: string
   delayed_dispatch?: boolean
   mps?: boolean
+  master_waybill?: string
+  waybills?: string[]
   obd_shipment?: boolean
   qc_details?: any
   category_of_goods?: string
@@ -5737,7 +5752,7 @@ export const createB2CShipmentService = async (
     if (tagValue.includes('shadowfax_mode=warehouse')) return 'warehouse'
     if (tagValue.includes('shadowfax_mode=marketplace')) return 'marketplace'
 
-    return 'marketplace'
+    return 'warehouse'
   }
 
   const resolveShadowfaxServiceMode = (): 'regular' | 'surface' => {
@@ -6276,8 +6291,8 @@ export const createB2CShipmentService = async (
       if (searchTerm) {
         conditions.push(
           or(
-            ilike(addresses.addressNickname, `%${searchTerm}%`),
-            ilike(addresses.contactName, `%${searchTerm}%`),
+            eq(addresses.addressNickname, searchTerm),
+            eq(addresses.contactName, searchTerm),
           ),
         )
       }
@@ -6322,6 +6337,11 @@ export const createB2CShipmentService = async (
           params.pickup_location_alias = warehouseName
           params.return_location_alias = params.return_location_alias || warehouseName
         }
+      } else if (searchTerm) {
+        throw new HttpError(
+          400,
+          `Pickup warehouse "${searchTerm}" was not found. Warehouse names are case-sensitive and must exactly match the Delhivery registration.`,
+        )
       }
     } catch (err: any) {
       console.warn('⚠️ Failed to resolve pickup address from DB:', err?.message || err)
@@ -6698,9 +6718,21 @@ export const createB2CShipmentService = async (
     provider_manifest_id?: string | null
     provider_manifest_status?: string
     provider_manifested_at?: string
+    preferred_dispatch_date?: string
+    delayed_dispatch?: boolean
     pickup_vendor_code?: string
     manifest_attempts?: any
     xpressbees?: any
+    ekart?: {
+      delayed_dispatch?: boolean
+      preferred_dispatch_date?: string
+      dispatch_date_updated_at?: string
+      dispatch_date_update_request?: {
+        ids?: string[]
+        dispatchDate?: string
+      }
+      dispatch_date_update_response?: any
+    }
     amazon_rate_id?: string
     amazon_carrier_id?: string
     amazon_tracking_id?: string
@@ -6779,6 +6811,7 @@ export const createB2CShipmentService = async (
           package_breadth: params.package_breadth,
           package_height: params.package_height,
           order_items: params.order_items,
+          qc_details: params.qc_details,
         })
       } else {
         const originPin = bookingPickupPincode
@@ -6838,10 +6871,6 @@ export const createB2CShipmentService = async (
         provider_reference: shipmentData.upload_wbn ?? shipmentData.shipment_id ?? undefined,
       }
     } else if (integrationType === 'ekart') {
-      if (isReverseShipment) {
-        throw new HttpError(400, 'Ekart reverse shipments are not supported')
-      }
-
       console.log('→ Using Ekart API...')
       const ekart = new EkartService()
       await ensureEkartServiceable({
@@ -6914,6 +6943,24 @@ export const createB2CShipmentService = async (
         manifest: undefined,
         courier_cost: providerCourierCost,
         sort_code: providerSortCode,
+        provider_flow: isReverseShipment ? 'reverse_pickup' : 'forward_shipment',
+        provider_reference:
+          shipmentData?.shipment_id ??
+          shipmentData?.tracking_id ??
+          shipmentData?.awb_number ??
+          ekartWaybill ??
+          undefined,
+        provider_request_id:
+          shipmentData?.tracking_id ??
+          shipmentData?.awb_number ??
+          ekartWaybill ??
+          undefined,
+        preferred_dispatch_date: params.preferred_dispatch_date || undefined,
+        delayed_dispatch: Boolean(params.delayed_dispatch),
+        ekart: {
+          delayed_dispatch: Boolean(params.delayed_dispatch),
+          preferred_dispatch_date: params.preferred_dispatch_date || undefined,
+        },
       }
     } else if (integrationType === 'xpressbees') {
       console.log(
@@ -13697,6 +13744,8 @@ const mapProviderTrackingCodeToInternal = (
       dispatched: 'in_transit',
     },
     shadowfax: {
+      // Shadowfax uses separate marketplace and warehouse state ids; keep both mapped here
+      // so live tracking stays stable even when the provider switches response vocabulary.
       new: 'booked',
       assigned_for_seller_pickup: 'pickup_initiated',
       assigned_for_pickup: 'pickup_initiated',
@@ -13707,6 +13756,9 @@ const mapProviderTrackingCodeToInternal = (
       item_manifested: 'in_transit',
       recd_at_fwd_dc: 'in_transit',
       recd_at_fwd_hub: 'in_transit',
+      bag_in_transit: 'in_transit',
+      bag_received: 'in_transit',
+      bag_received_at_via: 'in_transit',
       assigned_for_delivery: 'out_for_delivery',
       cid: 'ndr',
       seller_initiated_delay: 'ndr',
@@ -13718,9 +13770,16 @@ const mapProviderTrackingCodeToInternal = (
       pickup_not_attempted: 'ndr',
       cancelled_by_customer: 'cancelled',
       cancelled_by_seller: 'cancelled',
+      in_transit_return: 'rto_in_transit',
+      rto_in_process: 'rto_in_transit',
+      rto: 'rto',
+      rts: 'rto',
+      rts_nd: 'ndr',
+      rto_nd: 'ndr',
       item_misrouted: 'in_transit',
       pincode_updated: 'in_transit',
       returned_to_client: 'rto_delivered',
+      reopen_ndr: 'ndr',
     },
     amazon: {
       pre_transit: 'pickup_initiated',
@@ -14247,7 +14306,11 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
       const raw = await delhiveryService.trackShipment(awb)
       providerData = mapDelhiveryTracking(raw, order)
     } else if (providerKey === 'shadowfax') {
-      const isReverseShadowfax = awb.toUpperCase().startsWith('R')
+      const isReverseShadowfax =
+        String(order?.order_type || '').trim().toLowerCase() === 'reverse' ||
+        isShadowfaxReverseReference(order?.provider_request_id) ||
+        isShadowfaxReverseReference(order?.provider_reference) ||
+        isShadowfaxReverseReference(awb)
 
       if (!isReverseShadowfax && isAfterShipTrackingConfigured()) {
         try {

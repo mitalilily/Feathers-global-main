@@ -7,6 +7,11 @@ import {
   updateOrderStatusServiceAdmin,
 } from '../../models/services/adminOrders.service'
 import { db } from '../../models/client'
+import {
+  findEkartOrderForDispatchDate,
+  updateEkartEwbnForOrder,
+  updateEkartDispatchDateForOrder,
+} from '../../models/services/ekartDispatchDate.service'
 import { ShadowfaxService } from '../../models/services/couriers/shadowfax.service'
 import { b2c_orders } from '../../schema/schema'
 import { buildCsv } from '../../utils/csv'
@@ -175,6 +180,18 @@ const getAdminB2COrderById = async (orderId: string) => {
   return order || null
 }
 
+const isShadowfaxReverseReference = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return false
+
+  return (
+    normalized.startsWith('r') ||
+    normalized.includes('rev') ||
+    normalized.includes('return') ||
+    normalized.includes('rto')
+  )
+}
+
 export const getProviderPodControllerAdmin = async (req: any, res: Response) => {
   try {
     const orderId = String(req.params.id || '').trim()
@@ -190,7 +207,7 @@ export const getProviderPodControllerAdmin = async (req: any, res: Response) => 
     ).trim()
     const reverse =
       String(order.order_type || '').toLowerCase() === 'reverse' ||
-      reference.toUpperCase().startsWith('R')
+      isShadowfaxReverseReference(reference)
     const data = await shadowfax.getPodDetails([reference], reverse)
     return res.status(200).json({ success: true, data })
   } catch (error: any) {
@@ -262,7 +279,7 @@ export const updateProviderOrderControllerAdmin = async (req: any, res: Response
     ).trim()
     const reverse =
       String(order.order_type || '').toLowerCase() === 'reverse' ||
-      reference.toUpperCase().startsWith('R')
+      isShadowfaxReverseReference(reference)
     const payload = {
       awb_number: order.awb_number || undefined,
       request_id: reverse ? reference : undefined,
@@ -279,10 +296,64 @@ export const updateProviderOrderControllerAdmin = async (req: any, res: Response
           })
         : reverse
         ? await shadowfax.updateReverseOrder(payload)
-        : await shadowfax.updateForwardOrder(payload)
+        : await shadowfax.updateOrderData({
+            ...req.body,
+            awb_number: order.awb_number || reference,
+            order: {
+              awb_number: order.awb_number || reference,
+              provider_request_id: order.provider_request_id,
+              provider_reference: order.provider_reference,
+            },
+          })
     return res.status(200).json({ success: true, data })
   } catch (error: any) {
     console.error('Error updating provider order:', error)
     return res.status(500).json({ success: false, message: error?.message || 'Failed to update provider order' })
+  }
+}
+
+export const updateEkartDispatchDateControllerAdmin = async (req: any, res: Response) => {
+  try {
+    const order = await findEkartOrderForDispatchDate({
+      orderIdentifier: String(req.params.id || '').trim(),
+    })
+
+    const result = await updateEkartDispatchDateForOrder({
+      order,
+      dispatchDate: String(req.body?.dispatchDate || '').trim(),
+      ids: req.body?.ids,
+    })
+
+    return res.status(200).json({ success: true, data: result })
+  } catch (error: any) {
+    const statusCode = error?.statusCode || 500
+    console.error('Error updating Ekart dispatch date for admin order:', error)
+    return res.status(statusCode).json({
+      success: false,
+      message: error?.message || 'Failed to update Ekart dispatch date',
+    })
+  }
+}
+
+export const updateEkartEwbnControllerAdmin = async (req: any, res: Response) => {
+  try {
+    const order = await findEkartOrderForDispatchDate({
+      orderIdentifier: String(req.params.id || '').trim(),
+    })
+
+    const result = await updateEkartEwbnForOrder({
+      order,
+      ewbn: String(req.body?.ewbn || '').trim(),
+      id: req.body?.id,
+    })
+
+    return res.status(200).json({ success: true, data: result })
+  } catch (error: any) {
+    const statusCode = error?.statusCode || 500
+    console.error('Error updating Ekart EWBN for admin order:', error)
+    return res.status(statusCode).json({
+      success: false,
+      message: error?.message || 'Failed to update Ekart EWBN',
+    })
   }
 }

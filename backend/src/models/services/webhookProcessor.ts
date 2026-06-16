@@ -71,6 +71,9 @@ const hasNdrSignal = (...parts: unknown[]) => {
     'refused',
     'otp not shared',
     'otp failed',
+    'qc failed',
+    'qc fail',
+    'quality check failed',
   ]
 
   return ndrMarkers.some((marker) => text.includes(marker))
@@ -2625,21 +2628,43 @@ export async function processAmazonShippingTrackingWebhook(payload: any, tx = db
   return { success: true, orderType }
 }
 
-const mapShadowfaxWebhookStatus = (statusRaw: unknown, requestId?: string | null) => {
-  const normalized = String(statusRaw || '').trim().toLowerCase()
-  const reverseLike = String(requestId || '').toUpperCase().startsWith('R')
+const mapShadowfaxWebhookStatus = (
+  statusRaw: unknown,
+  requestId?: string | null,
+  orderType?: unknown,
+) => {
+  const normalized = String(statusRaw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  const normalizedType = String(orderType || '').trim().toUpperCase()
+  const normalizedRequestId = String(requestId || '').trim().toLowerCase()
+  const reverseLike =
+    normalizedType === 'REV' ||
+    normalizedType === 'R' ||
+    normalizedRequestId.startsWith('r') ||
+    normalizedRequestId.includes('rev') ||
+    normalizedRequestId.includes('return') ||
+    normalizedRequestId.includes('rto')
 
   const mapping: Record<string, string> = {
     new: 'booked',
+    assigned: 'pickup_initiated',
     assigned_for_seller_pickup: 'pickup_initiated',
     assigned_for_pickup: 'pickup_initiated',
+    out_for_pickup: 'pickup_initiated',
     ofp: 'pickup_initiated',
     picked: 'pickup_initiated',
     received_from_client_warehouse: 'pickup_initiated',
+    item_added_to_bag: 'in_transit',
     recd_at_rev_hub: 'in_transit',
     item_manifested: 'in_transit',
     recd_at_fwd_dc: 'in_transit',
     recd_at_fwd_hub: 'in_transit',
+    bag_in_transit: 'in_transit',
+    bag_received: 'in_transit',
+    bag_received_at_via: 'in_transit',
     assigned_for_delivery: 'out_for_delivery',
     ofd: 'out_for_delivery',
     delivered: 'delivered',
@@ -2651,23 +2676,79 @@ const mapShadowfaxWebhookStatus = (statusRaw: unknown, requestId?: string | null
     on_hold: 'ndr',
     pickup_on_hold: 'ndr',
     pickup_not_attempted: 'ndr',
+    not_contactable: 'ndr',
+    not_attempted: 'ndr',
+    qc_failed: 'ndr',
     cancelled_by_customer: 'cancelled',
     cancelled_by_seller: 'cancelled',
     rts: reverseLike ? 'in_transit' : 'rto',
     rto: 'rto',
+    rto_in_process: 'rto_in_transit',
     rts_in_process: 'rto_in_transit',
     rts_ofd: 'rto_in_transit',
     in_transit_return: 'rto_in_transit',
     rts_d: 'rto_delivered',
     rto_d: 'rto_delivered',
     rts_nd: 'rto',
+    rto_nd: 'ndr',
     lost: 'lost',
     item_misrouted: 'in_transit',
     pincode_updated: 'in_transit',
     returned_to_client: 'rto_delivered',
+    returned_to_origin: 'rto_delivered',
+    received: reverseLike ? 'pickup_initiated' : 'pickup_initiated',
+    received_at_hub: 'in_transit',
+    received_at_return_dc: 'in_transit',
+    received_at_rts_dc: 'in_transit',
+    reopen_ndr: 'ndr',
   }
 
-  return mapping[normalized] || (reverseLike ? 'in_transit' : 'in_transit')
+  if (mapping[normalized]) return mapping[normalized]
+
+  if (normalized.includes('assigned for pickup') || normalized.includes('assigned for customer pickup')) {
+    return 'pickup_initiated'
+  }
+  if (normalized.includes('out for pickup')) return 'pickup_initiated'
+  if (normalized.includes('item added to bag')) return 'in_transit'
+  if (normalized.includes('bag in transit')) return 'in_transit'
+  if (normalized.includes('bag received')) return 'in_transit'
+  if (normalized.includes('received at hub')) return 'in_transit'
+  if (normalized.includes('received at return dc')) return 'in_transit'
+  if (normalized.includes('received at rts dc')) return 'in_transit'
+  if (normalized.includes('delivered') || normalized.includes('returned to client')) return 'delivered'
+  if (normalized.includes('out for delivery') || normalized.includes('assigned for delivery')) return 'out_for_delivery'
+  if (normalized.includes('cancel')) return 'cancelled'
+  if (
+    normalized.includes('not contactable') ||
+    normalized.includes('not attempted') ||
+    normalized.includes('undelivered') ||
+    normalized.includes('ndr') ||
+    normalized.includes('on hold') ||
+    normalized.includes('pickup not attempted')
+  ) {
+    return 'ndr'
+  }
+  if (
+    normalized.includes('rto') ||
+    normalized.includes('rts') ||
+    normalized.includes('return to origin') ||
+    normalized.includes('return to seller')
+  ) {
+    if (normalized.includes('in process') || normalized.includes('in transit')) return 'rto_in_transit'
+    if (normalized.includes('delivered')) return 'rto_delivered'
+    if (normalized.includes('undelivered') || normalized.includes('not delivered')) return 'ndr'
+    return reverseLike ? 'in_transit' : 'rto'
+  }
+  if (
+    normalized.includes('picked') ||
+    normalized.includes('pickup') ||
+    normalized.includes('received from client warehouse') ||
+    normalized.includes('new')
+  ) {
+    return 'pickup_initiated'
+  }
+
+  return 'in_transit'
 }
 
 const shadowfaxWebhookEventForStatus = (status: string) => {
@@ -2765,6 +2846,91 @@ const extractShadowfaxWeightSnapshot = (payload: any) => {
   }
 }
 
+const normalizeShadowfaxQcStatus = (value: unknown) =>
+  normalizeComparableText(value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+
+const extractShadowfaxQcSnapshot = (payload: any) => {
+  const rawStatus = pickWebhookText(
+    payload?.qc_status,
+    payload?.QCStatus,
+    payload?.qc?.status,
+    payload?.qc?.qc_status,
+    payload?.qc_details?.qc_status,
+    payload?.qc_details?.status,
+    ...collectShadowfaxValuesByKeys(payload, new Set(['qc_status', 'qcstatus'])),
+  )
+  const rawRemarks = pickWebhookText(
+    payload?.qc_remarks,
+    payload?.QCRemarks,
+    payload?.qc?.remarks,
+    payload?.qc?.qc_remarks,
+    payload?.qc_details?.qc_remarks,
+    payload?.qc_details?.remarks,
+    ...collectShadowfaxValuesByKeys(payload, new Set(['qc_remarks', 'qcremarks'])),
+  )
+  const rawPicked = pickWebhookText(
+    payload?.picked,
+    payload?.qc?.picked,
+    payload?.qc_details?.picked,
+    ...collectShadowfaxValuesByKeys(payload, new Set(['picked'])),
+  )
+  const qcImages =
+    payload?.qc_images ||
+    payload?.QCImages ||
+    payload?.qc?.images ||
+    payload?.qc?.qc_images ||
+    payload?.qc_details?.qc_images ||
+    payload?.qc_details?.images ||
+    null
+  const recipientInfo =
+    payload?.recepient_info ||
+    payload?.recipient_info ||
+    payload?.qc?.recipient_info ||
+    payload?.qc_details?.recipient_info ||
+    null
+  const otpVerified = pickWebhookText(
+    payload?.otp_verifed,
+    payload?.otp_verified,
+    payload?.qc?.otp_verifed,
+    payload?.qc?.otp_verified,
+  )
+  const riderName = pickWebhookText(
+    payload?.rider_name,
+    payload?.qc?.rider_name,
+    payload?.qc_details?.rider_name,
+  )
+  const riderContact = pickWebhookText(
+    payload?.rider_contact,
+    payload?.qc?.rider_contact,
+    payload?.qc_details?.rider_contact,
+  )
+
+  const normalizedStatus = normalizeShadowfaxQcStatus(rawStatus)
+  const normalizedPicked = normalizeShadowfaxQcStatus(rawPicked)
+  const normalizedRemarks = String(rawRemarks || '').trim()
+  const failed =
+    ['fail', 'failed', 'fail_hub', 'qc_failed', 'qcfail', 'qc_failed_hub'].includes(
+      normalizedStatus,
+    ) ||
+    normalizedRemarks.toLowerCase().includes('qc fail') ||
+    normalizedRemarks.toLowerCase().includes('failed qc') ||
+    normalizedRemarks.toLowerCase().includes('qc failed')
+
+  return {
+    status: rawStatus || null,
+    statusNormalized: normalizedStatus || null,
+    remarks: normalizedRemarks || null,
+    picked: rawPicked || null,
+    pickedNormalized: normalizedPicked || null,
+    images: qcImages || null,
+    recipientInfo: recipientInfo || null,
+    otpVerified: otpVerified || null,
+    riderName: riderName || null,
+    riderContact: riderContact || null,
+    failed,
+  }
+}
+
 export async function processShadowfaxWebhook(payload: any, tx = db) {
   const event = payload || {}
   const awb =
@@ -2777,6 +2943,14 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
   const statusRaw = event?.event || event?.status || event?.current_status || ''
   const location = event?.current_location || event?.location || null
   const remarks = event?.comments || event?.message || null
+  const shadowfaxQc = extractShadowfaxQcSnapshot(event)
+  const shadowfaxPayload =
+    shadowfaxQc.status || shadowfaxQc.remarks || shadowfaxQc.images
+      ? {
+          ...event,
+          shadowfax_qc: shadowfaxQc,
+        }
+      : event
 
   console.log('🔄 processShadowfaxWebhook:start', {
     awb: awb || null,
@@ -2857,15 +3031,18 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     return { success: false, reason: 'order_not_found' }
   }
 
-  const internalStatus = mapShadowfaxWebhookStatus(statusRaw, awb)
+  let internalStatus = mapShadowfaxWebhookStatus(statusRaw, awb, event?.type)
+  if (shadowfaxQc.failed && !['cancelled', 'delivered', 'rto_delivered'].includes(internalStatus)) {
+    internalStatus = 'ndr'
+  }
   const shadowfaxWeight = extractShadowfaxWeightSnapshot(payload)
   const shadowfaxProof = extractWeightProofFromWebhook(payload, 'shadowfax')
   const updateData: any = {
     order_status: internalStatus,
     delivery_location: location,
-    delivery_message: remarks || null,
+    delivery_message: shadowfaxQc.remarks || remarks || null,
     provider_last_status: String(statusRaw || internalStatus || '').trim() || null,
-    provider_meta: payload,
+    provider_meta: shadowfaxPayload,
     updated_at: new Date(),
   }
 
@@ -2977,9 +3154,9 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
           awbNumber: order.awb_number || String(awb || ''),
           courier: 'Shadowfax',
           statusCode: String(statusRaw || internalStatus),
-          statusText: String(event?.status || statusRaw || internalStatus),
+          statusText: String(shadowfaxQc.status || event?.status || statusRaw || internalStatus),
           location,
-          raw: payload,
+          raw: shadowfaxPayload,
         })
       } catch (err: any) {
         console.error('❌ Failed to log Shadowfax tracking event:', err)
@@ -2997,7 +3174,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     provider_reference: order.provider_reference || awb || null,
     provider_request_id: order.provider_request_id || awb || null,
     location,
-    remarks,
+    remarks: shadowfaxQc.remarks || remarks,
   }).catch((err) => {
     console.error('❌ Failed to send Shadowfax tracking.updated webhook:', err)
   })
@@ -3017,7 +3194,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
       provider_reference: order.provider_reference || awb || null,
       provider_request_id: order.provider_request_id || awb || null,
       location,
-      remarks,
+      remarks: shadowfaxQc.remarks || remarks,
       order_type: orderType,
     }).catch((err) => {
       console.error('❌ Failed to send Shadowfax status webhook:', err)
@@ -3027,16 +3204,17 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
   if (orderType === 'b2c') {
     if (
       ['ndr', 'undelivered'].includes(internalStatus) ||
-      hasNdrSignal(statusRaw, remarks, event?.status, location)
+      shadowfaxQc.failed ||
+      hasNdrSignal(statusRaw, remarks, event?.status, location, shadowfaxQc.status, shadowfaxQc.remarks)
     ) {
       try {
         await captureNdrEventFromWebhook({
           order,
           awbNumber: order.awb_number || String(awb || ''),
           status: internalStatus,
-          reason: remarks || null,
-          remarks: String(event?.status || statusRaw || internalStatus),
-          payload,
+          reason: shadowfaxQc.remarks || remarks || null,
+          remarks: String(shadowfaxQc.status || event?.status || statusRaw || internalStatus),
+          payload: shadowfaxPayload,
           courierLabel: 'Shadowfax',
           signalParts: [statusRaw, remarks, event?.status, location],
         })
@@ -3053,10 +3231,10 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
           userId: order.user_id,
           awbNumber: order.awb_number || String(awb || ''),
           status: internalStatus,
-          reason: remarks || null,
-          remarks: String(event?.status || statusRaw || internalStatus),
+          reason: shadowfaxQc.remarks || remarks || null,
+          remarks: String(shadowfaxQc.status || event?.status || statusRaw || internalStatus),
           rtoCharges: rtoCharge,
-          payload,
+          payload: shadowfaxPayload,
         })
         await createNotificationService({
           targetRole: 'user',
