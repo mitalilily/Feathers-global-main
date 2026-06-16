@@ -135,6 +135,8 @@ const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5176',
+  'https://feathers-global-admin.onrender.com',
+  'https://feathers-global-main.onrender.com',
   'https://featherglobal.in',
   'https://www.featherglobal.in',
   'https://app.featherglobal.in',

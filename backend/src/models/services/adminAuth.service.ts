@@ -8,6 +8,7 @@ import { findUserByEmail, findUserById, saveRefreshToken } from "./userService";
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const BOOTSTRAP_ADMIN_EMAILS = [
+  'admin@feathergsglobal.com',
   'admin@feathersglobal.com',
   'admin@shiplifi.com',
   'admin@shiplifi.local',

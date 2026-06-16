@@ -66,8 +66,8 @@ export const seedAdmin = async ({
 
 seedAdmin({
   phone: '+916283315911', // valid Indian phone format
-  email: 'admin@feathersglobal.com', // professional-looking dev email
-  password: 'Admin@1234!', // updated default admin password
+  email: 'admin@feathergsglobal.com', // requested admin login email
+  password: 'Admin@12345!', // requested admin password
   role: 'admin',
 })
   .then((user) => {
