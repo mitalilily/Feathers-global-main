@@ -10,24 +10,31 @@ export const createReversePickup = async (req: any, res: Response) => {
   try {
     const userId = req.user?.sub
     const body = req.body || {}
+    const providedChargeRaw = Number(body?.freight_charges ?? body?.shipping_charges ?? 0)
 
     const payload = {
       ...body,
       payment_type: 'reverse',
     }
-    // Quote reverse charge and debit wallet
-    let reverseCharge = 0
+    // Quote reverse charge and debit wallet. Manual reverse entries can fall back
+    // to an explicitly provided charge when there is no source order to quote.
+    let reverseCharge = Number.isFinite(providedChargeRaw) ? Math.max(0, providedChargeRaw) : 0
     try {
       const orderId = body?.original_order_id || body?.order_id || body?.orderId
       if (orderId) {
         const quote = await quoteReverseForOrder(orderId, Number(body?.package_weight))
-        reverseCharge = Number(quote.rate || 0)
+        const quotedCharge = Number(quote.rate || 0)
+        if (Number.isFinite(quotedCharge) && quotedCharge > 0) {
+          reverseCharge = Math.max(0, quotedCharge)
+        }
         payload.selected_max_slab_weight = quote.max_slab_weight ?? undefined
-        payload.freight_charges = reverseCharge
       }
     } catch (e) {
-      // optional: keep zero if not found
+      // Optional: keep the manual charge fallback if the quote lookup fails.
     }
+
+    payload.shipping_charges = reverseCharge
+    payload.freight_charges = reverseCharge
 
     if (reverseCharge > 0) {
       const [userWallet] = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1)
@@ -36,7 +43,6 @@ export const createReversePickup = async (req: any, res: Response) => {
         return res.status(400).json({ success: false, message: 'Insufficient wallet balance for reverse shipment' })
       }
       await createWalletTransaction({ walletId: userWallet.id, amount: reverseCharge, type: 'debit', reason: 'reverse_shipment', meta: { order_number: payload.order_number } })
-      payload.shipping_charges = reverseCharge
     }
 
     const shipment = await createB2CShipmentService(payload, userId)

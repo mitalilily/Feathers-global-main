@@ -18,6 +18,7 @@ import { useB2COrdersByUser, useCreateReverseShipment } from '../../../hooks/Ord
 import { usePickupAddresses } from '../../../hooks/Pickup/usePickupAddresses'
 import { useKycVerification } from '../../../hooks/User/useKycVerification'
 import type { B2COrder, HydratedPickup } from '../../../types/generic.types'
+import ManualReversePickupDialog from './ManualReversePickupDialog'
 import ReverseModal from './ReverseModal'
 import DataTable, { type Column } from '../../UI/table/DataTable'
 import TableSkeleton from '../../UI/table/TableSkeleton'
@@ -73,6 +74,7 @@ export default function ReversePickupForm() {
   const [rowsPerPage, setRowsPerPage] = useState(10)
   const [filters, setFilters] = useState(defaultFilters)
   const [selectedOrder, setSelectedOrder] = useState<B2COrder | null>(null)
+  const [manualReverseOpen, setManualReverseOpen] = useState(false)
   const createReverseShipment = useCreateReverseShipment()
   const { data: pickupResponse } = usePickupAddresses()
 
@@ -403,6 +405,36 @@ export default function ReversePickupForm() {
             >
               <CardContent sx={{ py: 2.1, px: 2.2 }}>
                 <Typography variant="overline" sx={{ color: '#047b85', fontWeight: 900 }}>
+                  Manual reverse entry
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
+                  Enter a reverse pickup manually when the delivered order is not listed in the
+                  table. You can provide an original order ID for auto-quoting or set the reverse
+                  shipping charge directly.
+                </Typography>
+                <Button
+                  variant="contained"
+                  onClick={() =>
+                    checkKycBeforeAction(() => {
+                      setManualReverseOpen(true)
+                    })
+                  }
+                  sx={{ mt: 1.5, textTransform: 'none', fontWeight: 800, borderRadius: 2 }}
+                >
+                  Open Manual Form
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card
+              sx={{
+                borderRadius: 3,
+                border: '1px solid rgba(4, 123, 133, 0.12)',
+                boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
+              }}
+            >
+              <CardContent sx={{ py: 2.1, px: 2.2 }}>
+                <Typography variant="overline" sx={{ color: '#047b85', fontWeight: 900 }}>
                   Reverse notes
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
@@ -462,6 +494,21 @@ export default function ReversePickupForm() {
           </Stack>
         </Grid>
       </Grid>
+
+      <ManualReversePickupDialog
+        open={manualReverseOpen}
+        onClose={() => setManualReverseOpen(false)}
+        defaultPickup={primaryPickup}
+        defaultIntegrationType="delhivery"
+        isSubmitting={createReverseShipment.isPending}
+        onSubmit={(payload) => {
+          createReverseShipment.mutate(payload, {
+            onSuccess: () => {
+              setManualReverseOpen(false)
+            },
+          })
+        }}
+      />
 
       {selectedReverseOrder ? (
         <ReverseModal
