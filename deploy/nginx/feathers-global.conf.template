@@ -1,7 +1,7 @@
 server {
     listen ${FEATHERS_LANDING_PORT} ssl http2;
     listen [::]:${FEATHERS_LANDING_PORT} ssl http2;
-    server_name _;
+    server_name ${FEATHERS_LANDING_SERVER_NAME};
 
     ssl_certificate ${FEATHERS_SSL_CERT};
     ssl_certificate_key ${FEATHERS_SSL_KEY};
@@ -19,7 +19,7 @@ server {
 server {
     listen ${FEATHERS_APP_PORT} ssl http2;
     listen [::]:${FEATHERS_APP_PORT} ssl http2;
-    server_name _;
+    server_name ${FEATHERS_APP_SERVER_NAME};
 
     ssl_certificate ${FEATHERS_SSL_CERT};
     ssl_certificate_key ${FEATHERS_SSL_KEY};
@@ -37,7 +37,7 @@ server {
 server {
     listen ${FEATHERS_ADMIN_PORT} ssl http2;
     listen [::]:${FEATHERS_ADMIN_PORT} ssl http2;
-    server_name _;
+    server_name ${FEATHERS_ADMIN_SERVER_NAME};
 
     ssl_certificate ${FEATHERS_SSL_CERT};
     ssl_certificate_key ${FEATHERS_SSL_KEY};
@@ -55,7 +55,7 @@ server {
 server {
     listen ${FEATHERS_API_PORT} ssl http2;
     listen [::]:${FEATHERS_API_PORT} ssl http2;
-    server_name _;
+    server_name ${FEATHERS_API_SERVER_NAME};
 
     ssl_certificate ${FEATHERS_SSL_CERT};
     ssl_certificate_key ${FEATHERS_SSL_KEY};
@@ -80,7 +80,7 @@ server {
 server {
     listen ${FEATHERS_PGADMIN_PUBLIC_PORT} ssl http2;
     listen [::]:${FEATHERS_PGADMIN_PUBLIC_PORT} ssl http2;
-    server_name _;
+    server_name ${FEATHERS_PGADMIN_SERVER_NAME};
 
     ssl_certificate ${FEATHERS_SSL_CERT};
     ssl_certificate_key ${FEATHERS_SSL_KEY};
