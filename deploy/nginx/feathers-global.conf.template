@@ -1,4 +1,17 @@
 server {
+    listen ${FEATHERS_LANDING_PORT};
+    listen [::]:${FEATHERS_LANDING_PORT};
+    server_name _;
+
+    root /srv/feathers-global/current/landing/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+
+server {
     listen ${FEATHERS_APP_PORT};
     listen [::]:${FEATHERS_APP_PORT};
     server_name _;

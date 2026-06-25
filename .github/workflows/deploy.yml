@@ -17,6 +17,7 @@ jobs:
       FEATHERS_DEPLOY_ROOT: ${{ vars.FEATHERS_DEPLOY_ROOT || '/srv/feathers-global/current' }}
       FEATHERS_SSH_PASSWORD: ${{ secrets.FEATHERS_SSH_PASSWORD }}
       FEATHERS_SSH_PRIVATE_KEY: ${{ secrets.FEATHERS_SSH_PRIVATE_KEY }}
+      FEATHERS_LANDING_PORT: ${{ vars.FEATHERS_LANDING_PORT || '8088' }}
       FEATHERS_APP_PORT: ${{ vars.FEATHERS_APP_PORT || '8089' }}
       FEATHERS_ADMIN_PORT: ${{ vars.FEATHERS_ADMIN_PORT || '8090' }}
       FEATHERS_API_PORT: ${{ vars.FEATHERS_API_PORT || '8092' }}
@@ -77,9 +78,11 @@ jobs:
             --exclude 'backend/.env.production' \
             --exclude '.deploy-env' \
             --exclude 'backend/node_modules' \
+            --exclude 'landing/node_modules' \
             --exclude 'courier-cart-client/node_modules' \
             --exclude 'admin-dashboard/node_modules' \
             --exclude 'backend/dist' \
+            --exclude 'landing/dist' \
             --exclude 'courier-cart-client/dist' \
             --exclude 'admin-dashboard/build' \
             ./ "$FEATHERS_USER@$FEATHERS_HOST:$FEATHERS_DEPLOY_ROOT/"
@@ -92,6 +95,7 @@ jobs:
             "cd '$FEATHERS_DEPLOY_ROOT' && \
              chmod +x deploy/setup-vps.sh deploy/release.sh && \
              FEATHERS_DEPLOY_ROOT='$FEATHERS_DEPLOY_ROOT' \
+             FEATHERS_LANDING_PORT='$FEATHERS_LANDING_PORT' \
              FEATHERS_APP_PORT='$FEATHERS_APP_PORT' \
              FEATHERS_ADMIN_PORT='$FEATHERS_ADMIN_PORT' \
              FEATHERS_API_PORT='$FEATHERS_API_PORT' \
@@ -104,6 +108,7 @@ jobs:
 
       - name: Print deployed URLs
         run: |
+          echo "Landing: http://${FEATHERS_HOST}:${FEATHERS_LANDING_PORT}/"
           echo "App: http://${FEATHERS_HOST}:${FEATHERS_APP_PORT}/"
           echo "Admin: http://${FEATHERS_HOST}:${FEATHERS_ADMIN_PORT}/"
           echo "API health: http://${FEATHERS_HOST}:${FEATHERS_API_PORT}/api/health"

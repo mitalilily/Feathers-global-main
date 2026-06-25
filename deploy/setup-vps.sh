@@ -39,6 +39,7 @@ public_host() {
 }
 
 if [ ! -f "$DEPLOY_ENV" ]; then
+  FEATHERS_LANDING_PORT="${FEATHERS_LANDING_PORT:-8088}"
   FEATHERS_APP_PORT="${FEATHERS_APP_PORT:-8089}"
   FEATHERS_ADMIN_PORT="${FEATHERS_ADMIN_PORT:-8090}"
   FEATHERS_API_PORT="${FEATHERS_API_PORT:-8092}"
@@ -52,6 +53,7 @@ if [ ! -f "$DEPLOY_ENV" ]; then
   PGADMIN_DEFAULT_EMAIL="${PGADMIN_DEFAULT_EMAIL:-admin@featherglobal.com}"
   PGADMIN_DEFAULT_PASSWORD="${PGADMIN_DEFAULT_PASSWORD:-$(rand_hex)}"
   PUBLIC_HOST="${FEATHERS_PUBLIC_HOST:-$(public_host)}"
+  FEATHERS_LANDING_ORIGIN="${FEATHERS_LANDING_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
   FEATHERS_APP_ORIGIN="${FEATHERS_APP_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_APP_PORT}}"
   FEATHERS_ADMIN_ORIGIN="${FEATHERS_ADMIN_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_ADMIN_PORT}}"
   FEATHERS_API_ORIGIN="${FEATHERS_API_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_API_PORT}}"
@@ -59,6 +61,7 @@ if [ ! -f "$DEPLOY_ENV" ]; then
 
   umask 077
   cat > "$DEPLOY_ENV" <<EOF
+FEATHERS_LANDING_PORT=$FEATHERS_LANDING_PORT
 FEATHERS_APP_PORT=$FEATHERS_APP_PORT
 FEATHERS_ADMIN_PORT=$FEATHERS_ADMIN_PORT
 FEATHERS_API_PORT=$FEATHERS_API_PORT
@@ -71,6 +74,7 @@ FEATHERS_DB_USER=$FEATHERS_DB_USER
 FEATHERS_DB_PASSWORD=$FEATHERS_DB_PASSWORD
 PGADMIN_DEFAULT_EMAIL=$PGADMIN_DEFAULT_EMAIL
 PGADMIN_DEFAULT_PASSWORD=$PGADMIN_DEFAULT_PASSWORD
+FEATHERS_LANDING_ORIGIN=$FEATHERS_LANDING_ORIGIN
 FEATHERS_APP_ORIGIN=$FEATHERS_APP_ORIGIN
 FEATHERS_ADMIN_ORIGIN=$FEATHERS_ADMIN_ORIGIN
 FEATHERS_API_ORIGIN=$FEATHERS_API_ORIGIN
@@ -82,6 +86,17 @@ set -a
 # shellcheck disable=SC1090
 . "$DEPLOY_ENV"
 set +a
+
+if ! grep -q '^FEATHERS_LANDING_PORT=' "$DEPLOY_ENV"; then
+  : "${FEATHERS_LANDING_PORT:=8088}"
+  printf 'FEATHERS_LANDING_PORT=%s\n' "$FEATHERS_LANDING_PORT" >> "$DEPLOY_ENV"
+fi
+
+if ! grep -q '^FEATHERS_LANDING_ORIGIN=' "$DEPLOY_ENV"; then
+  PUBLIC_HOST="${FEATHERS_PUBLIC_HOST:-$(public_host)}"
+  : "${FEATHERS_LANDING_ORIGIN:=http://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
+  printf 'FEATHERS_LANDING_ORIGIN=%s\n' "$FEATHERS_LANDING_ORIGIN" >> "$DEPLOY_ENV"
+fi
 
 apt-get install -y nginx certbot python3-certbot-nginx curl ca-certificates gnupg build-essential gettext-base openssl \
   postgresql postgresql-contrib python3-venv python3-pip
@@ -159,14 +174,14 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now feathers-global-pgadmin
 
-if ss -ltn | awk '{print $4}' | grep -Eq "(:|\\])(${FEATHERS_APP_PORT}|${FEATHERS_ADMIN_PORT}|${FEATHERS_API_PORT}|${FEATHERS_PGADMIN_PUBLIC_PORT})$" &&
+if ss -ltn | awk '{print $4}' | grep -Eq "(:|\\])(${FEATHERS_LANDING_PORT}|${FEATHERS_APP_PORT}|${FEATHERS_ADMIN_PORT}|${FEATHERS_API_PORT}|${FEATHERS_PGADMIN_PUBLIC_PORT})$" &&
   ! grep -R "feathers-global/current" /etc/nginx/sites-enabled /etc/nginx/sites-available >/dev/null 2>&1; then
   echo "One of the Feathers public ports is already in use by another service. Set FEATHERS_*_PORT and rerun." >&2
   exit 1
 fi
 
-export FEATHERS_APP_PORT FEATHERS_ADMIN_PORT FEATHERS_API_PORT FEATHERS_BACKEND_PORT FEATHERS_PGADMIN_PORT FEATHERS_PGADMIN_PUBLIC_PORT
-envsubst '${FEATHERS_APP_PORT} ${FEATHERS_ADMIN_PORT} ${FEATHERS_API_PORT} ${FEATHERS_BACKEND_PORT} ${FEATHERS_PGADMIN_PORT} ${FEATHERS_PGADMIN_PUBLIC_PORT}' \
+export FEATHERS_LANDING_PORT FEATHERS_APP_PORT FEATHERS_ADMIN_PORT FEATHERS_API_PORT FEATHERS_BACKEND_PORT FEATHERS_PGADMIN_PORT FEATHERS_PGADMIN_PUBLIC_PORT
+envsubst '${FEATHERS_LANDING_PORT} ${FEATHERS_APP_PORT} ${FEATHERS_ADMIN_PORT} ${FEATHERS_API_PORT} ${FEATHERS_BACKEND_PORT} ${FEATHERS_PGADMIN_PORT} ${FEATHERS_PGADMIN_PUBLIC_PORT}' \
   < "$APP_ROOT/deploy/nginx/feathers-global.conf.template" \
   > /etc/nginx/sites-available/feathers-global
 
@@ -176,6 +191,7 @@ systemctl enable nginx
 systemctl reload nginx || systemctl restart nginx
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+  ufw allow "${FEATHERS_LANDING_PORT}/tcp"
   ufw allow "${FEATHERS_APP_PORT}/tcp"
   ufw allow "${FEATHERS_ADMIN_PORT}/tcp"
   ufw allow "${FEATHERS_API_PORT}/tcp"
@@ -184,6 +200,7 @@ fi
 
 echo "VPS setup complete for Feathers Global."
 echo "Deploy root: $APP_ROOT"
+echo "Landing: $FEATHERS_LANDING_ORIGIN/"
 echo "App: $FEATHERS_APP_ORIGIN/"
 echo "Admin: $FEATHERS_ADMIN_ORIGIN/"
 echo "API: $FEATHERS_API_ORIGIN/"

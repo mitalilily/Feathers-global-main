@@ -21,10 +21,12 @@ set -a
 . "$DEPLOY_ENV"
 set +a
 
+: "${FEATHERS_LANDING_ORIGIN:=http://127.0.0.1:${FEATHERS_LANDING_PORT:-8088}}"
+
 BACKEND_ENV="$APP_ROOT/backend/.env.production"
 DATABASE_URL="postgresql://${FEATHERS_DB_USER}:${FEATHERS_DB_PASSWORD}@127.0.0.1:${FEATHERS_DB_PORT}/${FEATHERS_DB_NAME}"
 API_BASE_URL="$FEATHERS_API_ORIGIN/api"
-CORS_ORIGINS="$FEATHERS_APP_ORIGIN,$FEATHERS_ADMIN_ORIGIN"
+CORS_ORIGINS="$FEATHERS_LANDING_ORIGIN,$FEATHERS_APP_ORIGIN,$FEATHERS_ADMIN_ORIGIN"
 
 set_env_value() {
   local key="$1"
@@ -86,6 +88,17 @@ npm run build
 NODE_ENV=production PORT="$FEATHERS_BACKEND_PORT" pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
 
+cd "$APP_ROOT/landing"
+cat > .env.production <<EOF
+VITE_CLIENT_APP_URL=$FEATHERS_APP_ORIGIN
+VITE_AUTH_APP_URL=$FEATHERS_APP_ORIGIN/login
+VITE_ADMIN_APP_URL=$FEATHERS_ADMIN_ORIGIN
+VITE_ADMIN_AUTH_URL=$FEATHERS_ADMIN_ORIGIN/auth/signin
+VITE_API_URL=$API_BASE_URL
+EOF
+npm ci
+npm run build
+
 cd "$APP_ROOT/courier-cart-client"
 cat > .env.production <<EOF
 VITE_API_URL=$API_BASE_URL
@@ -115,6 +128,7 @@ nginx -t
 systemctl reload nginx
 
 echo "Release completed."
+echo "Landing: $FEATHERS_LANDING_ORIGIN/"
 echo "App: $FEATHERS_APP_ORIGIN/"
 echo "Admin: $FEATHERS_ADMIN_ORIGIN/"
 echo "API health: $FEATHERS_API_ORIGIN/api/health"
