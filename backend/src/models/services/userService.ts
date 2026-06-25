@@ -452,13 +452,10 @@ export const handleEmailVerificationRequest = async (
         }
 
         if (!user.passwordHash) {
-          const hashed = await bcrypt.hash(password, 10)
-          await updateUserByEmail(normalizedEmail, { passwordHash: hashed }, tx)
           return {
-            status: 200,
+            status: 400,
             data: {
-              message: 'Password set successfully. You can now log in.',
-              user,
+              error: 'Password login is not enabled for this account. Please use email OTP.',
             },
           }
         }
