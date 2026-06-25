@@ -23,6 +23,7 @@ import {
   MdImage,
   MdPreview,
   MdVerifiedUser,
+  MdCameraAlt,
 } from 'react-icons/md'
 import { usePresignedDownloadUrls } from '../../../../hooks/Uploads/usePresignedDownloadUrls'
 import type { CompanyType } from '../../../../types/generic.types'
@@ -37,6 +38,7 @@ const iconMap: Record<string, JSX.Element> = {
   panNumber: <MdBadge />,
   panCardUrl: <MdBadge />,
   aadhaarUrl: <MdVerifiedUser />,
+  selfieUrl: <MdCameraAlt />,
   cancelledChequeUrl: <MdAccountBalance />,
   partnershipDeedUrl: <MdGavel />,
   boardResolutionUrl: <MdDescription />,
@@ -49,6 +51,7 @@ const getLabel = (key: string) => {
     panNumber: 'PAN Number',
     panCardUrl: 'PAN Card',
     aadhaarUrl: 'Aadhaar Card',
+    selfieUrl: 'Camera Verification Selfie',
     businessPanUrl: 'Business PAN',
     llpAgreementUrl: 'LLP Agreement',
     gstCertificateUrl: 'GST Certificate',
@@ -305,9 +308,15 @@ const KycDetailsCard = ({
       'cancelledChequeUrl',
       'businessPanUrl',
       'gstCertificateUrl',
+      'selfieUrl',
     ].includes(f)
 
-  const fileFieldsToShow = allFields.filter(isFileField)
+  const fileFieldsToShow = [
+    ...allFields.filter(isFileField),
+    ...(kyc?.selfieUrl && !allFields.includes('selfieUrl' as keyof AdditionalKYCForm)
+      ? (['selfieUrl'] as (keyof AdditionalKYCForm)[])
+      : []),
+  ]
   const textFieldsToShow = allFields.filter(
     (f: keyof AdditionalKYCForm) => !isFileField(f) && f !== 'cin',
   )

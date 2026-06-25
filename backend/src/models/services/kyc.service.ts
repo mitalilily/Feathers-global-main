@@ -95,6 +95,10 @@ export const UpdateKYCDetails = async (
       .filter(([field, isRequired]) => isRequired && !normalizedDetails[field as keyof KycDetails])
       .map(([field]) => field)
 
+    if (!isDraft && !(normalizedDetails.selfieUrl || existingKyc?.selfieUrl)) {
+      missing.push('selfieUrl')
+    }
+
     if (!isDraft && missing.length) {
       throw new HttpError(
         400,
@@ -122,6 +126,7 @@ export const UpdateKYCDetails = async (
       'gstin',
       'panNumber',
       'llpAgreementUrl',
+      'selfieUrl',
     ]
 
     const fieldToStatusMap: Partial<Record<keyof KycDetails, keyof KycDetails>> = {
@@ -135,6 +140,7 @@ export const UpdateKYCDetails = async (
       partnershipDeedUrl: 'partnershipDeedStatus',
       boardResolutionUrl: 'boardResolutionStatus',
       cin: 'cinStatus',
+      selfieUrl: 'selfieStatus',
     }
 
     const mimeFieldsMap: Partial<Record<keyof KycDetails, keyof KycDetails>> = {
@@ -147,6 +153,7 @@ export const UpdateKYCDetails = async (
       partnershipDeedUrl: 'partnershipDeedMime',
       businessPanUrl: 'businessPanMime',
       gstCertificateUrl: 'gstCertificateMime',
+      selfieUrl: 'selfieMime',
     }
 
     for (const field of docFields) {
@@ -247,6 +254,7 @@ export const updateKycStatus = async (
       'businessPan',
       'gstCertificate',
       'llpAgreement',
+      'selfie',
       'cin',
     ]
 
@@ -284,6 +292,7 @@ export const updateDocumentStatus = async (
     businessPanUrl: 'businessPanStatus',
     gstCertificateUrl: 'gstCertificateStatus',
     llpAgreementUrl: 'llpAgreementStatus',
+    selfieUrl: 'selfieStatus',
     cin: 'cinStatus',
   }
   const statusField = allowedStatusFields[key]

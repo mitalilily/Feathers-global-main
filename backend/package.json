@@ -22,6 +22,7 @@
     "migrate:bootstrap": "tsx src/scripts/runAllMigrations.ts",
     "seed:holidays": "ts-node src/scripts/seedHolidays.ts",
     "seed:holidays:year": "ts-node src/scripts/seedHolidays.ts",
+    "seed:admin": "ts-node src/scripts/seedAdmin.ts",
     "seed:locations": "ts-node src/scripts/seedLocations.ts locations.xlsx",
     "seed:delhivery-b2c": "ts-node src/scripts/seedDelhiveryB2CRatecard.ts",
     "seed:basic-b2c-ratecard": "ts-node src/scripts/seedBasicPlanB2CRatecard.ts",

@@ -25,6 +25,8 @@ export interface AdditionalKYCForm {
   boardResolutionUrl?: string;
   llpAgreementUrl?: string;
   cancelledChequeUrl?: string;
+  selfieUrl?: string;
+  selfieMime?: string;
 }
 
 interface Props {
@@ -48,6 +50,8 @@ const fieldLabels: Record<keyof AdditionalKYCForm, string> = {
   boardResolutionUrl: "Upload Board Resolution",
   cancelledChequeUrl: "Upload Cancelled Cheque",
   llpAgreementUrl: "Upload LLP Agreement",
+  selfieUrl: "Camera Verification Selfie",
+  selfieMime: "Camera Verification MIME",
 };
 
 const inputPlaceholders: Partial<Record<keyof AdditionalKYCForm, string>> = {

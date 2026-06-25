@@ -41,7 +41,7 @@ export const uploadFileToStorage = async (
   };
 };
 
-export const uploadKycPdfToBackend = async (
+export const uploadKycDocumentToBackend = async (
   file: File,
   onProgress?: (progress: number) => void,
 ): Promise<UploadedFileInfo> => {
@@ -61,9 +61,11 @@ export const uploadKycPdfToBackend = async (
     key: data.key,
     originalName: data.originalName || file.name,
     size: data.size || file.size,
-    mime: data.mime || file.type || 'application/pdf',
+    mime: data.mime || file.type || 'application/octet-stream',
   }
 }
+
+export const uploadKycPdfToBackend = uploadKycDocumentToBackend
 
 export const getPresignedDownloadUrls = async (
   keys: string | string[]

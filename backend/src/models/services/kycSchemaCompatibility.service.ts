@@ -64,6 +64,7 @@ const runKycSchemaCompatibility = async () => {
     `ADD COLUMN IF NOT EXISTS "businessPanUrl" text`,
     `ADD COLUMN IF NOT EXISTS "companyAddressProofUrl" text`,
     `ADD COLUMN IF NOT EXISTS "gstCertificateUrl" text`,
+    `ADD COLUMN IF NOT EXISTS "selfieUrl" text`,
     `ADD COLUMN IF NOT EXISTS "panCardMime" varchar(100)`,
     `ADD COLUMN IF NOT EXISTS "aadhaarMime" varchar(100)`,
     `ADD COLUMN IF NOT EXISTS "cancelledChequeMime" varchar(100)`,
@@ -73,6 +74,7 @@ const runKycSchemaCompatibility = async () => {
     `ADD COLUMN IF NOT EXISTS "companyAddressProofMime" varchar(100)`,
     `ADD COLUMN IF NOT EXISTS "businessPanMime" varchar(100)`,
     `ADD COLUMN IF NOT EXISTS "gstCertificateMime" varchar(100)`,
+    `ADD COLUMN IF NOT EXISTS "selfieMime" varchar(100)`,
     `ADD COLUMN IF NOT EXISTS "panCardStatus" "kyc_doc_status" DEFAULT 'pending' NOT NULL`,
     `ADD COLUMN IF NOT EXISTS "panCardRejectionReason" text`,
     `ADD COLUMN IF NOT EXISTS "aadhaarStatus" "kyc_doc_status" DEFAULT 'pending' NOT NULL`,
@@ -93,6 +95,8 @@ const runKycSchemaCompatibility = async () => {
     `ADD COLUMN IF NOT EXISTS "companyAddressProofRejectionReason" text`,
     `ADD COLUMN IF NOT EXISTS "gstCertificateStatus" "kyc_doc_status" DEFAULT 'pending' NOT NULL`,
     `ADD COLUMN IF NOT EXISTS "gstCertificateRejectionReason" text`,
+    `ADD COLUMN IF NOT EXISTS "selfieStatus" "kyc_doc_status" DEFAULT 'pending' NOT NULL`,
+    `ADD COLUMN IF NOT EXISTS "selfieRejectionReason" text`,
     `ADD COLUMN IF NOT EXISTS "rejectionReason" text`,
   ]
 

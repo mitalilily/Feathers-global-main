@@ -162,6 +162,7 @@ const DOC_LABELS = {
   llpAgreementUrl: 'LLP Agreement',
   panCardUrl: 'PAN Card',
   partnershipDeedUrl: 'Partnership Deed',
+  selfieUrl: 'Camera Verification Selfie',
 }
 
 const DOC_ORDER = [
@@ -174,6 +175,7 @@ const DOC_ORDER = [
   'llpAgreementUrl',
   'panCardUrl',
   'partnershipDeedUrl',
+  'selfieUrl',
 ]
 
 const prettyDocLabel = (key) =>

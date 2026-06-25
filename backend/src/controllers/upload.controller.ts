@@ -46,6 +46,14 @@ export const createPresignedUrl = async (
   }
 };
 
+const allowedKycDocumentTypes = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+])
+
 export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> => {
   try {
     if (!req.file?.buffer) {
@@ -53,9 +61,23 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
     }
 
     const mime = String(req.file.mimetype || '').toLowerCase()
-    const filename = String(req.file.originalname || 'kyc-document.pdf')
-    if (!mime.includes('pdf') && !filename.toLowerCase().endsWith('.pdf')) {
-      return res.status(400).json({ message: 'Only PDF files are allowed for backend KYC storage' })
+    const filename = String(req.file.originalname || 'kyc-document')
+    const lowerName = filename.toLowerCase()
+    const hasAllowedExtension = /\.(pdf|jpe?g|png|webp)$/.test(lowerName)
+    const contentType = allowedKycDocumentTypes.has(mime)
+      ? mime
+      : lowerName.endsWith('.pdf')
+        ? 'application/pdf'
+        : lowerName.endsWith('.png')
+          ? 'image/png'
+          : lowerName.endsWith('.webp')
+            ? 'image/webp'
+            : lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')
+              ? 'image/jpeg'
+              : 'application/octet-stream'
+
+    if (!allowedKycDocumentTypes.has(contentType) && !hasAllowedExtension) {
+      return res.status(400).json({ message: 'Only PDF, JPG, PNG, or WEBP files are allowed for KYC storage' })
     }
 
     const userId = String(req.user?.sub || req.user?.id || '').trim()
@@ -63,10 +85,9 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
       return res.status(400).json({ message: 'Unable to resolve user identity for upload' })
     }
 
-    const contentType = req.file.mimetype || 'application/pdf'
     const stored = await uploadBufferToR2({
       buffer: req.file.buffer,
-      filename: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
+      filename,
       contentType,
       userId,
       folderKey: 'kyc',
@@ -86,8 +107,8 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
       storage: 'r2',
     })
   } catch (err: any) {
-    console.error('Failed to store KYC PDF in R2:', err)
-    return res.status(500).json({ message: 'Failed to store KYC PDF' })
+    console.error('Failed to store KYC document in R2:', err)
+    return res.status(500).json({ message: 'Failed to store KYC document' })
   }
 }
 

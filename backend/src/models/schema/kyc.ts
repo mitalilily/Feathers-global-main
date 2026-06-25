@@ -51,6 +51,7 @@ export const kyc = pgTable("kyc", {
   boardResolutionUrl: text("boardResolutionUrl"),
   partnershipDeedUrl: text("partnershipDeedUrl"),
   llpAgreementUrl: text("llpAgreementUrl"),
+  selfieUrl: text("selfieUrl"),
 
   // ─── Field Status ─────────────────────────────────────────────
   panCardStatus: kycDocStatusEnum("panCardStatus").default("pending").notNull(),
@@ -87,6 +88,7 @@ export const kyc = pgTable("kyc", {
   partnershipDeedMime: varchar("partnershipDeedMime", { length: 100 }),
   llpAgreementMime: varchar("llpAgreementMime", { length: 100 }),
   companyAddressProofMime: varchar("companyAddressProofMime", { length: 100 }),
+  selfieMime: varchar("selfieMime", { length: 100 }),
 
   cinStatus: kycDocStatusEnum("cinStatus").default("pending").notNull(),
   cinRejectionReason: text("cinRejectionReason"),
@@ -95,6 +97,8 @@ export const kyc = pgTable("kyc", {
     .default("pending")
     .notNull(),
   llpAgreementRejectionReason: text("llpAgreementRejectionReason"),
+  selfieStatus: kycDocStatusEnum("selfieStatus").default("pending").notNull(),
+  selfieRejectionReason: text("selfieRejectionReason"),
   // ─── KYC Global Status ─────────────────────────────────────────
   status: kycStatusEnum("status").default("pending").notNull(),
 

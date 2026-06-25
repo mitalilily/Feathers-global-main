@@ -5,12 +5,18 @@ import { v4 as uuidv4 } from 'uuid'
 import { db } from '../models/client'
 import { User } from '../models/services/userService'
 import { users } from '../schema/schema'
+import {
+  getBootstrapAdminEmail,
+  getBootstrapAdminPassword,
+  getBootstrapAdminPhone,
+} from '../config/bootstrapAdmin'
 
 interface SeedAdminProps {
   phone: string
   password: string
   email?: string
   role?: 'admin' | 'customer' | 'manager'
+  resetPassword?: boolean
 }
 
 export const seedAdmin = async ({
@@ -18,6 +24,7 @@ export const seedAdmin = async ({
   password,
   email,
   role = 'admin',
+  resetPassword = false,
 }: SeedAdminProps): Promise<User> => {
   const normalizedEmail = email?.trim().toLowerCase() ?? null
   const hashedPassword = await bcrypt.hash(password, 10)
@@ -29,15 +36,17 @@ export const seedAdmin = async ({
   const existing = existingByPhone || existingByEmail
 
   if (existing) {
+    const shouldUpdatePassword = resetPassword || !existing.passwordHash
     const [updatedUser] = await db
       .update(users)
       .set({
         phone,
         email: normalizedEmail,
-        passwordHash: hashedPassword,
+        ...(shouldUpdatePassword ? { passwordHash: hashedPassword } : {}),
         role,
         phoneVerified: true,
         emailVerified: !!normalizedEmail,
+        accountVerified: true,
         updatedAt: new Date(),
       })
       .where(eq(users.id, existing.id))
@@ -56,6 +65,7 @@ export const seedAdmin = async ({
       role,
       phoneVerified: true,
       emailVerified: !!normalizedEmail,
+      accountVerified: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -64,17 +74,28 @@ export const seedAdmin = async ({
   return newUser as User
 }
 
-seedAdmin({
-  phone: '+916283315911', // valid Indian phone format
-  email: 'admin@feathergsglobal.com', // requested admin login email
-  password: 'Admin@12345!', // requested admin password
-  role: 'admin',
-})
-  .then((user) => {
-    console.log('Admin user created or already exists:', user)
-    process.exit(0)
+export const ensureBootstrapAdmin = (resetPassword = false) =>
+  seedAdmin({
+    phone: getBootstrapAdminPhone(),
+    email: getBootstrapAdminEmail(),
+    password: getBootstrapAdminPassword(),
+    role: 'admin',
+    resetPassword,
   })
-  .catch((err) => {
-    console.error('Error seeding admin:', err)
-    process.exit(1)
-  })
+
+if (require.main === module) {
+  ensureBootstrapAdmin(process.env.ADMIN_RESET_PASSWORD === 'true')
+    .then((user) => {
+      console.log('Admin user created or verified:', {
+        id: user.id,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+      })
+      process.exit(0)
+    })
+    .catch((err) => {
+      console.error('Error seeding admin:', err)
+      process.exit(1)
+    })
+}
