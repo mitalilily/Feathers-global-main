@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { useHistory } from 'react-router-dom'
 import { isTokenExpired, useAuthStore } from '../../store/useAuthStore'
 
@@ -22,5 +22,5 @@ export const AdminRoute = ({ children }) => {
 
   if (!isAuthenticated) return null
 
-  return children
+  return <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
 }

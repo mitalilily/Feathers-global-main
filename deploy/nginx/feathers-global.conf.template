@@ -7,6 +7,14 @@ server {
     ssl_certificate_key ${FEATHERS_SSL_KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
+    ssl_buffer_size 4k;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
+    sendfile off;
 
     root /srv/feathers-global/current/landing/dist;
     index index.html;
@@ -40,6 +48,14 @@ server {
     ssl_certificate_key ${FEATHERS_SSL_KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
+    ssl_buffer_size 4k;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
+    sendfile off;
 
     root /srv/feathers-global/current/courier-cart-client/dist;
     index index.html;
@@ -73,6 +89,14 @@ server {
     ssl_certificate_key ${FEATHERS_SSL_KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
+    ssl_buffer_size 4k;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
+    sendfile off;
 
     root /srv/feathers-global/current/admin-dashboard/build;
     index index.html;
@@ -81,7 +105,6 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
-        add_header Clear-Site-Data '"cache"' always;
         try_files /index.html =404;
     }
 
@@ -122,7 +145,6 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
-        add_header Clear-Site-Data '"cache"' always;
         try_files $uri $uri/ /index.html;
     }
 }
