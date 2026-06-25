@@ -81,6 +81,7 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
+        add_header Clear-Site-Data '"cache"' always;
         try_files /index.html =404;
     }
 
@@ -91,11 +92,25 @@ server {
         try_files $uri /static/js/main.latest.js =404;
     }
 
+    location ~ ^/static/js/([0-9]+)\.[A-Za-z0-9]+\.chunk\.js$ {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+        try_files $uri /static/js/$1.latest.chunk.js =404;
+    }
+
     location ~ ^/static/css/main\.[A-Za-z0-9]+\.css$ {
         add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
         try_files $uri /static/css/main.latest.css =404;
+    }
+
+    location ~ ^/static/css/([0-9]+)\.[A-Za-z0-9]+\.chunk\.css$ {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+        try_files $uri /static/css/$1.latest.chunk.css =404;
     }
 
     location /static/ {
@@ -107,6 +122,7 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
+        add_header Clear-Site-Data '"cache"' always;
         try_files $uri $uri/ /index.html;
     }
 }

@@ -132,6 +132,22 @@ fi
 if [ -n "$latest_admin_css" ]; then
   ln -sf "$(basename "$latest_admin_css")" build/static/css/main.latest.css
 fi
+find build/static/js -maxdepth 1 -type f -name '*.chunk.js' | while read -r chunk_file; do
+  chunk_name="$(basename "$chunk_file")"
+  chunk_id="${chunk_name%%.*}"
+  case "$chunk_id" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  ln -sf "$chunk_name" "build/static/js/${chunk_id}.latest.chunk.js"
+done
+find build/static/css -maxdepth 1 -type f -name '*.chunk.css' | while read -r chunk_file; do
+  chunk_name="$(basename "$chunk_file")"
+  chunk_id="${chunk_name%%.*}"
+  case "$chunk_id" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  ln -sf "$chunk_name" "build/static/css/${chunk_id}.latest.chunk.css"
+done
 
 nginx -t
 systemctl reload nginx
