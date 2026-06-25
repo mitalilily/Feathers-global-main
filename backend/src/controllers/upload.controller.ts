@@ -56,12 +56,14 @@ const allowedKycDocumentTypes = new Set([
 
 export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> => {
   try {
-    if (!req.file?.buffer) {
+    const uploadedFile = req.file || (Array.isArray(req.files) ? req.files[0] : undefined)
+
+    if (!uploadedFile?.buffer) {
       return res.status(400).json({ message: 'file is required' })
     }
 
-    const mime = String(req.file.mimetype || '').toLowerCase()
-    const filename = String(req.file.originalname || 'kyc-document')
+    const mime = String(uploadedFile.mimetype || '').toLowerCase()
+    const filename = String(uploadedFile.originalname || 'kyc-document')
     const lowerName = filename.toLowerCase()
     const hasAllowedExtension = /\.(pdf|jpe?g|png|webp)$/.test(lowerName)
     const contentType = allowedKycDocumentTypes.has(mime)
@@ -86,7 +88,7 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
     }
 
     const stored = await uploadBufferToR2({
-      buffer: req.file.buffer,
+      buffer: uploadedFile.buffer,
       filename,
       contentType,
       userId,
@@ -102,7 +104,7 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
       key: stored.key,
       url: typeof previewUrl === 'string' ? previewUrl : stored.publicUrl,
       originalName: filename,
-      size: req.file.size,
+      size: uploadedFile.size,
       mime: contentType,
       storage: 'r2',
     })

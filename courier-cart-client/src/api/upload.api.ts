@@ -1,5 +1,6 @@
 import axios from "axios";
-import axiosInstance from "./axiosInstance";
+import axiosInstance, { API_BASE_URL } from "./axiosInstance";
+import { getAuthTokens } from "./tokenVault";
 
 export interface UploadedFileInfo {
   url: string;
@@ -48,7 +49,9 @@ export const uploadKycDocumentToBackend = async (
   const formData = new FormData()
   formData.append('file', file)
 
-  const { data } = await axiosInstance.post('/uploads/kyc/pdf', formData, {
+  const { accessToken } = getAuthTokens()
+  const { data } = await axios.post(`${API_BASE_URL}/uploads/kyc/pdf`, formData, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
     onUploadProgress: (event) => {
       if (event.total && onProgress) {
         onProgress(Math.round((event.loaded * 100) / event.total))
