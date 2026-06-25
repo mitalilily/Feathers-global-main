@@ -72,6 +72,17 @@ const normalizeDelhiveryWeightGrams = (value: unknown, fallbackGrams = 500) => {
   return numericValue > 50 ? Math.round(numericValue) : Math.round(numericValue * 1000)
 }
 
+const resolveDelhiveryPickupLocationName = (pickup?: ShipmentParams['pickup']) =>
+  String(
+    (pickup as any)?.delhivery_warehouse_name ||
+      (pickup as any)?.delhiveryWarehouseName ||
+      pickup?.warehouse_name ||
+      pickup?.addressNickname ||
+      'Default Warehouse',
+  )
+    .trim()
+    .replace(/\s+/g, ' ')
+
 const delhiveryCancellationResponseText = (value: unknown) => {
   try {
     return JSON.stringify(value || {}).toLowerCase()
@@ -515,7 +526,7 @@ export class DelhiveryService {
         seller_inv: resolvedInvoiceNumber,
         invoice_reference: resolvedInvoiceNumber,
         invoice_date: invoiceDate,
-        pickup_location: sanitizeString(pickup.warehouse_name) || 'Default Warehouse',
+        pickup_location: resolveDelhiveryPickupLocationName(pickup) || 'Default Warehouse',
         pickup_address: pickupAddress,
         pickup_city: sanitizeString(pickup.city),
         pickup_state: sanitizeString(pickup.state),
@@ -659,7 +670,7 @@ export class DelhiveryService {
       const payload = {
         shipments: shipmentPayloads,
         pickup_location: {
-          name: sanitizeString(pickup.warehouse_name) || 'Default Warehouse',
+          name: resolveDelhiveryPickupLocationName(pickup) || 'Default Warehouse',
         },
       }
 
@@ -1198,7 +1209,7 @@ export class DelhiveryService {
             shipment_length: Number(params.package_length ?? 10),
             shipment_width: Number(params.package_breadth ?? 10),
             shipment_height: Number(params.package_height ?? 10),
-            pickup_location: params.pickup?.warehouse_name ?? 'Default Warehouse',
+            pickup_location: resolveDelhiveryPickupLocationName(params.pickup) || 'Default Warehouse',
             seller_name: params.pickup?.name ?? 'Feather Global',
             seller_add: params.pickup?.address ?? '',
             order_date: new Date().toISOString().split('T')[0],

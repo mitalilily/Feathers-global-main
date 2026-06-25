@@ -51,6 +51,23 @@ function resolveRegisteredName(user: any, pickupAddr: any) {
   )
 }
 
+function buildDelhiveryWarehouseName(pickupAddressId: string, pickupAddr: any) {
+  const baseName = String(
+    pickupAddr?.addressNickname || pickupAddr?.contactName || 'Default Warehouse',
+  )
+    .trim()
+    .replace(/\s+/g, ' ')
+  const normalizedBase = baseName || 'Default Warehouse'
+  const suffix = String(pickupAddressId || '')
+    .replace(/-/g, '')
+    .slice(0, 8)
+
+  if (!suffix) return normalizedBase.slice(0, 100)
+
+  const maxBaseLength = Math.max(16, 100 - suffix.length - 1)
+  return `${normalizedBase.slice(0, maxBaseLength)}-${suffix}`
+}
+
 const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => ({
   alias: pickupAddr.addressNickname || pickupAddr.contactName || `warehouse-${pickupAddr.id}`,
   contactName: pickupAddr.contactName || 'Feather Global',
@@ -234,6 +251,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
         userId,
         addressId: pickupAddr.id,
         rtoAddressId,
+        delhiveryWarehouseName: buildDelhiveryWarehouseName(pickupAddr.id, pickupAddr),
         isPrimary: data.isPrimary ?? isPrimary,
         isPickupEnabled: data.isPickupEnabled ?? true,
         isRTOSame,
@@ -241,6 +259,10 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
       .returning()
 
     // 🚚 Register pickup in Delhivery
+    const delhiveryWarehouseName =
+      created.delhiveryWarehouseName ||
+      buildDelhiveryWarehouseName(pickupAddr.id, pickupAddr)
+
     try {
       const user = await findUserById(userId)
       const delhivery = new DelhiveryService()
@@ -261,7 +283,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
         rtoAddressData.pincode,
       ])
       const delhiveryResp = await delhivery.createWarehouse({
-        name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? 'Default Warehouse',
+        name: delhiveryWarehouseName,
         registered_name: resolveRegisteredName(user, pickupAddr),
         phone: pickupAddr.contactPhone,
         email: pickupAddr.contactEmail ?? '',
@@ -293,9 +315,10 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
         operation: 'create_warehouse',
         addressId: pickupAddr.id,
         pickupAddressId: created.id,
-        warehouseAlias: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
+        warehouseAlias: delhiveryWarehouseName,
         requestPayload: {
-          warehouse_name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
+          warehouse_name: delhiveryWarehouseName,
+          display_name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
           city: pickupAddr.city,
           state: pickupAddr.state,
           pincode: pickupAddr.pincode,
@@ -313,7 +336,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
           delhiveryErrorText.toLowerCase().includes('already exists')
         ) {
           const duplicateErr: any = new Error(
-            'A pickup location with this nickname already exists. Please choose a different nickname.',
+            'This pickup location could not be registered with Delhivery. Please try again in a moment.',
           )
           duplicateErr.code = 'DELHIVERY_WAREHOUSE_NAME_EXISTS'
           duplicateErr.field = 'pickup.addressNickname'
@@ -536,9 +559,13 @@ export async function updatePickupAddressService(
             updatedPickup?.state,
             updatedPickup?.pincode,
           ])
+          const delhiveryWarehouseName =
+            pickup.delhiveryWarehouseName ||
+            updatedPickup?.addressNickname ||
+            updatedPickup?.contactName ||
+            'Default Warehouse'
           const delhiveryResp = await delhivery.updateWarehouse({
-            name:
-              updatedPickup?.addressNickname ?? updatedPickup?.contactName ?? 'Default Warehouse',
+            name: delhiveryWarehouseName,
             address: updatedPickupAddressLine || updatedPickup?.addressLine1,
             pin: updatedPickup?.pincode?.toString(),
             phone: updatedPickup?.contactPhone,
