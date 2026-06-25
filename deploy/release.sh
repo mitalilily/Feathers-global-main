@@ -84,7 +84,6 @@ cd "$APP_ROOT/backend"
 npm ci
 NODE_ENV=production npm run migrate:bootstrap
 NODE_ENV=production npm run seed:admin
-NODE_ENV=production npm run seed:locations
 NODE_ENV=production npm run seed:basic-provider-ratecards
 npm run build
 NODE_ENV=production PORT="$FEATHERS_BACKEND_PORT" pm2 startOrReload ecosystem.config.cjs --update-env
