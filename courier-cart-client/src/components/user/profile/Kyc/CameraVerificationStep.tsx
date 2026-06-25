@@ -22,8 +22,10 @@ const CameraVerificationStep: React.FC<Props> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [cameraReady, setCameraReady] = useState(false)
+  const [cameraUnavailable, setCameraUnavailable] = useState(false)
   const [captureUrl, setCaptureUrl] = useState<string | null>(null)
   const [selfieFile, setSelfieFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -48,8 +50,9 @@ const CameraVerificationStep: React.FC<Props> = ({
         }
         setCameraReady(true)
       } catch {
+        setCameraUnavailable(true)
         toast.open({
-          message: 'Camera access is required for KYC verification. Allow camera permission and try again.',
+          message: 'Camera access is blocked. Use upload selfie, or open the app on HTTPS to capture live camera directly.',
           severity: 'error',
         })
       }
@@ -89,6 +92,20 @@ const CameraVerificationStep: React.FC<Props> = ({
       'image/jpeg',
       0.92,
     )
+  }
+
+  const useFallbackFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      toast.open({ message: 'Please choose a selfie image.', severity: 'error' })
+      return
+    }
+
+    if (captureUrl) URL.revokeObjectURL(captureUrl)
+    setSelfieFile(file)
+    setCaptureUrl(URL.createObjectURL(file))
   }
 
   const submitSelfie = async () => {
@@ -140,6 +157,14 @@ const CameraVerificationStep: React.FC<Props> = ({
           p: { xs: 1.5, md: 2 },
         }}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="user"
+          hidden
+          onChange={useFallbackFile}
+        />
         <Box
           sx={{
             position: 'relative',
@@ -168,8 +193,8 @@ const CameraVerificationStep: React.FC<Props> = ({
             />
           )}
           {!cameraReady && !captureUrl && (
-            <Typography color="white" fontSize={14} fontWeight={700}>
-              Starting camera...
+            <Typography color="white" fontSize={14} fontWeight={700} textAlign="center" px={2}>
+              {cameraUnavailable ? 'Camera unavailable. Upload a selfie to continue.' : 'Starting camera...'}
             </Typography>
           )}
         </Box>
@@ -194,6 +219,13 @@ const CameraVerificationStep: React.FC<Props> = ({
           {captureUrl ? 'Retake' : 'Capture Selfie'}
         </Button>
         <Button
+          variant="outlined"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          Upload Selfie
+        </Button>
+        <Button
           variant="contained"
           startIcon={<MdVerifiedUser />}
           onClick={submitSelfie}
@@ -207,4 +239,3 @@ const CameraVerificationStep: React.FC<Props> = ({
 }
 
 export default CameraVerificationStep
-
