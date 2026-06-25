@@ -97,9 +97,14 @@ async function main() {
 
   // 3) Fallback: create a temporary Pool here, test and close it
   console.log('ℹ️ Falling back to creating a temporary Pool from DATABASE_URL')
+  const sslMode = process.env.PGSSLMODE || ''
+  const useSsl =
+    sslMode === 'require' ||
+    (sslMode !== 'disable' &&
+      (process.env.NODE_ENV === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')))
   const tmpPool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
   })
 
   try {

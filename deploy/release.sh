@@ -3,91 +3,119 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEPLOY_ENV="$APP_ROOT/.deploy-env"
+MARKER="$APP_ROOT/.feathers-global-deploy"
+
+if [ ! -f "$MARKER" ]; then
+  echo "Missing $MARKER. Refusing to deploy into an unmarked directory." >&2
+  exit 1
+fi
+
+if [ ! -f "$DEPLOY_ENV" ]; then
+  echo "Missing $DEPLOY_ENV. Run deploy/setup-vps.sh once before release." >&2
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+. "$DEPLOY_ENV"
+set +a
+
+BACKEND_ENV="$APP_ROOT/backend/.env.production"
+DATABASE_URL="postgresql://${FEATHERS_DB_USER}:${FEATHERS_DB_PASSWORD}@127.0.0.1:${FEATHERS_DB_PORT}/${FEATHERS_DB_NAME}"
+API_BASE_URL="$FEATHERS_API_ORIGIN/api"
+CORS_ORIGINS="$FEATHERS_APP_ORIGIN,$FEATHERS_ADMIN_ORIGIN"
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  if [ -f "$BACKEND_ENV" ] && grep -q "^${key}=" "$BACKEND_ENV"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "$BACKEND_ENV"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$BACKEND_ENV"
+  fi
+}
+
+if [ ! -f "$BACKEND_ENV" ]; then
+  umask 077
+  touch "$BACKEND_ENV"
+  set_env_value NODE_ENV production
+  set_env_value ACCESS_TOKEN_SECRET "$(openssl rand -hex 32)"
+  set_env_value REFRESH_TOKEN_SECRET "$(openssl rand -hex 32)"
+  set_env_value JWT_SECRET "$(openssl rand -hex 32)"
+  set_env_value COURIER_SECRET_KEY "$(openssl rand -hex 32)"
+  set_env_value RAZORPAY_MODE live
+  set_env_value PLATFORM_API_TIMEOUT_MS 15000
+fi
+
+set_env_value PORT "$FEATHERS_BACKEND_PORT"
+set_env_value DATABASE_URL "$DATABASE_URL"
+set_env_value PGSSLMODE disable
+set_env_value API_URL "$FEATHERS_API_ORIGIN"
+set_env_value API_PUBLIC_URL "$API_BASE_URL"
+set_env_value EKART_WEBHOOK_URL "$API_BASE_URL/webhook/ekart/track"
+set_env_value EKART_WEBHOOK_LEGACY_URL "$API_BASE_URL/webhook/ekart"
+set_env_value EKART_WEBHOOK_BASE_URL "$FEATHERS_API_ORIGIN"
+set_env_value CORS_ALLOWED_ORIGINS "$CORS_ORIGINS"
+set_env_value CLIENT_URL "$FEATHERS_APP_ORIGIN"
+set_env_value FRONTEND_URL "$FEATHERS_APP_ORIGIN"
+set_env_value APP_URL "$FEATHERS_APP_ORIGIN"
+set_env_value WEB_URL "$FEATHERS_APP_ORIGIN"
+
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$FEATHERS_DB_USER') THEN
+    CREATE ROLE $FEATHERS_DB_USER LOGIN PASSWORD '$FEATHERS_DB_PASSWORD';
+  ELSE
+    ALTER ROLE $FEATHERS_DB_USER WITH LOGIN PASSWORD '$FEATHERS_DB_PASSWORD';
+  END IF;
+END
+\$\$;
+SQL
+
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$FEATHERS_DB_NAME'" | grep -q 1; then
+  sudo -u postgres createdb -O "$FEATHERS_DB_USER" "$FEATHERS_DB_NAME"
+fi
 
 cd "$APP_ROOT/backend"
 npm ci
-NODE_ENV=production node <<'NODE'
-const fs = require('fs')
-const path = require('path')
-const dotenv = require('dotenv')
-const { Client } = require('pg')
-
-dotenv.config({ path: path.resolve(process.cwd(), '.env.production') })
-
-const migrationFiles = [
-  'migration_add_shipping_rate_slabs.sql',
-  'migration_add_courier_credentials_metadata.sql',
-  'migration_seed_shadowfax_b2c_couriers.sql',
-  'migration_seed_delhivery_b2c_couriers.sql',
-  'migration_add_amazon_rate_token_cache.sql',
-  'migration_add_gst_to_payment_options_and_b2c_orders.sql',
-  'migration_add_pan_number_to_kyc.sql',
-  'migration_allow_multiple_stores_per_user.sql',
-  'migration_normalize_xpressbees_rate_provider.sql',
-  'migration_add_xpressbees_manual_awb_ranges.sql',
-]
-
-const existingMigrations = migrationFiles
-  .map((fileName) => path.resolve(process.cwd(), fileName))
-  .filter((migrationPath) => fs.existsSync(migrationPath))
-
-if (!existingMigrations.length) {
-  console.log('No release migrations found, skipping.')
-  process.exit(0)
-}
-
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is missing; cannot apply courier credentials metadata migration')
-}
-
-const client = new Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-})
-
-;(async () => {
-  try {
-    await client.connect()
-    for (const migrationPath of existingMigrations) {
-      await client.query(fs.readFileSync(migrationPath, 'utf8'))
-      console.log(`${path.basename(migrationPath)} applied.`)
-    }
-  } finally {
-    await client.end().catch(() => undefined)
-  }
-})().catch((error) => {
-  console.error('Failed to apply courier credentials metadata migration:', error)
-  process.exit(1)
-})
-NODE
+NODE_ENV=production npm run migrate:bootstrap
 NODE_ENV=production npm run seed:basic-provider-ratecards
 npm run build
-NODE_ENV=production PORT=5003 pm2 startOrReload ecosystem.config.cjs
+NODE_ENV=production PORT="$FEATHERS_BACKEND_PORT" pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
 
-cd "$APP_ROOT/landing"
-npm ci
-npm run build
-
 cd "$APP_ROOT/courier-cart-client"
+cat > .env.production <<EOF
+VITE_API_URL=$API_BASE_URL
+VITE_APP_SOCKET_URL=$FEATHERS_API_ORIGIN
+VITE_GOOGLE_OAUTH_CLIENT_ID=${VITE_GOOGLE_OAUTH_CLIENT_ID:-}
+VITE_PUBLIC_GEOAPIFY_KEY=${VITE_PUBLIC_GEOAPIFY_KEY:-}
+EOF
 npm ci
 npm run build
 
 cd "$APP_ROOT/admin-dashboard"
+cat > .env.production <<EOF
+REACT_APP_API_BASE_URL=$API_BASE_URL
+REACT_APP_SOCKET_URL=$FEATHERS_API_ORIGIN
+PUBLIC_URL=/
+EOF
+cp .env.production .env
+cp .env.production .env.local
 if [ -f package-lock.json ]; then
   npm ci --legacy-peer-deps --force
 else
   npm install --legacy-peer-deps --force
 fi
-cat > .env.production <<'EOF'
-REACT_APP_API_BASE_URL=https://api.shiplifi.com/api
-REACT_APP_SOCKET_URL=https://api.shiplifi.com
-EOF
-cp .env.production .env
-cp .env.production .env.local
 npm run build
 
-sudo nginx -t
-sudo systemctl reload nginx
+nginx -t
+systemctl reload nginx
 
 echo "Release completed."
+echo "App: $FEATHERS_APP_ORIGIN/"
+echo "Admin: $FEATHERS_ADMIN_ORIGIN/"
+echo "API health: $FEATHERS_API_ORIGIN/api/health"
+echo "pgAdmin: $FEATHERS_PGADMIN_ORIGIN/"

@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy Feathers Global
 
 on:
   push:
@@ -10,302 +10,101 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      FEATHERS_HOST: ${{ secrets.FEATHERS_HOST || '72.62.247.178' }}
+      FEATHERS_USER: ${{ secrets.FEATHERS_USER || 'root' }}
+      FEATHERS_SSH_PORT: ${{ secrets.FEATHERS_SSH_PORT || '22' }}
+      FEATHERS_DEPLOY_ROOT: ${{ vars.FEATHERS_DEPLOY_ROOT || '/srv/feathers-global/current' }}
+      FEATHERS_SSH_PASSWORD: ${{ secrets.FEATHERS_SSH_PASSWORD }}
+      FEATHERS_SSH_PRIVATE_KEY: ${{ secrets.FEATHERS_SSH_PRIVATE_KEY }}
+      FEATHERS_APP_PORT: ${{ vars.FEATHERS_APP_PORT || '8089' }}
+      FEATHERS_ADMIN_PORT: ${{ vars.FEATHERS_ADMIN_PORT || '8090' }}
+      FEATHERS_API_PORT: ${{ vars.FEATHERS_API_PORT || '8092' }}
+      FEATHERS_BACKEND_PORT: ${{ vars.FEATHERS_BACKEND_PORT || '5013' }}
+      FEATHERS_DB_PORT: ${{ vars.FEATHERS_DB_PORT || '5432' }}
+      FEATHERS_PGADMIN_PORT: ${{ vars.FEATHERS_PGADMIN_PORT || '5051' }}
+      FEATHERS_PGADMIN_PUBLIC_PORT: ${{ vars.FEATHERS_PGADMIN_PUBLIC_PORT || '8093' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
-
-      - name: Add server to known_hosts
+      - name: Prepare SSH
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.SHIPLIFI_HOST }}" >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          ssh-keyscan -p "$FEATHERS_SSH_PORT" -H "$FEATHERS_HOST" >> ~/.ssh/known_hosts
 
-      - name: Resolve deploy root
+          if [ -n "$FEATHERS_SSH_PRIVATE_KEY" ]; then
+            printf '%s\n' "$FEATHERS_SSH_PRIVATE_KEY" > ~/.ssh/feathers_global_deploy_key
+            chmod 600 ~/.ssh/feathers_global_deploy_key
+            echo "SSH_CMD=ssh -i $HOME/.ssh/feathers_global_deploy_key -p $FEATHERS_SSH_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+            echo "SSH_RSH=ssh -i $HOME/.ssh/feathers_global_deploy_key -p $FEATHERS_SSH_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+          elif [ -n "$FEATHERS_SSH_PASSWORD" ]; then
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+            echo "SSH_CMD=sshpass -e ssh -p $FEATHERS_SSH_PORT -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+            echo "SSH_RSH=sshpass -e ssh -p $FEATHERS_SSH_PORT -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+          else
+            echo "Set FEATHERS_SSH_PRIVATE_KEY or FEATHERS_SSH_PASSWORD in GitHub secrets." >&2
+            exit 1
+          fi
+
+      - name: Mark isolated deploy root
         run: |
-          DEPLOY_ROOT=$(ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" '
-            if [ -d /srv/shiplifi/current/backend ]; then
-              printf "%s" /srv/shiplifi/current
-            elif [ -d /var/www/shiplifi/backend ]; then
-              printf "%s" /var/www/shiplifi
-            else
-              printf "%s" /srv/shiplifi/current
-            fi
-          ' | tr -d "\r\n")
+          set -euo pipefail
+          export SSHPASS="$FEATHERS_SSH_PASSWORD"
+          $SSH_CMD "$FEATHERS_USER@$FEATHERS_HOST" \
+            "DEPLOY_ROOT='$FEATHERS_DEPLOY_ROOT'; \
+             mkdir -p \"\$DEPLOY_ROOT\"; \
+             if [ -z \"\$(find \"\$DEPLOY_ROOT\" -mindepth 1 -maxdepth 1 ! -name '.deploy-env' ! -name '.feathers-global-deploy' -print -quit 2>/dev/null)\" ]; then \
+               touch \"\$DEPLOY_ROOT/.feathers-global-deploy\"; \
+             elif [ ! -f \"\$DEPLOY_ROOT/.feathers-global-deploy\" ]; then \
+               echo \"Refusing to deploy: \$DEPLOY_ROOT is not marked for Feathers Global\" >&2; exit 1; \
+             fi; \
+             if command -v apt-get >/dev/null 2>&1 && ! command -v rsync >/dev/null 2>&1; then apt-get update && apt-get install -y rsync; fi"
 
-          echo "DEPLOY_ROOT=$DEPLOY_ROOT" >> "$GITHUB_ENV"
-          echo "Using deploy root: $DEPLOY_ROOT"
-
-      - name: Ensure deploy root exists
+      - name: Sync project
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "mkdir -p '$DEPLOY_ROOT'"
-
-      - name: Sync project to server
-        run: |
+          set -euo pipefail
+          export SSHPASS="$FEATHERS_SSH_PASSWORD"
           rsync -az --delete \
+            -e "$SSH_RSH" \
             --exclude '.git' \
             --exclude '.github' \
             --exclude '.DS_Store' \
             --exclude 'backend/.env.production' \
+            --exclude '.deploy-env' \
             --exclude 'backend/node_modules' \
-            --exclude 'landing/node_modules' \
             --exclude 'courier-cart-client/node_modules' \
             --exclude 'admin-dashboard/node_modules' \
             --exclude 'backend/dist' \
-            --exclude 'landing/dist' \
             --exclude 'courier-cart-client/dist' \
             --exclude 'admin-dashboard/build' \
-            ./ "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}:${DEPLOY_ROOT}/"
+            ./ "$FEATHERS_USER@$FEATHERS_HOST:$FEATHERS_DEPLOY_ROOT/"
 
-      - name: Sync backend Amazon env
-        env:
-          AMAZON_SHIPPING_REFRESH_TOKEN: ${{ secrets.AMAZON_SHIPPING_REFRESH_TOKEN }}
-          AMAZON_SHIPPING_LWA_CLIENT_ID: ${{ secrets.AMAZON_SHIPPING_LWA_CLIENT_ID }}
-          AMAZON_SHIPPING_LWA_CLIENT_SECRET: ${{ secrets.AMAZON_SHIPPING_LWA_CLIENT_SECRET }}
-          AMAZON_SHIPPING_GSTIN: ${{ secrets.AMAZON_SHIPPING_GSTIN }}
+      - name: Setup and release on VPS
         run: |
-          if [ -z "$AMAZON_SHIPPING_REFRESH_TOKEN" ] || [ -z "$AMAZON_SHIPPING_LWA_CLIENT_ID" ] || [ -z "$AMAZON_SHIPPING_LWA_CLIENT_SECRET" ]; then
-            echo "Amazon LWA secrets are not fully set; skipping Amazon env sync."
-            exit 0
-          fi
+          set -euo pipefail
+          export SSHPASS="$FEATHERS_SSH_PASSWORD"
+          $SSH_CMD "$FEATHERS_USER@$FEATHERS_HOST" \
+            "cd '$FEATHERS_DEPLOY_ROOT' && \
+             chmod +x deploy/setup-vps.sh deploy/release.sh && \
+             FEATHERS_DEPLOY_ROOT='$FEATHERS_DEPLOY_ROOT' \
+             FEATHERS_APP_PORT='$FEATHERS_APP_PORT' \
+             FEATHERS_ADMIN_PORT='$FEATHERS_ADMIN_PORT' \
+             FEATHERS_API_PORT='$FEATHERS_API_PORT' \
+             FEATHERS_BACKEND_PORT='$FEATHERS_BACKEND_PORT' \
+             FEATHERS_DB_PORT='$FEATHERS_DB_PORT' \
+             FEATHERS_PGADMIN_PORT='$FEATHERS_PGADMIN_PORT' \
+             FEATHERS_PGADMIN_PUBLIC_PORT='$FEATHERS_PGADMIN_PUBLIC_PORT' \
+             ./deploy/setup-vps.sh && \
+             ./deploy/release.sh"
 
-          python3 - <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && umask 077 && python3 -"
-          import os
-
-          token = os.environ["AMAZON_SHIPPING_REFRESH_TOKEN"]
-          client_id = os.environ["AMAZON_SHIPPING_LWA_CLIENT_ID"]
-          client_secret = os.environ["AMAZON_SHIPPING_LWA_CLIENT_SECRET"]
-          gstin = os.environ.get("AMAZON_SHIPPING_GSTIN", "").strip()
-          print(f"""
-          from pathlib import Path
-
-          path = Path(".env.production")
-          updates = {{
-              "AMAZON_SHIPPING_REFRESH_TOKEN": {token!r},
-              "AMAZON_SHIPPING_LWA_CLIENT_ID": {client_id!r},
-              "AMAZON_SHIPPING_LWA_CLIENT_SECRET": {client_secret!r},
-              "AMAZON_SHIPPING_BUSINESS_ID": "AmazonShipping_IN",
-              "AMAZON_SHIPPING_REGION": "eu",
-              "AMAZON_SHIPPING_SANDBOX": "false",
-              "AMAZON_SHIPPING_LWA_TOKEN_URL": "https://api.amazon.com/auth/o2/token",
-              "AMAZON_SHIPPING_API_BASE": "https://sellingpartnerapi-eu.amazon.com",
-          }}
-          gstin = {gstin!r}
-          if gstin:
-              updates["AMAZON_SHIPPING_GSTIN"] = gstin
-
-          lines = path.read_text().splitlines() if path.exists() else []
-          seen = set()
-          next_lines = []
-
-          for line in lines:
-              if "=" not in line or line.lstrip().startswith("#"):
-                  next_lines.append(line)
-                  continue
-              key = line.split("=", 1)[0].strip()
-              if key in updates:
-                  next_lines.append(f"{{key}}={{updates[key]}}")
-                  seen.add(key)
-              else:
-                  next_lines.append(line)
-                  seen.add(key)
-
-          for key, value in updates.items():
-              if key not in seen:
-                  next_lines.append(f"{{key}}={{value}}")
-                  seen.add(key)
-
-          path.write_text("\\n".join(next_lines) + "\\n")
-          print("Amazon backend env updated.")
-          """)
-          PY
-
-      - name: Backfill Amazon LWA env from DB
+      - name: Print deployed URLs
         run: |
-          cat <<'NODE' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && node -"
-          const fs = require('fs')
-          const path = require('path')
-          const dotenv = require('dotenv')
-          const { Client } = require('pg')
-
-          const envPath = path.resolve(process.cwd(), '.env.production')
-          const parsed = fs.existsSync(envPath) ? dotenv.parse(fs.readFileSync(envPath)) : {}
-          const databaseUrl = parsed.DATABASE_URL || process.env.DATABASE_URL
-
-          const writeEnv = (updates) => {
-            const lines = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8').split(/\r?\n/) : []
-            const seen = new Set()
-            const next = []
-
-            for (const line of lines) {
-              if (!line || line.trim().startsWith('#') || !line.includes('=')) {
-                next.push(line)
-                continue
-              }
-              const key = line.split('=', 1)[0].trim()
-              if (Object.prototype.hasOwnProperty.call(updates, key)) {
-                next.push(`${key}=${updates[key]}`)
-                seen.add(key)
-              } else {
-                next.push(line)
-                seen.add(key)
-              }
-            }
-
-            for (const [key, value] of Object.entries(updates)) {
-              if (!seen.has(key)) next.push(`${key}=${value}`)
-            }
-
-            fs.writeFileSync(envPath, `${next.filter((line, index, arr) => line || index < arr.length - 1).join('\n')}\n`)
-          }
-
-          const pick = (...values) => values.map((value) => String(value || '').trim()).find(Boolean) || ''
-          const normalizeGstin = (value) => {
-            const normalized = String(value || '').trim().toUpperCase().replace(/\s+/g, '')
-            return /^[0-9A-Z]{15}$/.test(normalized) ? normalized : ''
-          }
-
-          ;(async () => {
-            if (!databaseUrl) {
-              console.log('DATABASE_URL missing; cannot backfill Amazon LWA env from DB.')
-              return
-            }
-
-            const client = new Client({
-              connectionString: databaseUrl,
-              ssl: { rejectUnauthorized: false },
-            })
-
-            try {
-              await client.connect()
-              const result = await client.query(
-                "select client_id, password, metadata from courier_credentials where provider = 'amazon' limit 1",
-              )
-              const row = result.rows[0]
-              if (!row) {
-                console.log('Amazon courier credential row not found; skipping LWA env backfill.')
-                return
-              }
-
-              const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-              const lwaClientId = pick(parsed.AMAZON_SHIPPING_LWA_CLIENT_ID, parsed.AMAZON_LWA_CLIENT_ID, metadata.lwaClientId, row.client_id)
-              const lwaClientSecret = pick(
-                parsed.AMAZON_SHIPPING_LWA_CLIENT_SECRET,
-                parsed.AMAZON_LWA_CLIENT_SECRET,
-                metadata.lwaClientSecret,
-                row.password,
-              )
-              let gstin = normalizeGstin(parsed.AMAZON_SHIPPING_GSTIN)
-              if (!gstin) {
-                const gstResult = await client.query(
-                  'select "gstNumber" from addresses where coalesce(trim("gstNumber"), \'\') <> \'\' order by "updatedAt" desc nulls last limit 1',
-                )
-                gstin = normalizeGstin(gstResult.rows[0]?.gstNumber)
-              }
-              const updates = {}
-              if (lwaClientId) updates.AMAZON_SHIPPING_LWA_CLIENT_ID = lwaClientId
-              if (lwaClientSecret) updates.AMAZON_SHIPPING_LWA_CLIENT_SECRET = lwaClientSecret
-              if (gstin) updates.AMAZON_SHIPPING_GSTIN = gstin
-              if (Object.keys(updates).length) writeEnv(updates)
-              console.log('Amazon LWA env backfill complete', {
-                hasClientId: Boolean(lwaClientId),
-                hasClientSecret: Boolean(lwaClientSecret),
-                hasGstin: Boolean(gstin),
-                clientId: lwaClientId ? `${lwaClientId.slice(0, 4)}...${lwaClientId.slice(-4)}` : '',
-              })
-            } finally {
-              await client.end().catch(() => undefined)
-            }
-          })().catch((error) => {
-            console.error('Amazon LWA env backfill failed:', error.message || error)
-            process.exit(1)
-          })
-          NODE
-
-      - name: Verify Amazon LWA env
-        run: |
-          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && python3 -"
-          from pathlib import Path
-          from urllib import parse, request, error
-          import hashlib
-          import json
-          import sys
-
-          def read_env(path):
-              env = {}
-              for raw in path.read_text().splitlines():
-                  line = raw.strip()
-                  if not line or line.startswith("#") or "=" not in line:
-                      continue
-                  key, value = line.split("=", 1)
-                  env[key.strip()] = value.strip().strip("\"").strip("'")
-              return env
-
-          def mask(value):
-              value = value or ""
-              return "" if not value else f"{value[:4]}...{value[-4:]}"
-
-          def fingerprint(value):
-              value = value or ""
-              return "" if not value else hashlib.sha256(value.encode()).hexdigest()[:12]
-
-          env = read_env(Path(".env.production"))
-          token_url = env.get("AMAZON_SHIPPING_LWA_TOKEN_URL") or env.get("AMAZON_LWA_TOKEN_URL") or "https://api.amazon.com/auth/o2/token"
-          payload = {
-              "grant_type": "refresh_token",
-              "refresh_token": env.get("AMAZON_SHIPPING_REFRESH_TOKEN", ""),
-              "client_id": env.get("AMAZON_SHIPPING_LWA_CLIENT_ID") or env.get("AMAZON_LWA_CLIENT_ID", ""),
-              "client_secret": env.get("AMAZON_SHIPPING_LWA_CLIENT_SECRET") or env.get("AMAZON_LWA_CLIENT_SECRET", ""),
-          }
-          print("Amazon LWA env check", {
-              "tokenUrl": token_url,
-              "businessId": env.get("AMAZON_SHIPPING_BUSINESS_ID"),
-              "clientId": mask(payload["client_id"]),
-              "refreshTokenSha": fingerprint(payload["refresh_token"]),
-          })
-          missing = [key for key, value in payload.items() if key != "grant_type" and not value]
-          if missing:
-              print("Missing Amazon LWA env keys:", ", ".join(missing), file=sys.stderr)
-              sys.exit(1)
-
-          data = parse.urlencode(payload).encode()
-          req = request.Request(
-              token_url,
-              data=data,
-              headers={
-                  "Accept": "application/json",
-                  "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-              },
-              method="POST",
-          )
-          try:
-              with request.urlopen(req, timeout=30) as resp:
-                  body = json.loads(resp.read().decode() or "{}")
-                  print("Amazon LWA env check passed", {
-                      "status": resp.status,
-                      "accessTokenSha": fingerprint(body.get("access_token", "")),
-                      "expiresIn": body.get("expires_in"),
-                  })
-          except error.HTTPError as exc:
-              body = exc.read().decode(errors="replace")
-              try:
-                  parsed = json.loads(body)
-              except Exception:
-                  parsed = {"message": body[:500]}
-              print("Amazon LWA env check failed", {
-                  "status": exc.code,
-                  "message": parsed.get("error_description") or parsed.get("message") or parsed.get("error"),
-              }, file=sys.stderr)
-              sys.exit(1)
-          PY
-
-      - name: Deploy on server
-        run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd \"$DEPLOY_ROOT\" && chmod +x deploy/release.sh && ./deploy/release.sh"
-
-      - name: Mark deployed commit
-        run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "printf '%s\n' '${{ github.sha }}' > \"$DEPLOY_ROOT/.deployed_commit\""
+          echo "App: http://${FEATHERS_HOST}:${FEATHERS_APP_PORT}/"
+          echo "Admin: http://${FEATHERS_HOST}:${FEATHERS_ADMIN_PORT}/"
+          echo "API health: http://${FEATHERS_HOST}:${FEATHERS_API_PORT}/api/health"
+          echo "pgAdmin: http://${FEATHERS_HOST}:${FEATHERS_PGADMIN_PUBLIC_PORT}/"

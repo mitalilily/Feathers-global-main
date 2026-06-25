@@ -3,11 +3,6 @@ import { defineConfig } from 'drizzle-kit'
 import path from 'path'
 
 const env = process.env.NODE_ENV || 'development'
-const shouldUseSsl = env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')
-const databaseUrl = process.env.DATABASE_URL!
-const parsedUrl = new URL(databaseUrl)
-
-// Always load from inside backend/ (works locally + VPS)
 const envFile = path.resolve(__dirname, `.env.${env}`)
 
 dotenv.config({ path: envFile })
@@ -15,6 +10,13 @@ dotenv.config({ path: envFile })
 if (!process.env.DATABASE_URL) {
   throw new Error(`DATABASE_URL is not defined in ${envFile}`)
 }
+
+const sslMode = process.env.PGSSLMODE || ''
+const shouldUseSsl =
+  sslMode === 'require' ||
+  (sslMode !== 'disable' && (env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')))
+const databaseUrl = process.env.DATABASE_URL!
+const parsedUrl = new URL(databaseUrl)
 
 export default defineConfig({
   dialect: 'postgresql',
@@ -26,6 +28,6 @@ export default defineConfig({
     user: decodeURIComponent(parsedUrl.username),
     password: decodeURIComponent(parsedUrl.password),
     database: parsedUrl.pathname.replace(/^\//, ''),
-    ssl: shouldUseSsl ? 'require' : undefined,
+    ssl: shouldUseSsl ? 'require' : false,
   },
 })

@@ -504,9 +504,14 @@ async function main() {
     throw new Error('DATABASE_URL is required to seed production provider rate cards')
   }
   const connectionString = process.env.DATABASE_URL || LOCAL_FALLBACK_DATABASE_URL
+  const sslMode = process.env.PGSSLMODE || ''
+  const useSsl =
+    sslMode === 'require' ||
+    (sslMode !== 'disable' &&
+      (process.env.NODE_ENV === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')))
   const pool = new Pool({
     connectionString,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
   })
 
   const client = await pool.connect()

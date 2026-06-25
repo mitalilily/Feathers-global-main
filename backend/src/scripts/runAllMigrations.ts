@@ -6,7 +6,10 @@ import { Client } from 'pg'
 
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
-const useSsl = env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')
+const sslMode = process.env.PGSSLMODE || ''
+const useSsl =
+  sslMode === 'require' ||
+  (sslMode !== 'disable' && (env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')))
 
 const backendRoot = path.resolve(__dirname, '../..')
 const migrationFiles = readdirSync(backendRoot)
