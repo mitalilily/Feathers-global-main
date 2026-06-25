@@ -53,16 +53,11 @@ jobs:
           $SSH_CMD "$FEATHERS_USER@$FEATHERS_HOST" \
             "DEPLOY_ROOT='$FEATHERS_DEPLOY_ROOT'; \
              mkdir -p \"\$DEPLOY_ROOT\"; \
-             if [ -z \"\$(find \"\$DEPLOY_ROOT\" -mindepth 1 -maxdepth 1 ! -name '.deploy-env' ! -name '.feathers-global-deploy' ! -name '.deployed_commit' -print -quit 2>/dev/null)\" ]; then \
-               touch \"\$DEPLOY_ROOT/.feathers-global-deploy\"; \
-             elif [ ! -f \"\$DEPLOY_ROOT/.feathers-global-deploy\" ]; then \
-               if [ -f \"\$DEPLOY_ROOT/admin-dashboard/package.json\" ] && [ -f \"\$DEPLOY_ROOT/backend/package.json\" ] && [ -f \"\$DEPLOY_ROOT/courier-cart-client/package.json\" ]; then \
-                 touch \"\$DEPLOY_ROOT/.feathers-global-deploy\"; \
-               else \
-                 echo \"Refusing to deploy: \$DEPLOY_ROOT is not marked and does not look like this app\" >&2; exit 1; \
-               fi; \
-             fi; \
-             if command -v apt-get >/dev/null 2>&1 && ! command -v rsync >/dev/null 2>&1; then apt-get update && apt-get install -y rsync; fi"
+             touch \"\$DEPLOY_ROOT/.feathers-global-deploy\"; \
+             test -f \"\$DEPLOY_ROOT/admin-dashboard/package.json\"; \
+             test -f \"\$DEPLOY_ROOT/backend/package.json\"; \
+             test -f \"\$DEPLOY_ROOT/courier-cart-client/package.json\"; \
+             command -v rsync >/dev/null"
 
       - name: Sync project
         run: |
