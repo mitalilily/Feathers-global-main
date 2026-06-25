@@ -1,16 +1,12 @@
 import { createReadStream } from 'fs'
-import { mkdir, stat, writeFile } from 'fs/promises'
+import { stat } from 'fs/promises'
 import path from 'path'
 import { Request, Response } from 'express';
 import {
   presignDownload,
   presignUpload,
+  uploadBufferToR2,
 } from "../models/services/upload.service";
-import { getBucketName } from "../utils/functions";
-import { sanitizeFilename } from '../utils/functions'
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { r2 } from "../config/r2Client";
 
 const kycStorageRoot = path.resolve(process.cwd(), 'storage', 'kyc')
 
@@ -67,26 +63,30 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
       return res.status(400).json({ message: 'Unable to resolve user identity for upload' })
     }
 
-    const safeName = sanitizeFilename(filename.endsWith('.pdf') ? filename : `${filename}.pdf`)
-    const storedFileName = `${Date.now()}-${safeName}`
-    const userDir = path.join(kycStorageRoot, userId)
-    await mkdir(userDir, { recursive: true })
-
-    const absolutePath = path.join(userDir, storedFileName)
-    await writeFile(absolutePath, req.file.buffer)
-
-    const publicUrl = buildKycPublicUrl(req, userId, storedFileName)
+    const contentType = req.file.mimetype || 'application/pdf'
+    const stored = await uploadBufferToR2({
+      buffer: req.file.buffer,
+      filename: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
+      contentType,
+      userId,
+      folderKey: 'kyc',
+    })
+    const previewUrl = await presignDownload(stored.key, {
+      disposition: 'inline',
+      contentType,
+      checkExists: true,
+    })
 
     return res.status(200).json({
-      key: publicUrl,
-      url: publicUrl,
+      key: stored.key,
+      url: typeof previewUrl === 'string' ? previewUrl : stored.publicUrl,
       originalName: filename,
       size: req.file.size,
-      mime: req.file.mimetype || 'application/pdf',
-      storage: 'backend',
+      mime: contentType,
+      storage: 'r2',
     })
   } catch (err: any) {
-    console.error('Failed to store KYC PDF locally:', err)
+    console.error('Failed to store KYC PDF in R2:', err)
     return res.status(500).json({ message: 'Failed to store KYC PDF' })
   }
 }

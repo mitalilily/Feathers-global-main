@@ -69,14 +69,21 @@ export function buildPatch<T extends Record<string, unknown>>(existing: T, merge
 }
 
 export const getBucketName = () => {
-  switch (process.env.NODE_ENV) {
-    case 'production':
-      return process.env.PROD_BUCKET!
-    case 'staging':
-      return process.env.STAGING_BUCKET!
-    default:
-      return process.env.DEV_BUCKET!
+  const bucketByEnv =
+    process.env.NODE_ENV === 'production'
+      ? process.env.PROD_BUCKET
+      : process.env.NODE_ENV === 'staging'
+        ? process.env.STAGING_BUCKET
+        : process.env.DEV_BUCKET
+  const bucket = bucketByEnv || process.env.PROD_BUCKET || process.env.R2_BUCKET || process.env.BUCKET_NAME
+
+  if (!bucket) {
+    throw new Error(
+      'R2 bucket is not configured. Set PROD_BUCKET, STAGING_BUCKET, DEV_BUCKET, or R2_BUCKET.',
+    )
   }
+
+  return bucket
 }
 
 export const sanitizeFilename = (filename: string) => {
