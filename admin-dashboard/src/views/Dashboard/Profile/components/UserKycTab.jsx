@@ -218,6 +218,23 @@ const UserKycPage = ({ userId }) => {
     return map
   }, [presignedUrlsData, docKeys])
 
+  const docFields = useMemo(() => {
+    const seen = new Set()
+    const orderedDocFields = DOC_ORDER.map((key) => {
+      const value = kyc?.[key]
+      if (!value) return null
+      seen.add(key)
+      const statusKey = `${key.replace('Url', '')}Status`
+      return {
+        label: DOC_LABELS[key] || prettyDocLabel(key),
+        key,
+        status: kyc?.[statusKey],
+      }
+    }).filter(Boolean)
+
+    return orderedDocFields
+  }, [kyc])
+
   const handleApproveKyc = () => approveKycMutate(userId, { onSuccess: () => refetch() })
   const handleRejectKyc = (reason) =>
     rejectKycMutate({ userId, reason }, { onSuccess: () => refetch() })
@@ -261,23 +278,6 @@ const UserKycPage = ({ userId }) => {
       value: kyc.updatedAt ? new Date(kyc.updatedAt).toLocaleString() : '-',
     },
   ]
-
-  const docFields = useMemo(() => {
-    const seen = new Set()
-    const orderedDocFields = DOC_ORDER.map((key) => {
-      const value = kyc?.[key]
-      if (!value) return null
-      seen.add(key)
-      const statusKey = `${key.replace('Url', '')}Status`
-      return {
-        label: DOC_LABELS[key] || prettyDocLabel(key),
-        key,
-        status: kyc?.[statusKey],
-      }
-    }).filter(Boolean)
-
-    return orderedDocFields
-  }, [kyc])
 
   return (
     <Card p={6} borderRadius="xl" boxShadow="md">
