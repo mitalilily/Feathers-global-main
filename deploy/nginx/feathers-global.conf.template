@@ -1,7 +1,12 @@
 server {
-    listen ${FEATHERS_LANDING_PORT};
-    listen [::]:${FEATHERS_LANDING_PORT};
+    listen ${FEATHERS_LANDING_PORT} ssl http2;
+    listen [::]:${FEATHERS_LANDING_PORT} ssl http2;
     server_name _;
+
+    ssl_certificate ${FEATHERS_SSL_CERT};
+    ssl_certificate_key ${FEATHERS_SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
 
     root /srv/feathers-global/current/landing/dist;
     index index.html;
@@ -12,9 +17,14 @@ server {
 }
 
 server {
-    listen ${FEATHERS_APP_PORT};
-    listen [::]:${FEATHERS_APP_PORT};
+    listen ${FEATHERS_APP_PORT} ssl http2;
+    listen [::]:${FEATHERS_APP_PORT} ssl http2;
     server_name _;
+
+    ssl_certificate ${FEATHERS_SSL_CERT};
+    ssl_certificate_key ${FEATHERS_SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
 
     root /srv/feathers-global/current/courier-cart-client/dist;
     index index.html;
@@ -25,9 +35,14 @@ server {
 }
 
 server {
-    listen ${FEATHERS_ADMIN_PORT};
-    listen [::]:${FEATHERS_ADMIN_PORT};
+    listen ${FEATHERS_ADMIN_PORT} ssl http2;
+    listen [::]:${FEATHERS_ADMIN_PORT} ssl http2;
     server_name _;
+
+    ssl_certificate ${FEATHERS_SSL_CERT};
+    ssl_certificate_key ${FEATHERS_SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
 
     root /srv/feathers-global/current/admin-dashboard/build;
     index index.html;
@@ -38,9 +53,14 @@ server {
 }
 
 server {
-    listen ${FEATHERS_API_PORT};
-    listen [::]:${FEATHERS_API_PORT};
+    listen ${FEATHERS_API_PORT} ssl http2;
+    listen [::]:${FEATHERS_API_PORT} ssl http2;
     server_name _;
+
+    ssl_certificate ${FEATHERS_SSL_CERT};
+    ssl_certificate_key ${FEATHERS_SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
 
     client_max_body_size 50m;
 
@@ -58,9 +78,14 @@ server {
 }
 
 server {
-    listen ${FEATHERS_PGADMIN_PUBLIC_PORT};
-    listen [::]:${FEATHERS_PGADMIN_PUBLIC_PORT};
+    listen ${FEATHERS_PGADMIN_PUBLIC_PORT} ssl http2;
+    listen [::]:${FEATHERS_PGADMIN_PUBLIC_PORT} ssl http2;
     server_name _;
+
+    ssl_certificate ${FEATHERS_SSL_CERT};
+    ssl_certificate_key ${FEATHERS_SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
 
     location / {
         proxy_pass http://127.0.0.1:${FEATHERS_PGADMIN_PORT};

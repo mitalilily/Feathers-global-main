@@ -38,6 +38,23 @@ public_host() {
   hostname -I 2>/dev/null | awk '{print $1}'
 }
 
+origin_host() {
+  local origin="$1"
+  origin="${origin#*://}"
+  origin="${origin%%/*}"
+  origin="${origin%%:*}"
+  printf '%s' "$origin"
+}
+
+ssl_subject_alt_name() {
+  local host="$1"
+  if printf '%s' "$host" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
+    printf 'IP:%s' "$host"
+  else
+    printf 'DNS:%s' "$host"
+  fi
+}
+
 if [ ! -f "$DEPLOY_ENV" ]; then
   FEATHERS_LANDING_PORT="${FEATHERS_LANDING_PORT:-8088}"
   FEATHERS_APP_PORT="${FEATHERS_APP_PORT:-8089}"
@@ -53,11 +70,13 @@ if [ ! -f "$DEPLOY_ENV" ]; then
   PGADMIN_DEFAULT_EMAIL="${PGADMIN_DEFAULT_EMAIL:-admin@featherglobal.com}"
   PGADMIN_DEFAULT_PASSWORD="${PGADMIN_DEFAULT_PASSWORD:-$(rand_hex)}"
   PUBLIC_HOST="${FEATHERS_PUBLIC_HOST:-$(public_host)}"
-  FEATHERS_LANDING_ORIGIN="${FEATHERS_LANDING_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
-  FEATHERS_APP_ORIGIN="${FEATHERS_APP_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_APP_PORT}}"
-  FEATHERS_ADMIN_ORIGIN="${FEATHERS_ADMIN_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_ADMIN_PORT}}"
-  FEATHERS_API_ORIGIN="${FEATHERS_API_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_API_PORT}}"
-  FEATHERS_PGADMIN_ORIGIN="${FEATHERS_PGADMIN_ORIGIN:-http://${PUBLIC_HOST}:${FEATHERS_PGADMIN_PUBLIC_PORT}}"
+  FEATHERS_LANDING_ORIGIN="${FEATHERS_LANDING_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
+  FEATHERS_APP_ORIGIN="${FEATHERS_APP_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_APP_PORT}}"
+  FEATHERS_ADMIN_ORIGIN="${FEATHERS_ADMIN_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_ADMIN_PORT}}"
+  FEATHERS_API_ORIGIN="${FEATHERS_API_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_API_PORT}}"
+  FEATHERS_PGADMIN_ORIGIN="${FEATHERS_PGADMIN_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_PGADMIN_PUBLIC_PORT}}"
+  FEATHERS_SSL_CERT="${FEATHERS_SSL_CERT:-/etc/ssl/feathers-global/feathers-global.crt}"
+  FEATHERS_SSL_KEY="${FEATHERS_SSL_KEY:-/etc/ssl/feathers-global/feathers-global.key}"
 
   umask 077
   cat > "$DEPLOY_ENV" <<EOF
@@ -79,6 +98,8 @@ FEATHERS_APP_ORIGIN=$FEATHERS_APP_ORIGIN
 FEATHERS_ADMIN_ORIGIN=$FEATHERS_ADMIN_ORIGIN
 FEATHERS_API_ORIGIN=$FEATHERS_API_ORIGIN
 FEATHERS_PGADMIN_ORIGIN=$FEATHERS_PGADMIN_ORIGIN
+FEATHERS_SSL_CERT=$FEATHERS_SSL_CERT
+FEATHERS_SSL_KEY=$FEATHERS_SSL_KEY
 EOF
 fi
 
@@ -94,9 +115,22 @@ fi
 
 if ! grep -q '^FEATHERS_LANDING_ORIGIN=' "$DEPLOY_ENV"; then
   PUBLIC_HOST="${FEATHERS_PUBLIC_HOST:-$(public_host)}"
-  : "${FEATHERS_LANDING_ORIGIN:=http://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
+  : "${FEATHERS_LANDING_ORIGIN:=https://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
   printf 'FEATHERS_LANDING_ORIGIN=%s\n' "$FEATHERS_LANDING_ORIGIN" >> "$DEPLOY_ENV"
 fi
+
+if ! grep -q '^FEATHERS_SSL_CERT=' "$DEPLOY_ENV"; then
+  printf 'FEATHERS_SSL_CERT=%s\n' "${FEATHERS_SSL_CERT:-/etc/ssl/feathers-global/feathers-global.crt}" >> "$DEPLOY_ENV"
+fi
+
+if ! grep -q '^FEATHERS_SSL_KEY=' "$DEPLOY_ENV"; then
+  printf 'FEATHERS_SSL_KEY=%s\n' "${FEATHERS_SSL_KEY:-/etc/ssl/feathers-global/feathers-global.key}" >> "$DEPLOY_ENV"
+fi
+
+set -a
+# shellcheck disable=SC1090
+. "$DEPLOY_ENV"
+set +a
 
 apt-get install -y nginx certbot python3-certbot-nginx curl ca-certificates gnupg build-essential gettext-base openssl \
   postgresql postgresql-contrib python3-venv python3-pip
@@ -174,14 +208,26 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now feathers-global-pgadmin
 
+SSL_HOST="${FEATHERS_PUBLIC_HOST:-$(origin_host "$FEATHERS_APP_ORIGIN")}"
+mkdir -p "$(dirname "$FEATHERS_SSL_CERT")" "$(dirname "$FEATHERS_SSL_KEY")"
+if [ ! -f "$FEATHERS_SSL_CERT" ] || [ ! -f "$FEATHERS_SSL_KEY" ]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+    -keyout "$FEATHERS_SSL_KEY" \
+    -out "$FEATHERS_SSL_CERT" \
+    -subj "/CN=$SSL_HOST" \
+    -addext "subjectAltName=$(ssl_subject_alt_name "$SSL_HOST")"
+  chmod 600 "$FEATHERS_SSL_KEY"
+  chmod 644 "$FEATHERS_SSL_CERT"
+fi
+
 if ss -ltn | awk '{print $4}' | grep -Eq "(:|\\])(${FEATHERS_LANDING_PORT}|${FEATHERS_APP_PORT}|${FEATHERS_ADMIN_PORT}|${FEATHERS_API_PORT}|${FEATHERS_PGADMIN_PUBLIC_PORT})$" &&
   ! grep -R "feathers-global/current" /etc/nginx/sites-enabled /etc/nginx/sites-available >/dev/null 2>&1; then
   echo "One of the Feathers public ports is already in use by another service. Set FEATHERS_*_PORT and rerun." >&2
   exit 1
 fi
 
-export FEATHERS_LANDING_PORT FEATHERS_APP_PORT FEATHERS_ADMIN_PORT FEATHERS_API_PORT FEATHERS_BACKEND_PORT FEATHERS_PGADMIN_PORT FEATHERS_PGADMIN_PUBLIC_PORT
-envsubst '${FEATHERS_LANDING_PORT} ${FEATHERS_APP_PORT} ${FEATHERS_ADMIN_PORT} ${FEATHERS_API_PORT} ${FEATHERS_BACKEND_PORT} ${FEATHERS_PGADMIN_PORT} ${FEATHERS_PGADMIN_PUBLIC_PORT}' \
+export FEATHERS_LANDING_PORT FEATHERS_APP_PORT FEATHERS_ADMIN_PORT FEATHERS_API_PORT FEATHERS_BACKEND_PORT FEATHERS_PGADMIN_PORT FEATHERS_PGADMIN_PUBLIC_PORT FEATHERS_SSL_CERT FEATHERS_SSL_KEY
+envsubst '${FEATHERS_LANDING_PORT} ${FEATHERS_APP_PORT} ${FEATHERS_ADMIN_PORT} ${FEATHERS_API_PORT} ${FEATHERS_BACKEND_PORT} ${FEATHERS_PGADMIN_PORT} ${FEATHERS_PGADMIN_PUBLIC_PORT} ${FEATHERS_SSL_CERT} ${FEATHERS_SSL_KEY}' \
   < "$APP_ROOT/deploy/nginx/feathers-global.conf.template" \
   > /etc/nginx/sites-available/feathers-global
 
