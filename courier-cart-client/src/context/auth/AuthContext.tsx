@@ -75,6 +75,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const setTokens = (access: string, refresh: string) => {
     setAuthTokens(access, refresh)
+    queryClient.removeQueries({ queryKey: ['userProfile'] })
+    queryClient.removeQueries({ queryKey: ['userInfo'] })
     setIsAuthenticated(true)
     refetchUser()
   }

@@ -510,7 +510,7 @@ export const handleEmailVerificationRequest = async (
       shouldSendEmail = true
 
       if (shouldSendEmail) {
-        sendVerificationEmail(normalizedEmail, token).catch(console.error)
+        await sendVerificationEmail(normalizedEmail, token)
       }
 
       return { status: 200, data: { message: 'Verification email sent' } }
@@ -548,7 +548,7 @@ export const handleEmailVerificationRequest = async (
     shouldSendEmail = true
 
     if (shouldSendEmail) {
-      sendVerificationEmail(normalizedEmail, token).catch(console.error)
+      await sendVerificationEmail(normalizedEmail, token)
     }
 
     return { status: 201, data: { message: 'Verification email sent' } }

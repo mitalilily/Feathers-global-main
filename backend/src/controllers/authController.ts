@@ -19,6 +19,7 @@ import {
 
 import axios from 'axios'
 import { OTP_EXPIRY } from '../utils/constants'
+import { sendVerificationEmail } from '../utils/emailSender'
 
 import { eq } from 'drizzle-orm'
 import { db } from '../models/client'
@@ -192,15 +193,14 @@ export const requestOtp = async (req: Request, res: Response): Promise<any> => {
       })
     }
 
-    console.log(`[AUTH OTP] ${normalizedEmail}: ${otp}`)
+    await sendVerificationEmail(normalizedEmail, otp)
 
     return res.json({
-      message: 'OTP generated successfully',
-      devOtp: otp,
+      message: 'Verification code sent to your email',
     })
   } catch (err) {
     console.error('Error in requestOtp:', err)
-    return res.status(500).json({ error: 'Something went wrong while requesting OTP' })
+    return res.status(500).json({ error: 'Could not send verification email. Please try again.' })
   }
 }
 
@@ -333,7 +333,7 @@ export const requestEmailVerification = async (req: Request, res: Response): Pro
     return res.status(result.status).json(result.data)
   } catch (err) {
     console.error('Error in requestEmailVerification:', err)
-    return res.status(401).json({ error: 'Invalid credentials or token' })
+    return res.status(500).json({ error: 'Could not send verification email. Please try again.' })
   }
 }
 

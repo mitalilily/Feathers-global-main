@@ -8,7 +8,7 @@ import path from 'path'
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
 
-const EMAIL_FROM = process.env.EMAIL_FROM!
+const EMAIL_FROM = process.env.EMAIL_FROM || 'support@featherglobal.in'
 const GOOGLE_SMTP_USER = process.env.GOOGLE_SMTP_USER || EMAIL_FROM
 const GOOGLE_SMTP_PASSWORD = process.env.GOOGLE_SMTP_PASSWORD!
 const SMTP_HOST = process.env.SMTP_HOST
@@ -118,8 +118,8 @@ const renderEmailFrame = ({
 
 // Create SMTP transporter (Hostinger/custom SMTP if provided, else Gmail service)
 const createTransporter = () => {
-  if (!GOOGLE_SMTP_PASSWORD) {
-    console.warn('Google SMTP password not configured. Email not sent.')
+  if (!GOOGLE_SMTP_USER || !GOOGLE_SMTP_PASSWORD) {
+    console.warn('SMTP credentials not configured. Email not sent.')
     return null
   }
 
@@ -155,8 +155,7 @@ const sendEmail = async (
 ) => {
   const transporter = createTransporter()
   if (!transporter) {
-    console.warn('Email transporter not configured. Email not sent.')
-    return
+    throw new Error('Email transporter not configured')
   }
 
   const mailOptions: any = {
