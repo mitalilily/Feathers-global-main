@@ -29,6 +29,15 @@ let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | nul
 api.interceptors.request.use((cfg) => {
   const { accessToken } = getAuthTokens()
   if (accessToken) cfg.headers.Authorization = `Bearer ${accessToken}`
+
+  if (typeof FormData !== 'undefined' && cfg.data instanceof FormData && cfg.headers) {
+    if (typeof cfg.headers.delete === 'function') {
+      cfg.headers.delete('Content-Type')
+    } else {
+      delete (cfg.headers as Record<string, unknown>)['Content-Type']
+    }
+  }
+
   return cfg
 })
 
