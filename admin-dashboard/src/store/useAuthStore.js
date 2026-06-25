@@ -2,13 +2,20 @@
 import { jwtDecode } from 'jwt-decode'
 import { create } from 'zustand'
 
-function isTokenExpired(token) {
+export function isTokenExpired(token) {
   try {
+    if (!token) return true
     const decoded = jwtDecode(token)
-    return decoded.exp < Date.now() / 1000
+    return !decoded.exp || decoded.exp < Date.now() / 1000
   } catch (err) {
     return true // treat invalid/undecodable token as expired
   }
+}
+
+const removeAuthStorage = () => {
+  localStorage.removeItem('accessToken')
+  localStorage.removeItem('refreshToken')
+  localStorage.removeItem('userId')
 }
 
 export const useAuthStore = create((set) => {
@@ -16,19 +23,31 @@ export const useAuthStore = create((set) => {
   const refreshToken = localStorage.getItem('refreshToken')
   const userId = localStorage.getItem('userId')
 
+  const isAccessValid = accessToken && !isTokenExpired(accessToken)
   const isRefreshValid = refreshToken && !isTokenExpired(refreshToken)
 
-  if (!isRefreshValid) {
-    localStorage.clear()
+  if (!isAccessValid || !isRefreshValid) {
+    removeAuthStorage()
   }
 
   return {
-    token: isRefreshValid ? accessToken : null,
-    refreshToken: isRefreshValid ? refreshToken : null,
-    userId: isRefreshValid ? userId : null,
-    isLoggedIn: isRefreshValid && !!accessToken,
+    token: isAccessValid && isRefreshValid ? accessToken : null,
+    refreshToken: isAccessValid && isRefreshValid ? refreshToken : null,
+    userId: isAccessValid && isRefreshValid ? userId : null,
+    isLoggedIn: Boolean(isAccessValid && isRefreshValid && userId),
 
     login: (token, userId, refreshToken) => {
+      if (!token || !refreshToken || !userId || isTokenExpired(token) || isTokenExpired(refreshToken)) {
+        removeAuthStorage()
+        set({
+          token: null,
+          refreshToken: null,
+          userId: null,
+          isLoggedIn: false,
+        })
+        return false
+      }
+
       localStorage.setItem('accessToken', token)
       localStorage.setItem('refreshToken', refreshToken)
       localStorage.setItem('userId', userId)
@@ -39,10 +58,12 @@ export const useAuthStore = create((set) => {
         userId,
         isLoggedIn: true,
       })
+
+      return true
     },
 
     logout: () => {
-      localStorage.clear()
+      removeAuthStorage()
       set({
         token: null,
         refreshToken: null,

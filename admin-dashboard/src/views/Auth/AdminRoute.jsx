@@ -1,27 +1,26 @@
-import { jwtDecode } from 'jwt-decode'
 import { useEffect } from 'react'
 import { useHistory } from 'react-router-dom'
-import { useAuthStore } from '../../store/useAuthStore'
-
-function isTokenExpired(token) {
-  try {
-    const decoded = jwtDecode(token)
-    return decoded.exp < Date.now() / 1000
-  } catch {
-    return true
-  }
-}
+import { isTokenExpired, useAuthStore } from '../../store/useAuthStore'
 
 export const AdminRoute = ({ children }) => {
   const history = useHistory()
-  const { token, refreshToken, logout } = useAuthStore()
+  const { token, refreshToken, userId, logout } = useAuthStore()
+  const isAuthenticated = Boolean(
+    token &&
+      refreshToken &&
+      userId &&
+      !isTokenExpired(token) &&
+      !isTokenExpired(refreshToken),
+  )
 
   useEffect(() => {
-    if (!token || !refreshToken || isTokenExpired(refreshToken)) {
+    if (!isAuthenticated) {
       logout()
       history.replace('/auth/signin')
     }
-  }, [token, refreshToken, logout, history])
+  }, [isAuthenticated, logout, history])
+
+  if (!isAuthenticated) return null
 
   return children
 }
