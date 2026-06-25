@@ -34,6 +34,13 @@ dotenv.config({ path: path.resolve(__dirname, `../.env.${env}`) })
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
+const isEmailDeliveryError = (error: any) =>
+  error?.code === 'EAUTH' ||
+  error?.code === 'ECONNECTION' ||
+  error?.code === 'ETIMEDOUT' ||
+  error?.command === 'AUTH PLAIN' ||
+  String(error?.message || '').toLowerCase().includes('email transporter not configured')
+
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 
 /* ------------------------------------------------------------------ */
@@ -200,6 +207,12 @@ export const requestOtp = async (req: Request, res: Response): Promise<any> => {
     })
   } catch (err) {
     console.error('Error in requestOtp:', err)
+    if (isEmailDeliveryError(err)) {
+      return res.status(503).json({
+        error: 'Email delivery is temporarily unavailable. Please try again in a few minutes.',
+      })
+    }
+
     return res.status(500).json({ error: 'Could not send verification email. Please try again.' })
   }
 }
@@ -333,6 +346,12 @@ export const requestEmailVerification = async (req: Request, res: Response): Pro
     return res.status(result.status).json(result.data)
   } catch (err) {
     console.error('Error in requestEmailVerification:', err)
+    if (isEmailDeliveryError(err)) {
+      return res.status(503).json({
+        error: 'Email delivery is temporarily unavailable. Please try again in a few minutes.',
+      })
+    }
+
     return res.status(500).json({ error: 'Could not send verification email. Please try again.' })
   }
 }
