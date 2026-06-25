@@ -690,6 +690,7 @@ const HolidayCalendar = () => {
                     >
                       <option value="delhivery">Delhivery</option>
                       <option value="ekart">Ekart</option>
+                      <option value="amazon">Amazon</option>
                     </Select>
                   </FormControl>
                 </>

@@ -26,7 +26,6 @@ import OrdersOverview from "../Dashboard/components/OrdersOverview";
 import Projects from "../Dashboard/components/Projects";
 import SalesOverview from "../Dashboard/components/SalesOverview";
 import WorkWithTheRockets from "../Dashboard/components/WorkWithTheRockets";
-import { BRAND } from "../../../constants/brand";
 
 export default function Dashboard() {
   // Chakra Color Mode
@@ -68,14 +67,14 @@ export default function Dashboard() {
         gap='24px'>
         <BuiltByDevelopers
           title={"تم تطويرها للإدارة"}
-          name={`لوحة تحكم ${BRAND.name}`}
+          name={"لوحة تحكم Shiplifi"}
           description={
             "تجربة إدارة احترافية لمتابعة الشحنات والدعم والتسعير والعمليات من مكان واحد."
           }
           image={
             <Image
-              src={BRAND.logo}
-              alt={BRAND.name}
+              src="/logo/shiplifi-logo.png"
+              alt='Shiplifi'
               minWidth={{ md: "300px", lg: "auto" }}
               borderRadius="20px"
             />

@@ -2,33 +2,34 @@ import { ChevronDownIcon } from '@chakra-ui/icons'
 import { Box, Button, Collapse, Flex, Stack, Text, useColorModeValue } from '@chakra-ui/react'
 import React, { useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { BRAND } from '../../constants/brand'
-import BrandMark from '../Brand/BrandMark'
+
+const BRAND_RED = '#D90416'
+const BRAND_CHARCOAL = '#34343B'
 
 const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
   const location = useLocation()
   const [state, setState] = React.useState({})
 
-  const sidebarBg = useColorModeValue(
-    `linear-gradient(180deg, ${BRAND.colors.paper} 0%, ${BRAND.colors.surface} 100%)`,
-    '#111113',
+  const sidebarBg = useColorModeValue('#111113', '#111113')
+  const sidebarBorder = useColorModeValue('rgba(255,255,255,0.06)', 'rgba(255,255,255,0.06)')
+  const sidebarShadow = useColorModeValue('14px 0 32px rgba(17, 17, 19, 0.22)', '14px 0 34px rgba(5, 4, 10, 0.45)')
+  const activeBg = useColorModeValue('rgba(255,255,255,0.08)', 'rgba(255,255,255,0.08)')
+  const hoverBg = useColorModeValue('rgba(255,255,255,0.05)', 'rgba(255,255,255,0.05)')
+  const activeBorder = useColorModeValue('rgba(255,255,255,0.12)', 'rgba(255,255,255,0.12)')
+  const hoverBorder = useColorModeValue('rgba(255,255,255,0.08)', 'rgba(255,255,255,0.08)')
+  const iconBg = useColorModeValue('rgba(255,255,255,0.06)', 'rgba(255,255,255,0.06)')
+  const iconActiveBg = useColorModeValue('rgba(217,4,22,0.18)', 'rgba(217,4,22,0.18)')
+  const textColor = useColorModeValue('rgba(255,255,255,0.8)', 'rgba(255,255,255,0.8)')
+  const iconColor = useColorModeValue('rgba(255,255,255,0.56)', 'rgba(255,255,255,0.56)')
+  const dividerColor = useColorModeValue('rgba(255,255,255,0.08)', 'rgba(255,255,255,0.08)')
+  const thumbColor = useColorModeValue('rgba(255,255,255,0.18)', 'rgba(255,255,255,0.18)')
+  const brandCardBg = useColorModeValue(
+    'rgba(255,255,255,0.04)',
+    'rgba(255,255,255,0.04)',
   )
-  const sidebarBorder = useColorModeValue('rgba(215, 238, 241, 0.95)', 'rgba(255,255,255,0.06)')
-  const sidebarShadow = useColorModeValue('14px 0 32px rgba(7, 25, 35, 0.08)', '14px 0 34px rgba(5, 4, 10, 0.45)')
-  const activeBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.08)')
-  const hoverBg = useColorModeValue('rgba(4,123,133,0.05)', 'rgba(255,255,255,0.05)')
-  const activeBorder = useColorModeValue('rgba(4,123,133,0.18)', 'rgba(255,255,255,0.12)')
-  const hoverBorder = useColorModeValue('rgba(4,123,133,0.12)', 'rgba(255,255,255,0.08)')
-  const iconBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.06)')
-  const iconActiveBg = useColorModeValue('rgba(4,123,133,0.16)', 'rgba(217,4,22,0.18)')
-  const textColor = useColorModeValue(BRAND.colors.text, 'rgba(255,255,255,0.8)')
-  const iconColor = useColorModeValue(BRAND.colors.muted, 'rgba(255,255,255,0.56)')
-  const dividerColor = useColorModeValue(BRAND.colors.border, 'rgba(255,255,255,0.08)')
-  const thumbColor = useColorModeValue('rgba(4,123,133,0.22)', 'rgba(255,255,255,0.18)')
-  const brandCardBg = useColorModeValue('rgba(255,255,255,0.92)', 'rgba(255,255,255,0.04)')
-  const brandCardBorder = useColorModeValue(BRAND.colors.border, 'rgba(255,255,255,0.08)')
-  const brandText = useColorModeValue(BRAND.colors.ink, 'white')
-  const collapsedLogoBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.08)')
+  const brandCardBorder = useColorModeValue('rgba(255,255,255,0.08)', 'rgba(255,255,255,0.08)')
+  const brandText = useColorModeValue('white', 'white')
+  const collapsedLogoBg = useColorModeValue('rgba(255,255,255,0.08)', 'rgba(255,255,255,0.08)')
 
   const activeRoute = (routeName) => location.pathname.startsWith(routeName)
 
@@ -65,7 +66,7 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
       py="10px"
       h="auto"
       border="1px solid"
-      borderColor={isActive ? 'rgba(4,123,133,0.18)' : 'transparent'}
+      borderColor={isActive ? 'rgba(217,4,22,0.28)' : 'transparent'}
       _hover={{
         bg: hoverBg,
         transform: 'translateX(2px)',
@@ -158,7 +159,7 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
                   <Box
                     transition="transform 0.2s"
                     transform={state[prop.state] ? 'rotate(180deg)' : 'rotate(0deg)'}
-                    color={isChildActive ? BRAND.colors.teal : iconColor}
+                    color={isChildActive ? BRAND_RED : iconColor}
                   >
                     <ChevronDownIcon />
                   </Box>
@@ -221,12 +222,29 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
             border="1px solid"
             borderColor={brandCardBorder}
           >
-            <BrandMark compact showTagline size={34} />
+            <Box as="img" src="/logo/shiplifi-logo.png" alt="Shiplifi" h="40px" w="40px" objectFit="contain" borderRadius="10px" />
+            <Box textAlign="left">
+              <Text fontWeight="800" fontSize="15px" color={brandText}>
+                {logoText}
+              </Text>
+              <Text fontSize="10px" fontWeight="700" letterSpacing="1px" textTransform="uppercase" color="rgba(255,255,255,0.56)">
+                Admin Console
+              </Text>
+            </Box>
           </Flex>
         ) : (
-          <Box mx="auto" p="2px" borderRadius="10px" bg={collapsedLogoBg}>
-            <BrandMark markOnly size={36} />
-          </Box>
+          <Box
+            as="img"
+            src="/logo/shiplifi-logo.png"
+            alt="Shiplifi"
+            h="38px"
+            w="38px"
+            mx="auto"
+            objectFit="contain"
+            p="2px"
+            borderRadius="10px"
+            bg={collapsedLogoBg}
+          />
         )}
       </Box>
 

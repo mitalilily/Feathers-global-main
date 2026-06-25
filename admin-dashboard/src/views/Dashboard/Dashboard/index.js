@@ -34,7 +34,6 @@ import OrdersLineChart from 'components/Charts/OrdersLineChart'
 import RevenueBarChart from 'components/Charts/RevenueBarChart'
 import { useDashboardStats } from 'hooks/useDashboardStats'
 import { useHistory } from 'react-router-dom'
-import { BRAND } from '../../../constants/brand'
 
 const formatCurrency = (amount) =>
   new Intl.NumberFormat('en-IN', {
@@ -113,7 +112,7 @@ export default function Dashboard() {
       <Container maxW="full" pt={{ base: '120px', md: '75px' }} px={{ base: 4, md: 6 }}>
         <Box mb={6}>
           <PageHeader
-            eyebrow={`${BRAND.name} Admin`}
+            eyebrow="Shiplifi Admin"
             title="Control tower for operations, support and revenue"
             description="Track today's shipment flow, courier performance, support risk and cash movement from one focused view."
             meta={[

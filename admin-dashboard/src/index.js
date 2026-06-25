@@ -36,16 +36,16 @@ const root = createRoot(document.getElementById('root'))
 root.render(
   <AdminAppErrorBoundary>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Switch>
-          <Route path={`/auth`} component={AuthLayout} />
-          <Route path={`/admin`} component={AdminLayout} />
-          <Route path={`/rtl`} component={RTLLayout} />
-          <Redirect from={`/`} to="/admin/dashboard" />
-        </Switch>
-      </BrowserRouter>
+    <BrowserRouter>
+      <Switch>
+        <Route path={`/auth`} component={AuthLayout} />
+        <Route path={`/admin`} component={AdminLayout} />
+        <Route path={`/rtl`} component={RTLLayout} />
+        <Redirect from={`/`} to="/admin/dashboard" />
+      </Switch>
+    </BrowserRouter>
 
-      {/* 🛠 Devtools (optional, helpful during development) */}
+    {/* 🛠 Devtools (optional, helpful during development) */}
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   </AdminAppErrorBoundary>,

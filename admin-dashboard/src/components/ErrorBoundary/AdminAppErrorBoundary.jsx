@@ -45,9 +45,9 @@ export default class AdminAppErrorBoundary extends React.Component {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '24px',
-          background: '#f4fbfc',
-          color: '#071923',
-          fontFamily: 'Inter, Segoe UI, Arial, sans-serif',
+          background: '#f7f8fb',
+          color: '#1f2937',
+          fontFamily: 'Roboto, Arial, sans-serif',
         }}
       >
         <div
@@ -55,16 +55,16 @@ export default class AdminAppErrorBoundary extends React.Component {
             width: '100%',
             maxWidth: '460px',
             padding: '28px',
-            border: '1px solid #d7eef1',
+            border: '1px solid #e5e7eb',
             borderRadius: '12px',
             background: '#ffffff',
-            boxShadow: '0 18px 46px rgba(7, 25, 35, 0.1)',
+            boxShadow: '0 18px 46px rgba(15, 23, 42, 0.12)',
           }}
         >
           <h1 style={{ margin: 0, fontSize: '22px', lineHeight: 1.25 }}>
             Admin panel could not finish loading
           </h1>
-          <p style={{ margin: '14px 0 0', color: '#5f7a8f', fontSize: '14px', lineHeight: 1.7 }}>
+          <p style={{ margin: '14px 0 0', color: '#64748b', fontSize: '14px', lineHeight: 1.7 }}>
             {isAssetError
               ? 'A new admin version was deployed while your browser still had older files cached.'
               : 'Something interrupted the admin console while it was starting.'}
@@ -78,7 +78,7 @@ export default class AdminAppErrorBoundary extends React.Component {
               height: '44px',
               border: 0,
               borderRadius: '10px',
-              background: '#047b85',
+              background: '#D90416',
               color: '#ffffff',
               fontWeight: 700,
               cursor: 'pointer',

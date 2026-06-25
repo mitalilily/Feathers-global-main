@@ -3,7 +3,6 @@
 import { Box, useColorModeValue } from '@chakra-ui/react'
 import React from 'react'
 import SidebarContent from './SidebarContent'
-import { BRAND } from '../../constants/brand'
 
 function Sidebar(props) {
   const mainPanel = React.useRef()
@@ -42,7 +41,7 @@ function Sidebar(props) {
           <SidebarContent
             sidebarWidth={sidebarWidth}
             routes={routes}
-            logoText={logoText || BRAND.name}
+            logoText={logoText || 'Shiplifi'}
             sidebarVariant={sidebarVariant}
           />
         </Box>

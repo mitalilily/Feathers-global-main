@@ -1,26 +1,27 @@
-import { Suspense, useEffect } from 'react'
+import { jwtDecode } from 'jwt-decode'
+import { useEffect } from 'react'
 import { useHistory } from 'react-router-dom'
-import { isTokenExpired, useAuthStore } from '../../store/useAuthStore'
+import { useAuthStore } from '../../store/useAuthStore'
+
+function isTokenExpired(token) {
+  try {
+    const decoded = jwtDecode(token)
+    return decoded.exp < Date.now() / 1000
+  } catch {
+    return true
+  }
+}
 
 export const AdminRoute = ({ children }) => {
   const history = useHistory()
-  const { token, refreshToken, userId, logout } = useAuthStore()
-  const isAuthenticated = Boolean(
-    token &&
-      refreshToken &&
-      userId &&
-      !isTokenExpired(token) &&
-      !isTokenExpired(refreshToken),
-  )
+  const { token, refreshToken, logout } = useAuthStore()
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!token || !refreshToken || isTokenExpired(refreshToken)) {
       logout()
       history.replace('/auth/signin')
     }
-  }, [isAuthenticated, logout, history])
+  }, [token, refreshToken, logout, history])
 
-  if (!isAuthenticated) return null
-
-  return <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
+  return children
 }

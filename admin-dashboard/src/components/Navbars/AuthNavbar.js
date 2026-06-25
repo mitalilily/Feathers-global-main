@@ -1,7 +1,5 @@
 import { Box, Button, Flex, HStack, Link, Text, useColorModeValue } from '@chakra-ui/react'
 import { DocumentIcon, HomeIcon, PersonIcon, RocketIcon } from 'components/Icons/Icons'
-import { BRAND } from '../../constants/brand'
-import BrandMark from '../Brand/BrandMark'
 import SidebarResponsive from 'components/Sidebar/SidebarResponsive'
 import PropTypes from 'prop-types'
 import React from 'react'
@@ -24,11 +22,9 @@ export default function AuthNavbar(props) {
 
   const brand = (
     <Link href={`${process.env.PUBLIC_URL}/#/`} display="flex" lineHeight="100%" fontWeight="700" justifyContent="center" alignItems="center" color={mainText}>
-      <Box me="10px">
-        <BrandMark markOnly size={34} />
-      </Box>
+      <Box as="img" src="/logo/shiplifi-logo.png" alt="Shiplifi" h="34px" w="34px" objectFit="contain" borderRadius="10px" me="10px" />
       <Text fontSize="sm" mt="1px">
-        {logoText || BRAND.name}
+        {logoText || 'Shiplifi'}
       </Text>
     </Link>
   )
@@ -79,7 +75,7 @@ export default function AuthNavbar(props) {
       <Flex w="100%" justifyContent={{ sm: 'start', lg: 'space-between' }}>
         {brand}
         <Box ms={{ base: 'auto', lg: '0px' }} display={{ base: 'flex', lg: 'none' }}>
-          <SidebarResponsive logoText={logoText || BRAND.name} secondary={secondary} routes={routes} {...rest} />
+          <SidebarResponsive logoText={logoText || 'Shiplifi'} secondary={secondary} routes={routes} {...rest} />
         </Box>
         {linksAuth}
         <Link href="/auth/signin">

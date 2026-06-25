@@ -1,14 +1,11 @@
 import axios from 'axios'
 
 const getDefaultApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname.toLowerCase()
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-      return 'http://localhost:5003/api'
-    }
+  if (typeof window !== 'undefined' && window.location.hostname === 'admin.shiplifi.com') {
+    return 'https://api.shiplifi.com/api'
   }
 
-  return 'https://feathers-global-main-1.onrender.com/api'
+  return 'http://localhost:5003/api'
 }
 
 const apiBaseURL = (process.env.REACT_APP_API_BASE_URL || getDefaultApiBaseUrl()).replace(/\/+$/, '')
@@ -98,5 +95,4 @@ api.interceptors.response.use(
   },
 )
 
-export { apiBaseURL, getDefaultApiBaseUrl }
 export default api
