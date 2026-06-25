@@ -124,6 +124,14 @@ else
   npm install --legacy-peer-deps --force
 fi
 npm run build
+latest_admin_js="$(find build/static/js -maxdepth 1 -type f -name 'main.*.js' ! -name '*.LICENSE.txt' | sort | tail -n 1)"
+latest_admin_css="$(find build/static/css -maxdepth 1 -type f -name 'main.*.css' | sort | tail -n 1)"
+if [ -n "$latest_admin_js" ]; then
+  ln -sf "$(basename "$latest_admin_js")" build/static/js/main.latest.js
+fi
+if [ -n "$latest_admin_css" ]; then
+  ln -sf "$(basename "$latest_admin_css")" build/static/css/main.latest.css
+fi
 
 nginx -t
 systemctl reload nginx
