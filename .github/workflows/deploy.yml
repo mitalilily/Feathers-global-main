@@ -35,18 +35,18 @@ jobs:
           set -euo pipefail
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -p "$FEATHERS_SSH_PORT" -H "$FEATHERS_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -T 20 -p "$FEATHERS_SSH_PORT" -H "$FEATHERS_HOST" >> ~/.ssh/known_hosts || true
 
           if [ -n "$FEATHERS_SSH_PRIVATE_KEY" ]; then
             printf '%s\n' "$FEATHERS_SSH_PRIVATE_KEY" > ~/.ssh/feathers_global_deploy_key
             chmod 600 ~/.ssh/feathers_global_deploy_key
-            echo "SSH_CMD=ssh -i $HOME/.ssh/feathers_global_deploy_key -p $FEATHERS_SSH_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
-            echo "SSH_RSH=ssh -i $HOME/.ssh/feathers_global_deploy_key -p $FEATHERS_SSH_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+            echo "SSH_CMD=ssh -i $HOME/.ssh/feathers_global_deploy_key -p $FEATHERS_SSH_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
+            echo "SSH_RSH=ssh -i $HOME/.ssh/feathers_global_deploy_key -p $FEATHERS_SSH_PORT -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
           elif [ -n "$FEATHERS_SSH_PASSWORD" ]; then
             sudo apt-get update
             sudo apt-get install -y sshpass
-            echo "SSH_CMD=sshpass -e ssh -p $FEATHERS_SSH_PORT -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
-            echo "SSH_RSH=sshpass -e ssh -p $FEATHERS_SSH_PORT -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+            echo "SSH_CMD=sshpass -e ssh -p $FEATHERS_SSH_PORT -o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
+            echo "SSH_RSH=sshpass -e ssh -p $FEATHERS_SSH_PORT -o StrictHostKeyChecking=accept-new" >> "$GITHUB_ENV"
           else
             echo "Set FEATHERS_SSH_PRIVATE_KEY or FEATHERS_SSH_PASSWORD in GitHub secrets." >&2
             exit 1
