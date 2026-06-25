@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      FEATHERS_HOST: ${{ secrets.FEATHERS_HOST || '72.62.247.178' }}
+      FEATHERS_HOST: ${{ secrets.FEATHERS_HOST || '187.127.142.15' }}
       FEATHERS_USER: ${{ secrets.FEATHERS_USER || 'root' }}
       FEATHERS_SSH_PORT: ${{ secrets.FEATHERS_SSH_PORT || '22' }}
-      FEATHERS_DEPLOY_ROOT: ${{ vars.FEATHERS_DEPLOY_ROOT || '/srv/feathers-global/current' }}
+      FEATHERS_DEPLOY_ROOT: ${{ vars.FEATHERS_DEPLOY_ROOT || '/srv/shiplifi/current' }}
       FEATHERS_SSH_PASSWORD: ${{ secrets.FEATHERS_SSH_PASSWORD }}
       FEATHERS_SSH_PRIVATE_KEY: ${{ secrets.FEATHERS_SSH_PRIVATE_KEY }}
       FEATHERS_LANDING_PORT: ${{ vars.FEATHERS_LANDING_PORT || '8088' }}
