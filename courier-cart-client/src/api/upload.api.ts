@@ -1,6 +1,5 @@
 import axios from "axios";
-import axiosInstance, { API_BASE_URL } from "./axiosInstance";
-import { getAuthTokens } from "./tokenVault";
+import axiosInstance from "./axiosInstance";
 
 export interface UploadedFileInfo {
   url: string;
@@ -42,16 +41,14 @@ export const uploadFileToStorage = async (
   };
 };
 
-export const uploadKycDocumentToBackend = async (
+export const uploadKycPdfToBackend = async (
   file: File,
   onProgress?: (progress: number) => void,
 ): Promise<UploadedFileInfo> => {
   const formData = new FormData()
   formData.append('file', file)
 
-  const { accessToken } = getAuthTokens()
-  const { data } = await axios.post(`${API_BASE_URL}/uploads/kyc/pdf`, formData, {
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+  const { data } = await axiosInstance.post('/uploads/kyc/pdf', formData, {
     onUploadProgress: (event) => {
       if (event.total && onProgress) {
         onProgress(Math.round((event.loaded * 100) / event.total))
@@ -64,11 +61,9 @@ export const uploadKycDocumentToBackend = async (
     key: data.key,
     originalName: data.originalName || file.name,
     size: data.size || file.size,
-    mime: data.mime || file.type || 'application/octet-stream',
+    mime: data.mime || file.type || 'application/pdf',
   }
 }
-
-export const uploadKycPdfToBackend = uploadKycDocumentToBackend
 
 export const getPresignedDownloadUrls = async (
   keys: string | string[]

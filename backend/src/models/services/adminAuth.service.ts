@@ -1,11 +1,5 @@
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
-import {
-  getBootstrapAdminEmails,
-  getBootstrapAdminPassword,
-  getBootstrapAdminPhone,
-} from "../../config/bootstrapAdmin";
-import { ensureBootstrapAdmin } from "../../scripts/seedAdmin";
 import { signAccessToken, signRefreshToken } from "../../utils/jwt";
 import { db } from "../client";
 import { users } from "../schema/users";
@@ -13,49 +7,46 @@ import { findUserByEmail, findUserById, saveRefreshToken } from "./userService";
 
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const BOOTSTRAP_ADMIN_EMAILS = [
+  'admin@feathergsglobal.com',
+  'admin@feathersglobal.com',
+  'admin@shiplifi.com',
+  'admin@shiplifi.local',
+]
+const BOOTSTRAP_ADMIN_PHONE = '+916283315911'
 
 async function findAdminLoginCandidate(email: string) {
   const normalizedEmail = email.trim().toLowerCase()
-  const bootstrapAdminEmails = getBootstrapAdminEmails()
-  const bootstrapAdminPhone = getBootstrapAdminPhone()
 
   const exactMatch = await findUserByEmail(normalizedEmail)
   if (exactMatch) return exactMatch
 
-  if (!bootstrapAdminEmails.includes(normalizedEmail)) {
+  if (!BOOTSTRAP_ADMIN_EMAILS.includes(normalizedEmail)) {
     return null
   }
 
   return db.query.users.findFirst({
     where: (user, { eq, inArray, or }) =>
       or(
-        inArray(user.email, bootstrapAdminEmails),
-        eq(user.phone, bootstrapAdminPhone),
+        inArray(user.email, BOOTSTRAP_ADMIN_EMAILS),
+        eq(user.phone, BOOTSTRAP_ADMIN_PHONE),
       ),
   })
 }
 
 export const loginAdmin = async (email: string, password: string) => {
   const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
-  let user = await findAdminLoginCandidate(normalizedEmail);
+  const user = await findAdminLoginCandidate(normalizedEmail);
 
-  if (!user) {
-    const bootstrapAdminEmails = getBootstrapAdminEmails()
-    const isBootstrapLogin =
-      bootstrapAdminEmails.includes(normalizedEmail) && password === getBootstrapAdminPassword()
-
-    if (isBootstrapLogin) {
-      user = await ensureBootstrapAdmin(true)
-    } else {
+  if (!user || user.role !== "admin") {
+    if (!user) {
       throw new Error("Unauthorized");
     }
-  }
 
-  if (user.role !== "admin") {
     const passwordLooksValid = user.passwordHash && (await bcrypt.compare(password, user.passwordHash))
     const matchesBootstrapIdentity =
-      getBootstrapAdminEmails().includes((user.email || '').trim().toLowerCase()) ||
-      (user.phone || '').trim() === getBootstrapAdminPhone()
+      BOOTSTRAP_ADMIN_EMAILS.includes((user.email || '').trim().toLowerCase()) ||
+      (user.phone || '').trim() === BOOTSTRAP_ADMIN_PHONE
 
     if (!passwordLooksValid || !matchesBootstrapIdentity) {
       throw new Error("Unauthorized");

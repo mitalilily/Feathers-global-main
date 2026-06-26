@@ -141,7 +141,6 @@ export interface KycDetails {
   partnershipDeedUrl?: string;
   llpAgreementUrl?: string;
   boardResolutionUrl?: string;
-  selfieUrl?: string;
 
   cancelledChequeUrl?: string;
 
@@ -153,7 +152,6 @@ export interface KycDetails {
   gstCertificateMime: string;
   llpAgreementMime: string;
   companyAddressProofMime?: string;
-  selfieMime?: string;
 
   boardResolutionMime?: string;
   partnershipDeedMime?: string;
@@ -169,7 +167,6 @@ export interface KycDetails {
   cinStatus?: "pending" | "verified" | "rejected";
   llpAgreementStatus: "pending" | "verified" | "rejected";
   companyAddressProofStatus?: "pending" | "verified" | "rejected";
-  selfieStatus?: "pending" | "verified" | "rejected";
 
   /* ─ Rejection reasons ─ */
   panCardRejectionReason?: string;
@@ -180,7 +177,6 @@ export interface KycDetails {
   llpAgreementRejectionReason?: string;
   cinRejectionReason?: string;
   companyAddressProofRejectionReason?: string;
-  selfieRejectionReason?: string;
 
   /* ─ Workflow ─ */
   rejectionReason?: string; // global rejection reason (optional)

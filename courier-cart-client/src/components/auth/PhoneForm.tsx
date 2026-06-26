@@ -24,6 +24,11 @@ import PasswordLoginForm from './PasswordLoginForm'
 
 const { teal, tealDark, ink, paper, tealSoft } = BRAND.colors
 
+type RequestOtpResponse = {
+  devOtp?: string
+  otp?: string
+}
+
 type AuthMode = 'otp' | 'password'
 
 const fieldSx = {
@@ -78,11 +83,13 @@ export default function PhoneForm() {
   const [email, setEmail] = useState('')
   const [termsChecked, setTermsChecked] = useState(false)
   const [openTerms, setOpenTerms] = useState(false)
+  const [debugOtp, setDebugOtp] = useState('')
 
   const { mutate: sendOtpRequest, isPending } = useRequestOtp()
 
   const handleEmailChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setEmail(e.target.value.trim())
+    setDebugOtp('')
   }, [])
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -104,14 +111,14 @@ export default function PhoneForm() {
       const normalizedEmail = email.toLowerCase().trim()
 
       sendOtpRequest(normalizedEmail, {
-        onSuccess: () => {
+        onSuccess: (data: RequestOtpResponse) => {
+          const otpFromResponse = data?.devOtp ?? data?.otp ?? ''
+          if (otpFromResponse) {
+            console.log('[AUTH OTP]', { email: normalizedEmail, otp: otpFromResponse })
+          }
+          setDebugOtp(otpFromResponse)
           sessionStorage.setItem('preferredMethod', 'email_otp')
           setOtpStep(1)
-          toast.open({
-            message: 'Verification code sent to your email.',
-            severity: 'success',
-            position: { vertical: 'top', horizontal: 'center' },
-          })
         },
         onError: (err: any) => {
           const msg = err?.response?.data?.error || 'OTP request failed'
@@ -173,7 +180,7 @@ export default function PhoneForm() {
   if (authMode === 'otp' && otpStep === 1) {
     return (
       <>
-        <OtpForm email={email} onEditEmail={() => setOtpStep(0)} />
+        <OtpForm email={email} debugOtp={debugOtp} onDebugOtpChange={setDebugOtp} onEditEmail={() => setOtpStep(0)} />
         {termsModal}
       </>
     )

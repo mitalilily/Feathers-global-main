@@ -63,22 +63,23 @@ assertIncludesAll('Client required KYC docs', clientKycConstants, [
   'llpAgreementUrl',
 ])
 
-assertIncludesAll('Client KYC stepper includes camera step', clientKycVerificationSection, [
+assertExcludesAll('Client KYC stepper removed camera step', clientKycVerificationSection, [
   'Camera Verification',
   'CameraVerificationStep',
   'selfieUrl',
   'selfieMime',
 ])
 
-assertIncludesAll('Client KYC details card includes selfie docs', clientKycDetailsCard, [
+assertExcludesAll('Client KYC details card removed selfie docs', clientKycDetailsCard, [
   'selfieUrl',
   'Camera Verification',
   'MdCameraAlt',
 ])
 
-assertIncludesAll('Client KYC additional step knows selfie fields', clientKycAdditionalInfoStep, [
+assertExcludesAll('Client KYC additional step removed selfie docs', clientKycAdditionalInfoStep, [
   'selfieUrl',
   'selfieMime',
+  'Camera Verification',
 ])
 
 assertIncludesAll('Backend KYC persistence fields', backendKycService, [
@@ -100,8 +101,6 @@ assertIncludesAll('Backend KYC persistence fields', backendKycService, [
   'companyAddressProofMime',
   'businessPanMime',
   'gstCertificateMime',
-  'selfieUrl',
-  'selfieMime',
 ])
 
 assertIncludesAll('Backend KYC schema columns', backendKycSchema, [
@@ -114,7 +113,6 @@ assertIncludesAll('Backend KYC schema columns', backendKycSchema, [
   'businessPanUrl',
   'companyAddressProofUrl',
   'gstCertificateUrl',
-  'selfieUrl',
 ])
 
 assertIncludesAll('Backend KYC constants', backendKycConstants, [
@@ -134,9 +132,9 @@ assertIncludesAll('Approval bookkeeping', backendApprovalService, [
   'profileComplete: true',
 ])
 
-assertIncludesAll('Admin KYC viewer includes selfie docs', adminKycTab, [
+assertExcludesAll('Admin KYC viewer removed selfie docs', adminKycTab, [
   'selfieUrl',
-  'Camera Verification Selfie',
+  'Selfie',
 ])
 
 const failed = results.filter((item) => !item.ok)

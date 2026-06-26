@@ -3,6 +3,8 @@ import { getAuthTokens } from "./tokenVault";
 
 export type RequestOtpResponse = {
   message: string
+  devOtp?: string
+  otp?: string
 }
 
 export const requestOtpApi = async (email: string): Promise<RequestOtpResponse> => {

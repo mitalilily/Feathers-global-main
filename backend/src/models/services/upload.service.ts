@@ -1,12 +1,7 @@
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import axios from 'axios'
-import {
-  getR2EndpointPathParts,
-  getR2PublicBaseUrl,
-  normalizeR2Endpoint,
-  r2,
-} from '../../config/r2Client'
+import { r2 } from '../../config/r2Client'
 import { getBucketName, sanitizeFilename } from '../../utils/functions'
 
 import * as dotenv from 'dotenv'
@@ -45,28 +40,6 @@ const presignCacheKey = (
     contentType: options?.contentType || null,
   })
 
-const safeDecodeURIComponent = (value: string) => {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
-const splitUrlPath = (url: URL) =>
-  url.pathname
-    .split('/')
-    .filter(Boolean)
-    .map(safeDecodeURIComponent)
-
-const buildStorageKey = (folderKey: string, userId: string, filename: string) =>
-  `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
-
-const buildPublicUrl = (bucket: string, key: string) => {
-  const publicBase = getR2PublicBaseUrl(bucket)
-  return publicBase ? `${publicBase}/${key}` : key
-}
-
 export const presignUpload = async ({
   filename,
   contentType,
@@ -74,7 +47,7 @@ export const presignUpload = async ({
   folderKey = 'userPp',
 }: PresignParams) => {
   const bucket = getBucketName()
-  const key = buildStorageKey(folderKey, userId, filename)
+  const key = `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
 
   const command = new PutObjectCommand({
     Bucket: bucket,
@@ -84,40 +57,8 @@ export const presignUpload = async ({
 
   const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 60 * 5 }) // 5 min
 
-  const publicUrl = buildPublicUrl(bucket, key)
+  const publicUrl = `${process.env.R2_ENDPOINT}/${bucket}/${key}`
   return { uploadUrl, key, publicUrl, bucket }
-}
-
-export const uploadBufferToR2 = async ({
-  buffer,
-  filename,
-  contentType,
-  userId,
-  folderKey = 'kyc',
-}: {
-  buffer: Buffer
-  filename: string
-  contentType: string
-  userId: string
-  folderKey?: string
-}) => {
-  const bucket = getBucketName()
-  const key = buildStorageKey(folderKey, userId, filename)
-
-  await r2.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: buffer,
-      ContentType: contentType,
-    }),
-  )
-
-  return {
-    bucket,
-    key,
-    publicUrl: buildPublicUrl(bucket, key),
-  }
 }
 
 /**
@@ -214,65 +155,27 @@ export const downloadAndUploadToR2 = async ({
  * Extract S3/R2 key from a full URL
  * Example: https://xxx.r2.cloudflarestorage.com/bucket-name/folder/file.pdf -> folder/file.pdf
  */
-export const extractKeyFromUrl = (url: string, bucket = getBucketName()): string | null => {
+const extractKeyFromUrl = (url: string, bucket: string): string | null => {
   try {
-    const trimmed = url.trim()
-    if (!trimmed) return null
-
-    if (!/^https?:\/\//i.test(trimmed)) {
-      return trimmed.replace(/^\/+/, '') || null
-    }
-
-    const urlObj = new URL(trimmed)
-    const pathParts = splitUrlPath(urlObj)
-
-    const bucketIndex = pathParts.indexOf(bucket)
-    if (bucketIndex !== -1 && bucketIndex < pathParts.length - 1) {
-      return pathParts.slice(bucketIndex + 1).join('/')
-    }
-
-    const rawEndpointPathParts = getR2EndpointPathParts()
-    const configuredEndpoint = normalizeR2Endpoint()
-    const configuredPublicBase = process.env.R2_PUBLIC_BASE_URL?.trim()
-    const publicBaseUrl = configuredPublicBase ? new URL(configuredPublicBase) : null
-    const endpointUrl = configuredEndpoint ? new URL(configuredEndpoint) : null
-
-    const sameOriginAsConfiguredEndpoint = endpointUrl && urlObj.origin === endpointUrl.origin
-    const sameOriginAsPublicBase = publicBaseUrl && urlObj.origin === publicBaseUrl.origin
-
-    if (sameOriginAsConfiguredEndpoint && rawEndpointPathParts.length > 0) {
-      const startsWithEndpointPath = rawEndpointPathParts.every(
-        (part, index) => pathParts[index] === part,
-      )
-
-      if (startsWithEndpointPath && pathParts.length > rawEndpointPathParts.length) {
-        const withoutEndpointPath = pathParts.slice(rawEndpointPathParts.length)
-        return (withoutEndpointPath[0] === bucket
-          ? withoutEndpointPath.slice(1)
-          : withoutEndpointPath
-        ).join('/')
+    // Check if it's an R2 URL that contains our bucket
+    if (url.includes(bucket)) {
+      const urlObj = new URL(url)
+      const pathParts = urlObj.pathname.split('/').filter(Boolean)
+      // Find bucket index and return everything after it
+      const bucketIndex = pathParts.indexOf(bucket)
+      if (bucketIndex !== -1 && bucketIndex < pathParts.length - 1) {
+        return pathParts.slice(bucketIndex + 1).join('/')
       }
     }
-
-    if (sameOriginAsPublicBase && publicBaseUrl) {
-      const publicBasePathParts = splitUrlPath(publicBaseUrl)
-      const startsWithPublicBasePath = publicBasePathParts.every(
-        (part, index) => pathParts[index] === part,
-      )
-
-      if (startsWithPublicBasePath && pathParts.length > publicBasePathParts.length) {
-        const withoutPublicBasePath = pathParts.slice(publicBasePathParts.length)
-        return (withoutPublicBasePath[0] === bucket
-          ? withoutPublicBasePath.slice(1)
-          : withoutPublicBasePath
-        ).join('/')
+    // If it's an R2 endpoint URL format, try to extract key
+    if (process.env.R2_ENDPOINT && url.startsWith(process.env.R2_ENDPOINT)) {
+      const urlObj = new URL(url)
+      const pathParts = urlObj.pathname.split('/').filter(Boolean)
+      // Skip bucket name (first part) and get the rest as key
+      if (pathParts.length > 1) {
+        return pathParts.slice(1).join('/')
       }
     }
-
-    if (sameOriginAsConfiguredEndpoint && pathParts.length > 0) {
-      return (pathParts[0] === bucket ? pathParts.slice(1) : pathParts).join('/')
-    }
-
     return null
   } catch (error) {
     console.error('Error extracting key from URL:', url, error)

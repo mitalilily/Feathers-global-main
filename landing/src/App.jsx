@@ -1,154 +1,97 @@
-import { Suspense, lazy, useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Route, Routes } from "react-router-dom";
-import MainLayout from "./components/feather/MainLayout";
+import { Suspense, lazy } from 'react'
+import { AnimatePresence } from 'framer-motion'
+import { Route, Routes, useLocation } from 'react-router-dom'
+import { Layout } from './components/Layout'
+import { guides } from './data/guides'
+import { seoPages } from './data/seoPages'
+import { GuideArticlePage } from './pages/GuideArticlePage'
+import { GuidesIndexPage } from './pages/GuidesIndexPage'
+import { SeoLandingPage } from './pages/SeoLandingPage'
 
-const logoImage = "/feather-global-logo.svg";
-
-const LandingPage = lazy(() => import("./pages/LandingPage"));
-const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
-const RateCalculatorPage = lazy(() => import("./pages/RateCalculatorPage"));
-const TrackingPage = lazy(() => import("./pages/TrackingPage"));
-const VolumetricCalculatorPage = lazy(() => import("./pages/VolumetricCalculatorPage"));
-const MotionDiv = motion.div;
-const MotionImg = motion.img;
-const MotionP = motion.p;
-
-function LoadingScreen() {
-  return (
-    <MotionDiv
-      key="site-loader"
-      initial={{ opacity: 1 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.6, ease: "easeInOut" }}
-      className="fixed inset-0 z-[9999] flex min-h-screen items-center justify-center bg-[#f4fbfc] px-6"
-    >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_18%,rgba(4,123,133,0.12),transparent_24%),radial-gradient(circle_at_78%_28%,rgba(255,130,28,0.16),transparent_24%),linear-gradient(180deg,#ffffff_0%,#eef9fb_100%)]" />
-      <MotionDiv
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="relative z-10 text-center"
-      >
-        <MotionImg
-          src={logoImage}
-          alt="Feather Global"
-          className="mx-auto h-36 w-auto object-contain sm:h-44"
-          animate={{ opacity: [1, 0.72, 1], y: [0, -4, 0] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <MotionP
-          className="mt-3 text-sm font-semibold uppercase tracking-[0.24em] text-[#047b85]"
-          animate={{ opacity: [0.42, 1, 0.42] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-        >
-          Site is loading
-        </MotionP>
-      </MotionDiv>
-    </MotionDiv>
-  );
-}
-
-function RouteFallback() {
-  return <LoadingScreen />;
-}
+const HomePage = lazy(() =>
+  import('./pages/HomePage').then((module) => ({ default: module.HomePage })),
+)
+const SolutionsPage = lazy(() =>
+  import('./pages/SolutionsPage').then((module) => ({
+    default: module.SolutionsPage,
+  })),
+)
+const VolumetricWeightCalculatorPage = lazy(() =>
+  import('./pages/VolumetricWeightCalculatorPage').then((module) => ({
+    default: module.VolumetricWeightCalculatorPage,
+  })),
+)
+const RateCalculatorPage = lazy(() =>
+  import('./pages/RateCalculatorPage').then((module) => ({
+    default: module.RateCalculatorPage,
+  })),
+)
+const TrackingPage = lazy(() =>
+  import('./pages/TrackingPage').then((module) => ({
+    default: module.TrackingPage,
+  })),
+)
+const IntegrationsPage = lazy(() =>
+  import('./pages/IntegrationsPage').then((module) => ({
+    default: module.IntegrationsPage,
+  })),
+)
+const AboutPage = lazy(() =>
+  import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })),
+)
+const ContactPage = lazy(() =>
+  import('./pages/ContactPage').then((module) => ({
+    default: module.ContactPage,
+  })),
+)
 
 function App() {
-  const [showLoader, setShowLoader] = useState(false);
-  const [minimumElapsed, setMinimumElapsed] = useState(false);
-  const [pageLoaded, setPageLoaded] = useState(() =>
-    typeof document === "undefined" ? false : document.readyState === "complete"
-  );
-
-  useEffect(() => {
-    const minimumTimer = window.setTimeout(() => {
-      setMinimumElapsed(true);
-    }, 1200);
-    const loadFallbackTimer = window.setTimeout(() => {
-      setPageLoaded(true);
-    }, 2600);
-
-    const handleLoad = () => {
-      setPageLoaded(true);
-    };
-
-    if (document.readyState === "complete") {
-      handleLoad();
-    } else {
-      window.addEventListener("load", handleLoad, { once: true });
-    }
-
-    return () => {
-      window.clearTimeout(minimumTimer);
-      window.clearTimeout(loadFallbackTimer);
-      window.removeEventListener("load", handleLoad);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (minimumElapsed && pageLoaded) {
-      setShowLoader(false);
-    }
-  }, [minimumElapsed, pageLoaded]);
+  const location = useLocation()
 
   return (
-    <>
-      <MotionDiv
-        initial={false}
-        animate={{ opacity: showLoader ? 0 : 1 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className={showLoader ? "pointer-events-none" : undefined}
+    <Layout>
+      <Suspense
+        fallback={
+          <div className="flex min-h-[50vh] items-center justify-center bg-cloud">
+            <div className="rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-ocean">
+              Loading Shiplifi
+            </div>
+          </div>
+        }
       >
-        <Routes>
-          <Route element={<MainLayout />}>
-            <Route
-              path="/"
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <LandingPage />
-                </Suspense>
-              }
-            />
+        <AnimatePresence mode="wait">
+          <Routes location={location} key={location.pathname}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/solutions" element={<SolutionsPage />} />
+            <Route path="/guides" element={<GuidesIndexPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
             <Route
               path="/volumetric-weight-calculator"
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <VolumetricCalculatorPage />
-                </Suspense>
-              }
+              element={<VolumetricWeightCalculatorPage />}
             />
-            <Route
-              path="/rate-calculator"
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <RateCalculatorPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/tracking"
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <TrackingPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="*"
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <NotFoundPage />
-                </Suspense>
-              }
-            />
-          </Route>
-        </Routes>
-      </MotionDiv>
-
-      <AnimatePresence>{showLoader ? <LoadingScreen /> : null}</AnimatePresence>
-    </>
-  );
+            <Route path="/rate-calculator" element={<RateCalculatorPage />} />
+            <Route path="/tracking" element={<TrackingPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            {seoPages.map((page) => (
+              <Route
+                key={page.path}
+                path={page.path}
+                element={<SeoLandingPage page={page} />}
+              />
+            ))}
+            {guides.map((guide) => (
+              <Route
+                key={guide.path}
+                path={guide.path}
+                element={<GuideArticlePage guide={guide} />}
+              />
+            ))}
+          </Routes>
+        </AnimatePresence>
+      </Suspense>
+    </Layout>
+  )
 }
 
-export default App;
+export default App

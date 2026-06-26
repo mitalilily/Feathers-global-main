@@ -1,12 +1,16 @@
 import { createReadStream } from 'fs'
-import { stat } from 'fs/promises'
+import { mkdir, stat, writeFile } from 'fs/promises'
 import path from 'path'
 import { Request, Response } from 'express';
 import {
   presignDownload,
   presignUpload,
-  uploadBufferToR2,
 } from "../models/services/upload.service";
+import { getBucketName } from "../utils/functions";
+import { sanitizeFilename } from '../utils/functions'
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { r2 } from "../config/r2Client";
 
 const kycStorageRoot = path.resolve(process.cwd(), 'storage', 'kyc')
 
@@ -46,40 +50,16 @@ export const createPresignedUrl = async (
   }
 };
 
-const allowedKycDocumentTypes = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-])
-
 export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> => {
   try {
-    const uploadedFile = req.file || (Array.isArray(req.files) ? req.files[0] : undefined)
-
-    if (!uploadedFile?.buffer) {
+    if (!req.file?.buffer) {
       return res.status(400).json({ message: 'file is required' })
     }
 
-    const mime = String(uploadedFile.mimetype || '').toLowerCase()
-    const filename = String(uploadedFile.originalname || 'kyc-document')
-    const lowerName = filename.toLowerCase()
-    const hasAllowedExtension = /\.(pdf|jpe?g|png|webp)$/.test(lowerName)
-    const contentType = allowedKycDocumentTypes.has(mime)
-      ? mime
-      : lowerName.endsWith('.pdf')
-        ? 'application/pdf'
-        : lowerName.endsWith('.png')
-          ? 'image/png'
-          : lowerName.endsWith('.webp')
-            ? 'image/webp'
-            : lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')
-              ? 'image/jpeg'
-              : 'application/octet-stream'
-
-    if (!allowedKycDocumentTypes.has(contentType) && !hasAllowedExtension) {
-      return res.status(400).json({ message: 'Only PDF, JPG, PNG, or WEBP files are allowed for KYC storage' })
+    const mime = String(req.file.mimetype || '').toLowerCase()
+    const filename = String(req.file.originalname || 'kyc-document.pdf')
+    if (!mime.includes('pdf') && !filename.toLowerCase().endsWith('.pdf')) {
+      return res.status(400).json({ message: 'Only PDF files are allowed for backend KYC storage' })
     }
 
     const userId = String(req.user?.sub || req.user?.id || '').trim()
@@ -87,30 +67,27 @@ export const uploadLocalKycPdf = async (req: any, res: Response): Promise<any> =
       return res.status(400).json({ message: 'Unable to resolve user identity for upload' })
     }
 
-    const stored = await uploadBufferToR2({
-      buffer: uploadedFile.buffer,
-      filename,
-      contentType,
-      userId,
-      folderKey: 'kyc',
-    })
-    const previewUrl = await presignDownload(stored.key, {
-      disposition: 'inline',
-      contentType,
-      checkExists: true,
-    })
+    const safeName = sanitizeFilename(filename.endsWith('.pdf') ? filename : `${filename}.pdf`)
+    const storedFileName = `${Date.now()}-${safeName}`
+    const userDir = path.join(kycStorageRoot, userId)
+    await mkdir(userDir, { recursive: true })
+
+    const absolutePath = path.join(userDir, storedFileName)
+    await writeFile(absolutePath, req.file.buffer)
+
+    const publicUrl = buildKycPublicUrl(req, userId, storedFileName)
 
     return res.status(200).json({
-      key: stored.key,
-      url: typeof previewUrl === 'string' ? previewUrl : stored.publicUrl,
+      key: publicUrl,
+      url: publicUrl,
       originalName: filename,
-      size: uploadedFile.size,
-      mime: contentType,
-      storage: 'r2',
+      size: req.file.size,
+      mime: req.file.mimetype || 'application/pdf',
+      storage: 'backend',
     })
   } catch (err: any) {
-    console.error('Failed to store KYC document in R2:', err)
-    return res.status(500).json({ message: 'Failed to store KYC document' })
+    console.error('Failed to store KYC PDF locally:', err)
+    return res.status(500).json({ message: 'Failed to store KYC PDF' })
   }
 }
 

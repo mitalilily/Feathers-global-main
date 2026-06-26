@@ -94,13 +94,9 @@ export const completeRegistration = async (req: any, res: Response): Promise<any
           }
         }
 
-        const firstName = String(data?.basicInfo?.firstName ?? '').trim()
-        const lastName = String(data?.basicInfo?.lastName ?? '').trim()
-        const contactPerson = [firstName, lastName].filter(Boolean).join(' ')
-
         updates = {
           companyInfo: {
-            contactPerson,
+            contactPerson: `${data?.basicInfo?.firstName} ${data?.basicInfo?.lastName}`,
             contactEmail: emailLower || user.email,
             contactNumber: phoneDigits || user.phone,
             pincode: data?.basicInfo?.pincode,
@@ -112,7 +108,7 @@ export const completeRegistration = async (req: any, res: Response): Promise<any
             profilePicture: user?.profilePicture,
           },
           onboardingStep: 1,
-          profileComplete: false,
+          profileCompletion: false,
           onboardingComplete: false,
         }
         break
@@ -137,7 +133,6 @@ export const completeRegistration = async (req: any, res: Response): Promise<any
         updates = {
           onboardingStep: -1,
           onboardingComplete: true,
-          profileComplete: true,
           companyInfo: {
             ...userProfile?.companyInfo,
             website: data?.basicInfo?.personalWebsite,

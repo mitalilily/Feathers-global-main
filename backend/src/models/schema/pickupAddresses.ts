@@ -36,7 +36,6 @@ export const pickupAddresses = pgTable('pickup_addresses', {
   userId: uuid('userId').references(() => users.id, { onDelete: 'cascade' }),
   addressId: uuid('addressId').references(() => addresses.id, { onDelete: 'cascade' }),
   rtoAddressId: uuid('rtoAddressId').references(() => addresses.id, { onDelete: 'set null' }),
-  delhiveryWarehouseName: varchar('delhiveryWarehouseName', { length: 120 }),
   isPrimary: boolean('isPrimary').default(false).notNull(),
   isPickupEnabled: boolean('isPickupEnabled').default(true),
   isRTOSame: boolean('isRTOSame').default(true),

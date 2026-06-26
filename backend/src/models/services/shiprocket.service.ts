@@ -842,18 +842,13 @@ const retryDelhiveryPickupRequestForOrder = async (order: {
   user_id: string
   order_number?: string | null
   awb_number?: string | null
-  pickup_location_id?: string | null
   pickup_details?: any
   pickup_error?: string | null
   manifest?: string | null
   manifest_retry_count?: number | null
 }) => {
   const pickupDetails = normalizePickupDetails(order.pickup_details) as any
-  const pickupLocationName = await resolveStoredDelhiveryPickupLocationName({
-    userId: order.user_id,
-    pickupLocationId: order.pickup_location_id,
-    pickupDetails,
-  })
+  const pickupLocationName = String(pickupDetails?.warehouse_name || '').trim()
   if (!pickupLocationName) {
     throw new HttpError(400, 'Pickup warehouse name is required to create Delhivery pickup request')
   }
@@ -1094,7 +1089,6 @@ const debitManifestSuccessChargeIfNeeded = async ({ tx, order }: { tx: any; orde
 
 interface PickupWarehouseRecord {
   pickupId: string
-  delhiveryWarehouseName?: string | null
   addressNickname?: string | null
   addressLine1: string
   addressLine2?: string | null
@@ -1122,7 +1116,6 @@ async function fetchPickupWarehouseRecord(
   const [warehouse] = await db
     .select({
       pickupId: pickupAddresses.id,
-      delhiveryWarehouseName: pickupAddresses.delhiveryWarehouseName,
       addressNickname: addresses.addressNickname,
       addressLine1: addresses.addressLine1,
       addressLine2: addresses.addressLine2,
@@ -1153,27 +1146,6 @@ async function fetchPickupWarehouseRecord(
 }
 
 const trimText = (value: unknown) => String(value ?? '').trim()
-
-const resolveStoredDelhiveryPickupLocationName = async ({
-  userId,
-  pickupLocationId,
-  pickupDetails,
-}: {
-  userId: string
-  pickupLocationId?: string | null
-  pickupDetails?: any
-}) => {
-  const normalizedPickupId = trimText(pickupLocationId)
-  if (normalizedPickupId) {
-    const warehouse = await fetchPickupWarehouseRecord(userId, normalizedPickupId)
-    const providerName = trimText(
-      warehouse?.delhiveryWarehouseName || warehouse?.addressNickname || warehouse?.contactName,
-    )
-    if (providerName) return providerName
-  }
-
-  return trimText(pickupDetails?.warehouse_name)
-}
 
 const normalizeAmazonGstNumber = (value: unknown) => {
   const normalized = trimText(value).toUpperCase().replace(/\s+/g, '')
@@ -2257,11 +2229,6 @@ function buildPickupFromWarehouse(
 
   return {
     warehouse_name: warehouse.addressNickname || warehouse.contactName || 'Warehouse',
-    delhivery_warehouse_name:
-      warehouse.delhiveryWarehouseName ||
-      warehouse.addressNickname ||
-      warehouse.contactName ||
-      'Warehouse',
     address: formattedAddress,
     address_2: warehouse.addressLine2 ?? undefined,
     city: warehouse.city,
@@ -2272,7 +2239,6 @@ function buildPickupFromWarehouse(
     gst_number: previousPickup?.gst_number ?? warehouse.gstNumber ?? '',
     pickup_date: previousPickup?.pickup_date ?? fallbackDate,
     pickup_time: previousPickup?.pickup_time ?? fallbackTime,
-    addressNickname: warehouse.addressNickname ?? undefined,
   }
 }
 
@@ -5201,7 +5167,6 @@ export interface ShipmentParams {
   }
   pickup: {
     warehouse_name: string
-    delhivery_warehouse_name?: string
     name: string
     address: string
     address_2?: string
@@ -6285,10 +6250,7 @@ export const createB2CShipmentService = async (
       params.pickup_date,
       params.pickup_time,
     )
-    params.pickup_location_alias =
-      params.pickup?.delhivery_warehouse_name ||
-      params.pickup?.warehouse_name ||
-      params.pickup_location_alias
+    params.pickup_location_alias = params.pickup?.warehouse_name || params.pickup_location_alias
     params.return_location_alias =
       params.rto?.warehouse_name || params.return_location_alias || params.pickup_location_alias
 
@@ -6337,8 +6299,6 @@ export const createB2CShipmentService = async (
 
       const [pickupRow] = await db
         .select({
-          pickupId: pickupAddresses.id,
-          delhiveryWarehouseName: pickupAddresses.delhiveryWarehouseName,
           addressNickname: addresses.addressNickname,
           addressLine1: addresses.addressLine1,
           addressLine2: addresses.addressLine2,
@@ -6362,10 +6322,6 @@ export const createB2CShipmentService = async (
             : pickup.warehouse_name || pickupRow.addressNickname || ''
         params.pickup = {
           warehouse_name: warehouseName,
-          delhivery_warehouse_name:
-            pickup.delhivery_warehouse_name ||
-            pickupRow.delhiveryWarehouseName ||
-            warehouseName,
           address: pickup.address || pickupRow.addressLine1 || '',
           address_2: pickup.address_2 || pickupRow.addressLine2 || undefined,
           city: pickup.city || pickupRow.city || '',
@@ -9841,11 +9797,6 @@ export const generateManifestService = async (params: {
 
         const shipmentStartedAt = Date.now()
         const pickupDetails = normalizeDetails(order.pickup_details)
-        const delhiveryPickupLocationName = await resolveStoredDelhiveryPickupLocationName({
-          userId: order.user_id,
-          pickupLocationId: String(order.pickup_location_id || ''),
-          pickupDetails,
-        })
         const manifestParams: ShipmentParams = {
           order_number: order.order_number,
           order_date: new Date(order.order_date || order.created_at || new Date()),
@@ -9864,8 +9815,6 @@ export const generateManifestService = async (params: {
           company: {},
           pickup: {
             warehouse_name: pickupDetails?.warehouse_name || '',
-            delhivery_warehouse_name:
-              delhiveryPickupLocationName || pickupDetails?.warehouse_name || '',
             name: pickupDetails?.name || pickupDetails?.warehouse_name || 'Pickup',
             address: pickupDetails?.address || '',
             city: pickupDetails?.city || '',
@@ -9972,12 +9921,7 @@ export const generateManifestService = async (params: {
       }
 
       const pickupDetails = manifestPickupDetails
-      const delhiveryPickupLocationName =
-        (await resolveStoredDelhiveryPickupLocationName({
-          userId: fetchedOrders[0]?.user_id,
-          pickupLocationId: String(fetchedOrders[0]?.pickup_location_id || ''),
-          pickupDetails,
-        })) || manifestPickupLocationName
+      const pickupLocationName = manifestPickupLocationName
 
       const isManifestRetry = fetchedOrders.some(
         (order) => String(order.order_status || '').toLowerCase() === 'manifest_failed',
@@ -10013,11 +9957,11 @@ export const generateManifestService = async (params: {
         await delhivery.createPickupRequest({
           pickup_date: pickupDate,
           pickup_time: pickupTime,
-          pickup_location: delhiveryPickupLocationName,
+          pickup_location: pickupLocationName,
           expected_package_count: expectedPackageCount,
         })
         console.log('✅ Delhivery pickup request created during manifest', {
-          pickup_location: delhiveryPickupLocationName,
+          pickup_location: pickupLocationName,
           expected_package_count: expectedPackageCount,
           duration_ms: Date.now() - pickupRequestStartedAt,
         })
@@ -10029,7 +9973,7 @@ export const generateManifestService = async (params: {
             order_number: order.order_number,
             awb_number: order.awb_number,
           })),
-          pickup_location: delhiveryPickupLocationName,
+          pickup_location: pickupLocationName,
           expected_package_count: expectedPackageCount,
           error: pickupErrorMessage,
           duration_ms: Date.now() - pickupRequestStartedAt,
@@ -10342,7 +10286,7 @@ export const generateManifestService = async (params: {
           provider_last_status: stableManifestStatus,
           pickup_details: {
             ...existingPickupDetails,
-            warehouse_name: existingPickupDetails?.warehouse_name || manifestPickupLocationName,
+            warehouse_name: pickupLocationName,
             pickup_date: pickupDate,
             pickup_time: pickupTime,
           },
@@ -11945,11 +11889,6 @@ export const generateManifestService = async (params: {
 
             const shipmentStartedAt = Date.now()
             const pickupDetails = normalizeDetails(order.pickup_details)
-            const delhiveryPickupLocationName = await resolveStoredDelhiveryPickupLocationName({
-              userId: order.user_id,
-              pickupLocationId: String(order.pickup_location_id || ''),
-              pickupDetails,
-            })
             const manifestParams: ShipmentParams = {
               order_number: order.order_number,
               order_date: new Date(order.order_date || order.created_at || new Date()),
@@ -11968,8 +11907,6 @@ export const generateManifestService = async (params: {
               company: {},
               pickup: {
                 warehouse_name: pickupDetails?.warehouse_name || '',
-                delhivery_warehouse_name:
-                  delhiveryPickupLocationName || pickupDetails?.warehouse_name || '',
                 name: pickupDetails?.name || pickupDetails?.warehouse_name || 'Pickup',
                 address: pickupDetails?.address || '',
                 city: pickupDetails?.city || '',
@@ -12075,12 +12012,7 @@ export const generateManifestService = async (params: {
           }
 
           const pickupDetails = manifestPickupDetails
-          const delhiveryPickupLocationName =
-            (await resolveStoredDelhiveryPickupLocationName({
-              userId: fetchedOrders[0]?.user_id,
-              pickupLocationId: String(fetchedOrders[0]?.pickup_location_id || ''),
-              pickupDetails,
-            })) || manifestPickupLocationName
+          const pickupLocationName = manifestPickupLocationName
           const isManifestRetry = fetchedOrders.some(
             (order) => String(order.order_status || '').toLowerCase() === 'manifest_failed',
           )
@@ -12132,11 +12064,11 @@ export const generateManifestService = async (params: {
             await delhivery.createPickupRequest({
               pickup_date: pickupDate,
               pickup_time: pickupTime,
-              pickup_location: delhiveryPickupLocationName,
+              pickup_location: pickupLocationName,
               expected_package_count: expectedPackageCount,
             })
             console.log('✅ Delhivery pickup request created during manifest', {
-              pickup_location: delhiveryPickupLocationName,
+              pickup_location: pickupLocationName,
               expected_package_count: expectedPackageCount,
               duration_ms: Date.now() - pickupRequestStartedAt,
             })
@@ -12148,7 +12080,7 @@ export const generateManifestService = async (params: {
                 order_number: order.order_number,
                 awb_number: order.awb_number,
               })),
-              pickup_location: delhiveryPickupLocationName,
+              pickup_location: pickupLocationName,
               expected_package_count: expectedPackageCount,
               error: pickupErrorMessage,
               duration_ms: Date.now() - pickupRequestStartedAt,

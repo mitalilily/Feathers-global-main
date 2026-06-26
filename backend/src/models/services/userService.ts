@@ -452,10 +452,13 @@ export const handleEmailVerificationRequest = async (
         }
 
         if (!user.passwordHash) {
+          const hashed = await bcrypt.hash(password, 10)
+          await updateUserByEmail(normalizedEmail, { passwordHash: hashed }, tx)
           return {
-            status: 400,
+            status: 200,
             data: {
-              error: 'Password login is not enabled for this account. Please use email OTP.',
+              message: 'Password set successfully. You can now log in.',
+              user,
             },
           }
         }
@@ -507,7 +510,7 @@ export const handleEmailVerificationRequest = async (
       shouldSendEmail = true
 
       if (shouldSendEmail) {
-        await sendVerificationEmail(normalizedEmail, token)
+        sendVerificationEmail(normalizedEmail, token).catch(console.error)
       }
 
       return { status: 200, data: { message: 'Verification email sent' } }
@@ -545,7 +548,7 @@ export const handleEmailVerificationRequest = async (
     shouldSendEmail = true
 
     if (shouldSendEmail) {
-      await sendVerificationEmail(normalizedEmail, token)
+      sendVerificationEmail(normalizedEmail, token).catch(console.error)
     }
 
     return { status: 201, data: { message: 'Verification email sent' } }

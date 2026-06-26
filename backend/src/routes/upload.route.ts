@@ -12,7 +12,7 @@ const router = Router();
 
 router.post("/presign", requireAuth, createPresignedUrl);
 router.post("/presign-download-url", requireAuth, getPresignedDownloadUrl);
-router.post('/kyc/pdf', requireAuth, upload.any(), uploadLocalKycPdf)
+router.post('/kyc/pdf', requireAuth, upload.single('file'), uploadLocalKycPdf)
 router.get('/kyc/pdf/:userId/:filename', getLocalKycPdf)
 
 export default router;

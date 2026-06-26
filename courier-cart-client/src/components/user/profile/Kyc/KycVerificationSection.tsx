@@ -9,9 +9,8 @@ import type { KycDetails } from '../../../../types/user.types'
 import { toast } from '../../../UI/Toast'
 import AdditionalDetailsStep, { type AdditionalKYCForm } from './AdditionalInfoStep'
 import { BusinessStructureStep } from './BusinessStructureStep'
-import CameraVerificationStep from './CameraVerificationStep'
 
-const steps = ['Business Structure', 'Additional Details', 'Camera Verification']
+const steps = ['Business Structure', 'Additional Details']
 const { teal, tealDark, orange, ink, muted } = BRAND.colors
 
 const KYCVerificationStep: React.FC<{
@@ -113,16 +112,10 @@ const KYCVerificationStep: React.FC<{
 
   const handleAdditionalInfoSubmit = async (data: AdditionalKYCForm) => {
     await handleAdditionalInfoChange(data)
-    setActiveStep(2)
-    setIsStepValid(false)
-  }
-
-  const handleCameraVerificationSubmit = async (data: Pick<KycDetails, 'selfieUrl' | 'selfieMime'>) => {
-    updateKycData(data)
     await submitKycDetails(
       { ...kycDataRef.current, ...data },
       {
-        successMessage: 'KYC details and camera verification submitted successfully!',
+        successMessage: 'KYC details submitted successfully!',
       },
     )
   }
@@ -169,17 +162,6 @@ const KYCVerificationStep: React.FC<{
             defaultValue={kycData}
             submitLabel="Submit KYC"
             onComplete={(data) => handleAdditionalInfoSubmit(data ?? {})}
-          />
-        )
-      case 2:
-        return (
-          <CameraVerificationStep
-            defaultValue={{
-              selfieUrl: kycData.selfieUrl,
-              selfieMime: kycData.selfieMime,
-            }}
-            submitLabel="Submit KYC"
-            onComplete={handleCameraVerificationSubmit}
           />
         )
       default:

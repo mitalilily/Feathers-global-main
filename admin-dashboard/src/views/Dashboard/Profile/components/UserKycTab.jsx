@@ -152,6 +152,36 @@ const InfoTile = ({ label, value, mono = false }) => {
   )
 }
 
+const DOC_LABELS = {
+  aadhaarUrl: 'Aadhaar',
+  boardResolutionUrl: 'Board Resolution',
+  businessPanUrl: 'Business PAN',
+  cancelledChequeUrl: 'Cancelled Cheque',
+  companyAddressProofUrl: 'Company Address Proof',
+  gstCertificateUrl: 'GST Certificate',
+  llpAgreementUrl: 'LLP Agreement',
+  panCardUrl: 'PAN Card',
+  partnershipDeedUrl: 'Partnership Deed',
+}
+
+const DOC_ORDER = [
+  'aadhaarUrl',
+  'boardResolutionUrl',
+  'businessPanUrl',
+  'cancelledChequeUrl',
+  'companyAddressProofUrl',
+  'gstCertificateUrl',
+  'llpAgreementUrl',
+  'panCardUrl',
+  'partnershipDeedUrl',
+]
+
+const prettyDocLabel = (key) =>
+  String(key)
+    .replace(/Url$/, '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+
 const UserKycPage = ({ userId }) => {
   console.log('user id', userId)
   const { data: kycData, isLoading, isError, refetch } = useUserKyc(userId)
@@ -230,21 +260,22 @@ const UserKycPage = ({ userId }) => {
     },
   ]
 
-  const docFields = [
-    { label: 'Aadhaar', key: 'aadhaarUrl', status: kyc.aadhaarStatus },
-    { label: 'Board Resolution', key: 'boardResolutionUrl', status: kyc.boardResolutionStatus },
-    { label: 'Business PAN', key: 'businessPanUrl', status: kyc.businessPanStatus },
-    { label: 'Cancelled Cheque', key: 'cancelledChequeUrl', status: kyc.cancelledChequeStatus },
-    {
-      label: 'Company Address Proof',
-      key: 'companyAddressProofUrl',
-      status: kyc.companyAddressProofStatus,
-    },
-    { label: 'GST Certificate', key: 'gstCertificateUrl', status: kyc.gstCertificateStatus },
-    { label: 'LLP Agreement', key: 'llpAgreementUrl', status: kyc.llpAgreementStatus },
-    { label: 'PAN Card', key: 'panCardUrl', status: kyc.panCardStatus },
-    { label: 'Partnership Deed', key: 'partnershipDeedUrl', status: kyc.partnershipDeedStatus },
-  ].filter((f) => kyc[f?.key])
+  const docFields = useMemo(() => {
+    const seen = new Set()
+    const orderedDocFields = DOC_ORDER.map((key) => {
+      const value = kyc?.[key]
+      if (!value) return null
+      seen.add(key)
+      const statusKey = `${key.replace('Url', '')}Status`
+      return {
+        label: DOC_LABELS[key] || prettyDocLabel(key),
+        key,
+        status: kyc?.[statusKey],
+      }
+    }).filter(Boolean)
+
+    return orderedDocFields
+  }, [kyc])
 
   return (
     <Card p={6} borderRadius="xl" boxShadow="md">

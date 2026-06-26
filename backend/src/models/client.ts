@@ -8,6 +8,7 @@ import * as schema from '../schema/schema'
 const env = process.env.NODE_ENV || 'development'
 console.log('ENVIRONMENT', env)
 const envFilePath = path.resolve(__dirname, `../../.env.${env}`)
+const useSsl = env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')
 
 console.log(`🔍 Loading env file: ${envFilePath}`)
 dotenv.config({ path: envFilePath })
@@ -15,11 +16,6 @@ dotenv.config({ path: envFilePath })
 if (!process.env.DATABASE_URL) {
   throw new Error('❌ DATABASE_URL is missing')
 }
-
-const sslMode = process.env.PGSSLMODE || ''
-const useSsl =
-  sslMode === 'require' ||
-  (sslMode !== 'disable' && (env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')))
 
 const poolConfig = {
   connectionString: process.env.DATABASE_URL,

@@ -1,173 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="${FEATHERS_DEPLOY_ROOT:-/srv/feathers-global/current}"
-DEPLOY_ENV="$APP_ROOT/.deploy-env"
-MARKER="$APP_ROOT/.feathers-global-deploy"
-PGADMIN_ROOT="/srv/feathers-global/pgadmin"
-PGADMIN_DATA="/srv/feathers-global/pgadmin-data"
-PGADMIN_APP="$PGADMIN_ROOT/venv/lib/python3.10/site-packages/pgadmin4"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$APP_ROOT/backend"
+LANDING_DIR="$APP_ROOT/landing"
 
 export DEBIAN_FRONTEND=noninteractive
 
-if [ "$(id -u)" -ne 0 ]; then
-  echo "setup-vps.sh must run as root because it installs system packages and configures Nginx." >&2
-  exit 1
-fi
-
-mkdir -p "$APP_ROOT"
-
-if [ -z "$(find "$APP_ROOT" -mindepth 1 -maxdepth 1 ! -name '.deploy-env' ! -name '.feathers-global-deploy' -print -quit 2>/dev/null)" ]; then
-  touch "$MARKER"
-elif [ ! -f "$MARKER" ]; then
-  echo "$APP_ROOT is not empty and is missing $MARKER. Refusing to touch a possible existing project." >&2
-  exit 1
-fi
-
 apt-get update
-apt-get install -y curl ca-certificates openssl
-
-rand_hex() {
-  openssl rand -hex 24
-}
-
-quote_env_value() {
-  printf '%q' "$1"
-}
-
-public_host() {
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null && return
-  fi
-  hostname -I 2>/dev/null | awk '{print $1}'
-}
-
-origin_host() {
-  local origin="$1"
-  origin="${origin#*://}"
-  origin="${origin%%/*}"
-  origin="${origin%%:*}"
-  printf '%s' "$origin"
-}
-
-ssl_subject_alt_name() {
-  local host="$1"
-  if printf '%s' "$host" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
-    printf 'IP:%s' "$host"
-  else
-    printf 'DNS:%s' "$host"
-  fi
-}
-
-if [ ! -f "$DEPLOY_ENV" ]; then
-  FEATHERS_LANDING_PORT="${FEATHERS_LANDING_PORT:-8088}"
-  FEATHERS_APP_PORT="${FEATHERS_APP_PORT:-8089}"
-  FEATHERS_ADMIN_PORT="${FEATHERS_ADMIN_PORT:-8090}"
-  FEATHERS_API_PORT="${FEATHERS_API_PORT:-8092}"
-  FEATHERS_BACKEND_PORT="${FEATHERS_BACKEND_PORT:-5013}"
-  FEATHERS_DB_PORT="${FEATHERS_DB_PORT:-5432}"
-  FEATHERS_PGADMIN_PORT="${FEATHERS_PGADMIN_PORT:-5051}"
-  FEATHERS_PGADMIN_PUBLIC_PORT="${FEATHERS_PGADMIN_PUBLIC_PORT:-8093}"
-  FEATHERS_DB_NAME="${FEATHERS_DB_NAME:-feathers_global}"
-  FEATHERS_DB_USER="${FEATHERS_DB_USER:-feathers_global}"
-  FEATHERS_DB_PASSWORD="${FEATHERS_DB_PASSWORD:-$(rand_hex)}"
-  PGADMIN_DEFAULT_EMAIL="${PGADMIN_DEFAULT_EMAIL:-admin@featherglobal.com}"
-  PGADMIN_DEFAULT_PASSWORD="${PGADMIN_DEFAULT_PASSWORD:-$(rand_hex)}"
-  PUBLIC_HOST="${FEATHERS_PUBLIC_HOST:-$(public_host)}"
-  FEATHERS_LANDING_ORIGIN="${FEATHERS_LANDING_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
-  FEATHERS_APP_ORIGIN="${FEATHERS_APP_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_APP_PORT}}"
-  FEATHERS_ADMIN_ORIGIN="${FEATHERS_ADMIN_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_ADMIN_PORT}}"
-  FEATHERS_API_ORIGIN="${FEATHERS_API_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_API_PORT}}"
-  FEATHERS_PGADMIN_ORIGIN="${FEATHERS_PGADMIN_ORIGIN:-https://${PUBLIC_HOST}:${FEATHERS_PGADMIN_PUBLIC_PORT}}"
-  FEATHERS_SSL_CERT="${FEATHERS_SSL_CERT:-/etc/ssl/feathers-global/feathers-global.crt}"
-  FEATHERS_SSL_KEY="${FEATHERS_SSL_KEY:-/etc/ssl/feathers-global/feathers-global.key}"
-  FEATHERS_LANDING_SERVER_NAME="${FEATHERS_LANDING_SERVER_NAME:-_}"
-  FEATHERS_APP_SERVER_NAME="${FEATHERS_APP_SERVER_NAME:-_}"
-  FEATHERS_ADMIN_SERVER_NAME="${FEATHERS_ADMIN_SERVER_NAME:-_}"
-  FEATHERS_API_SERVER_NAME="${FEATHERS_API_SERVER_NAME:-_}"
-  FEATHERS_PGADMIN_SERVER_NAME="${FEATHERS_PGADMIN_SERVER_NAME:-_}"
-
-  umask 077
-  cat > "$DEPLOY_ENV" <<EOF
-FEATHERS_LANDING_PORT=$FEATHERS_LANDING_PORT
-FEATHERS_APP_PORT=$FEATHERS_APP_PORT
-FEATHERS_ADMIN_PORT=$FEATHERS_ADMIN_PORT
-FEATHERS_API_PORT=$FEATHERS_API_PORT
-FEATHERS_BACKEND_PORT=$FEATHERS_BACKEND_PORT
-FEATHERS_DB_PORT=$FEATHERS_DB_PORT
-FEATHERS_PGADMIN_PORT=$FEATHERS_PGADMIN_PORT
-FEATHERS_PGADMIN_PUBLIC_PORT=$FEATHERS_PGADMIN_PUBLIC_PORT
-FEATHERS_DB_NAME=$FEATHERS_DB_NAME
-FEATHERS_DB_USER=$FEATHERS_DB_USER
-FEATHERS_DB_PASSWORD=$FEATHERS_DB_PASSWORD
-PGADMIN_DEFAULT_EMAIL=$PGADMIN_DEFAULT_EMAIL
-PGADMIN_DEFAULT_PASSWORD=$PGADMIN_DEFAULT_PASSWORD
-FEATHERS_LANDING_ORIGIN=$FEATHERS_LANDING_ORIGIN
-FEATHERS_APP_ORIGIN=$FEATHERS_APP_ORIGIN
-FEATHERS_ADMIN_ORIGIN=$FEATHERS_ADMIN_ORIGIN
-FEATHERS_API_ORIGIN=$FEATHERS_API_ORIGIN
-FEATHERS_PGADMIN_ORIGIN=$FEATHERS_PGADMIN_ORIGIN
-FEATHERS_SSL_CERT=$FEATHERS_SSL_CERT
-FEATHERS_SSL_KEY=$FEATHERS_SSL_KEY
-FEATHERS_LANDING_SERVER_NAME=$(quote_env_value "$FEATHERS_LANDING_SERVER_NAME")
-FEATHERS_APP_SERVER_NAME=$(quote_env_value "$FEATHERS_APP_SERVER_NAME")
-FEATHERS_ADMIN_SERVER_NAME=$(quote_env_value "$FEATHERS_ADMIN_SERVER_NAME")
-FEATHERS_API_SERVER_NAME=$(quote_env_value "$FEATHERS_API_SERVER_NAME")
-FEATHERS_PGADMIN_SERVER_NAME=$(quote_env_value "$FEATHERS_PGADMIN_SERVER_NAME")
-EOF
-fi
-
-set -a
-# shellcheck disable=SC1090
-. "$DEPLOY_ENV"
-set +a
-
-if ! grep -q '^FEATHERS_LANDING_PORT=' "$DEPLOY_ENV"; then
-  : "${FEATHERS_LANDING_PORT:=8088}"
-  printf 'FEATHERS_LANDING_PORT=%s\n' "$FEATHERS_LANDING_PORT" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_LANDING_ORIGIN=' "$DEPLOY_ENV"; then
-  PUBLIC_HOST="${FEATHERS_PUBLIC_HOST:-$(public_host)}"
-  : "${FEATHERS_LANDING_ORIGIN:=https://${PUBLIC_HOST}:${FEATHERS_LANDING_PORT}}"
-  printf 'FEATHERS_LANDING_ORIGIN=%s\n' "$FEATHERS_LANDING_ORIGIN" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_SSL_CERT=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_SSL_CERT=%s\n' "${FEATHERS_SSL_CERT:-/etc/ssl/feathers-global/feathers-global.crt}" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_SSL_KEY=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_SSL_KEY=%s\n' "${FEATHERS_SSL_KEY:-/etc/ssl/feathers-global/feathers-global.key}" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_LANDING_SERVER_NAME=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_LANDING_SERVER_NAME=%s\n' "$(quote_env_value "${FEATHERS_LANDING_SERVER_NAME:-_}")" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_APP_SERVER_NAME=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_APP_SERVER_NAME=%s\n' "$(quote_env_value "${FEATHERS_APP_SERVER_NAME:-_}")" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_ADMIN_SERVER_NAME=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_ADMIN_SERVER_NAME=%s\n' "$(quote_env_value "${FEATHERS_ADMIN_SERVER_NAME:-_}")" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_API_SERVER_NAME=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_API_SERVER_NAME=%s\n' "$(quote_env_value "${FEATHERS_API_SERVER_NAME:-_}")" >> "$DEPLOY_ENV"
-fi
-
-if ! grep -q '^FEATHERS_PGADMIN_SERVER_NAME=' "$DEPLOY_ENV"; then
-  printf 'FEATHERS_PGADMIN_SERVER_NAME=%s\n' "$(quote_env_value "${FEATHERS_PGADMIN_SERVER_NAME:-_}")" >> "$DEPLOY_ENV"
-fi
-
-set -a
-# shellcheck disable=SC1090
-. "$DEPLOY_ENV"
-set +a
-
-apt-get install -y nginx certbot python3-certbot-nginx curl ca-certificates gnupg build-essential gettext-base openssl \
-  postgresql postgresql-contrib python3-venv python3-pip
+apt-get install -y nginx certbot python3-certbot-nginx curl build-essential
 
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -178,112 +20,25 @@ if ! command -v pm2 >/dev/null 2>&1; then
   npm install -g pm2
 fi
 
-systemctl enable --now postgresql
+mkdir -p "$BACKEND_DIR" "$LANDING_DIR"
 
-sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$FEATHERS_DB_USER') THEN
-    CREATE ROLE $FEATHERS_DB_USER LOGIN PASSWORD '$FEATHERS_DB_PASSWORD';
-  ELSE
-    ALTER ROLE $FEATHERS_DB_USER WITH LOGIN PASSWORD '$FEATHERS_DB_PASSWORD';
-  END IF;
-END
-\$\$;
-SQL
+cp "$APP_ROOT/deploy/nginx/shiplifi.conf" /etc/nginx/sites-available/shiplifi
+ln -sf /etc/nginx/sites-available/shiplifi /etc/nginx/sites-enabled/shiplifi
+rm -f /etc/nginx/sites-enabled/default
 
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$FEATHERS_DB_NAME'" | grep -q 1; then
-  sudo -u postgres createdb -O "$FEATHERS_DB_USER" "$FEATHERS_DB_NAME"
-fi
-
-mkdir -p "$PGADMIN_ROOT" "$PGADMIN_DATA"/{sessions,storage,logs,azurecredentialcache}
-if [ ! -x "$PGADMIN_ROOT/venv/bin/python" ]; then
-  python3 -m venv "$PGADMIN_ROOT/venv"
-fi
-
-"$PGADMIN_ROOT/venv/bin/pip" install --upgrade pip wheel setuptools >/dev/null
-"$PGADMIN_ROOT/venv/bin/pip" install pgadmin4 gunicorn >/dev/null
-
-cat > "$PGADMIN_APP/config_local.py" <<PYCFG
-SERVER_MODE = True
-DEFAULT_SERVER = '127.0.0.1'
-DATA_DIR = '$PGADMIN_DATA'
-LOG_FILE = '$PGADMIN_DATA/logs/pgadmin4.log'
-SQLITE_PATH = '$PGADMIN_DATA/pgadmin4.db'
-SESSION_DB_PATH = '$PGADMIN_DATA/sessions'
-STORAGE_DIR = '$PGADMIN_DATA/storage'
-AZURE_CREDENTIAL_CACHE_DIR = '$PGADMIN_DATA/azurecredentialcache'
-PYCFG
-
-if [ ! -f "$PGADMIN_DATA/pgadmin4.db" ]; then
-  cd "$PGADMIN_APP"
-  printf '%s\n%s\n%s\n' "$PGADMIN_DEFAULT_EMAIL" "$PGADMIN_DEFAULT_PASSWORD" "$PGADMIN_DEFAULT_PASSWORD" |
-    "$PGADMIN_ROOT/venv/bin/python" setup.py setup-db
-fi
-
-cat > /etc/systemd/system/feathers-global-pgadmin.service <<UNIT
-[Unit]
-Description=Feathers Global pgAdmin
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=$PGADMIN_APP
-Environment=PYTHONUNBUFFERED=1
-ExecStart=$PGADMIN_ROOT/venv/bin/gunicorn --bind 127.0.0.1:$FEATHERS_PGADMIN_PORT --workers 1 --threads 25 --timeout 300 pgAdmin4:app
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-systemctl daemon-reload
-systemctl enable --now feathers-global-pgadmin
-
-SSL_HOST="${FEATHERS_PUBLIC_HOST:-$(origin_host "$FEATHERS_APP_ORIGIN")}"
-mkdir -p "$(dirname "$FEATHERS_SSL_CERT")" "$(dirname "$FEATHERS_SSL_KEY")"
-if [ ! -f "$FEATHERS_SSL_CERT" ] || [ ! -f "$FEATHERS_SSL_KEY" ]; then
-  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
-    -keyout "$FEATHERS_SSL_KEY" \
-    -out "$FEATHERS_SSL_CERT" \
-    -subj "/CN=$SSL_HOST" \
-    -addext "subjectAltName=$(ssl_subject_alt_name "$SSL_HOST")"
-  chmod 600 "$FEATHERS_SSL_KEY"
-  chmod 644 "$FEATHERS_SSL_CERT"
-fi
-
-if ss -ltn | awk '{print $4}' | grep -Eq "(:|\\])(${FEATHERS_LANDING_PORT}|${FEATHERS_APP_PORT}|${FEATHERS_ADMIN_PORT}|${FEATHERS_API_PORT}|${FEATHERS_PGADMIN_PUBLIC_PORT})$" &&
-  ! grep -R "feathers-global/current" /etc/nginx/sites-enabled /etc/nginx/sites-available >/dev/null 2>&1; then
-  echo "One of the Feathers public ports is already in use by another service. Set FEATHERS_*_PORT and rerun." >&2
-  exit 1
-fi
-
-export FEATHERS_LANDING_PORT FEATHERS_APP_PORT FEATHERS_ADMIN_PORT FEATHERS_API_PORT FEATHERS_BACKEND_PORT FEATHERS_PGADMIN_PORT FEATHERS_PGADMIN_PUBLIC_PORT FEATHERS_SSL_CERT FEATHERS_SSL_KEY FEATHERS_LANDING_SERVER_NAME FEATHERS_APP_SERVER_NAME FEATHERS_ADMIN_SERVER_NAME FEATHERS_API_SERVER_NAME FEATHERS_PGADMIN_SERVER_NAME
-envsubst '${FEATHERS_LANDING_PORT} ${FEATHERS_APP_PORT} ${FEATHERS_ADMIN_PORT} ${FEATHERS_API_PORT} ${FEATHERS_BACKEND_PORT} ${FEATHERS_PGADMIN_PORT} ${FEATHERS_PGADMIN_PUBLIC_PORT} ${FEATHERS_SSL_CERT} ${FEATHERS_SSL_KEY} ${FEATHERS_LANDING_SERVER_NAME} ${FEATHERS_APP_SERVER_NAME} ${FEATHERS_ADMIN_SERVER_NAME} ${FEATHERS_API_SERVER_NAME} ${FEATHERS_PGADMIN_SERVER_NAME}' \
-  < "$APP_ROOT/deploy/nginx/feathers-global.conf.template" \
-  > /etc/nginx/sites-available/feathers-global
-
-ln -sf /etc/nginx/sites-available/feathers-global /etc/nginx/sites-enabled/feathers-global
 nginx -t
 systemctl enable nginx
-systemctl reload nginx || systemctl restart nginx
+systemctl restart nginx
 
-if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-  ufw allow "${FEATHERS_LANDING_PORT}/tcp"
-  ufw allow "${FEATHERS_APP_PORT}/tcp"
-  ufw allow "${FEATHERS_ADMIN_PORT}/tcp"
-  ufw allow "${FEATHERS_API_PORT}/tcp"
-  ufw allow "${FEATHERS_PGADMIN_PUBLIC_PORT}/tcp"
-fi
+cd "$BACKEND_DIR"
+npm ci
+npm run build
+pm2 startOrReload ecosystem.config.cjs
+pm2 save
 
-echo "VPS setup complete for Feathers Global."
-echo "Deploy root: $APP_ROOT"
-echo "Landing: $FEATHERS_LANDING_ORIGIN/"
-echo "App: $FEATHERS_APP_ORIGIN/"
-echo "Admin: $FEATHERS_ADMIN_ORIGIN/"
-echo "API: $FEATHERS_API_ORIGIN/"
-echo "pgAdmin: $FEATHERS_PGADMIN_ORIGIN/"
-echo "pgAdmin email: $PGADMIN_DEFAULT_EMAIL"
-echo "pgAdmin password is stored in $DEPLOY_ENV"
+cd "$LANDING_DIR"
+npm ci
+npm run build
+
+echo "Initial VPS setup complete."
+echo "Next: run certbot --nginx -d shiplifi.com -d www.shiplifi.com"

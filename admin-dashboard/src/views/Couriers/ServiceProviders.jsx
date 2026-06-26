@@ -48,7 +48,7 @@ const ServiceProviders = () => {
         Service Providers
       </Text>
       <Text fontSize="sm" color="gray.500">
-        Manage enabled courier providers for Delhivery, Ekart, Xpressbees, Shadowfax, and Amazon.
+        Manage enabled courier providers for Delhivery, Ekart, Xpressbees, and Shadowfax.
       </Text>
       <Table variant="simple">
         <Thead>

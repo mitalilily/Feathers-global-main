@@ -3,15 +3,12 @@ import { Box, ChakraProvider, Portal, useColorModeValue, useDisclosure } from '@
 import Configurator from 'components/Configurator/Configurator'
 import Footer from 'components/Footer/Footer.js'
 // Layout components
-import '@fontsource/open-sans/400.css'
-import '@fontsource/open-sans/600.css'
-import '@fontsource/raleway/600.css'
-import '@fontsource/raleway/700.css'
 import AdminNavbar from 'components/Navbars/AdminNavbar.js'
 import Sidebar from 'components/Sidebar'
 import { useEffect, useState } from 'react'
 import { Redirect, Route, Switch } from 'react-router-dom'
 import routes from 'routes.js'
+import { BRAND } from '../constants/brand'
 // Custom Chakra theme
 import theme from 'theme/theme.js'
 import FixedPlugin from '../components/FixedPlugin/FixedPlugin'
@@ -48,6 +45,10 @@ export default function Dashboard(props) {
       window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isResizing])
+
+  useEffect(() => {
+    document.title = `${BRAND.name} Admin`
+  }, [])
 
   const getRoute = () => {
     return window.location.pathname !== '/admin/full-screen-maps'
@@ -116,7 +117,7 @@ export default function Dashboard(props) {
       {/* Sidebar with dynamic width */}
       <Sidebar
         routes={routes}
-        logoText={'Shiplifi'}
+        logoText={BRAND.name}
         sidebarVariant={sidebarVariant}
         sidebarWidth={sidebarWidth}
         {...rest}
@@ -133,7 +134,7 @@ export default function Dashboard(props) {
         <Portal>
           <AdminNavbar
             onOpen={onOpen}
-            logoText={'Shiplifi'}
+            logoText={BRAND.name}
             brandText={getActiveRoute(routes)}
             secondary={getActiveNavbar(routes)}
             fixed={fixed}
@@ -169,15 +170,15 @@ export default function Dashboard(props) {
       {/* 🖱️ Resize Handle */}
       <Box
         position="fixed"
-        left={`${sidebarWidth - 3}px`}
-        top="0"
-        h="100vh"
-        w="6px"
-        cursor="col-resize"
-        zIndex="1400"
-        _hover={{ bg: useColorModeValue('rgba(217, 4, 22, 0.14)', 'rgba(217, 4, 22, 0.24)') }}
-        onMouseDown={() => setIsResizing(true)}
-      />
-    </ChakraProvider>
+          left={`${sidebarWidth - 3}px`}
+          top="0"
+          h="100vh"
+          w="6px"
+          cursor="col-resize"
+          zIndex="1400"
+          _hover={{ bg: useColorModeValue('rgba(4, 123, 133, 0.14)', 'rgba(4, 123, 133, 0.24)') }}
+          onMouseDown={() => setIsResizing(true)}
+        />
+      </ChakraProvider>
   )
 }

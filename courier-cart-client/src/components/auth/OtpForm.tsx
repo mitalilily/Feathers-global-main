@@ -31,10 +31,12 @@ const ghostButtonStyles = {
 
 type Props = {
   email: string
+  debugOtp?: string
+  onDebugOtpChange?: (otp: string) => void
   onEditEmail: () => void
 }
 
-export default function OtpForm({ email, onEditEmail }: Props) {
+export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail }: Props) {
   const { setTokens, setUserId } = useAuth()
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const [error, setError] = useState('')
@@ -133,7 +135,12 @@ export default function OtpForm({ email, onEditEmail }: Props) {
     if (!resendEnabled || resending) return
 
     resendOtp(email.toLowerCase().trim(), {
-      onSuccess: () => {
+      onSuccess: (data: { devOtp?: string; otp?: string }) => {
+        const nextOtp = data?.devOtp ?? data?.otp ?? ''
+        if (nextOtp) {
+          console.log('[AUTH OTP]', { email: email.toLowerCase().trim(), otp: nextOtp })
+        }
+        onDebugOtpChange?.(nextOtp)
         setOtpDigits(Array(OTP_LENGTH).fill(''))
         setError('')
         setResendEnabled(false)
@@ -158,7 +165,7 @@ export default function OtpForm({ email, onEditEmail }: Props) {
           if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
         }, OTP_RESEND_DELAY_MS)
 
-        toast.open({ message: 'Verification code sent again.', severity: 'success' })
+        toast.open({ message: 'Verification code generated again.', severity: 'success' })
       },
       onError: (err: any) => {
         setError(err?.response?.data?.error || 'Failed to resend OTP')
@@ -194,6 +201,25 @@ export default function OtpForm({ email, onEditEmail }: Props) {
           </Box>
         </Typography>
       </Box>
+
+      {debugOtp && (
+        <Box
+          sx={{
+            p: 1.35,
+            borderRadius: 1.25,
+            textAlign: 'center',
+            background: 'linear-gradient(135deg, rgba(4,123,133,0.1), rgba(255,130,28,0.12))',
+            border: '1px solid rgba(4,123,133,0.2)',
+          }}
+        >
+          <Typography sx={{ fontSize: '0.72rem', fontWeight: 800, color: BRAND_TEAL, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            Test OTP
+          </Typography>
+          <Typography sx={{ mt: 0.4, fontSize: '1.5rem', fontWeight: 800, color: BRAND_DARK, letterSpacing: '0.18em' }}>
+            {debugOtp}
+          </Typography>
+        </Box>
+      )}
 
       <Box
         sx={{
@@ -259,7 +285,7 @@ export default function OtpForm({ email, onEditEmail }: Props) {
       )}
 
       <Typography variant="caption" color="#6E6763" textAlign="center" sx={{ userSelect: 'none' }}>
-        Enter the verification code from your email to continue to the merchant shipping workspace.
+        Enter the test code above to continue to the merchant shipping workspace.
       </Typography>
 
       <CustomIconLoadingButton

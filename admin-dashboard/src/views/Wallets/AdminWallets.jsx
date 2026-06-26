@@ -50,6 +50,8 @@ const walletFilterOptions = [
   },
 ]
 
+const WALLET_TRANSACTION_GST_PERCENT = 18
+
 export default function AdminWallets() {
   const history = useHistory()
   const toast = useToast()
@@ -73,6 +75,11 @@ export default function AdminWallets() {
     onOpen: onOrderDetailsOpen,
     onClose: onOrderDetailsClose,
   } = useDisclosure()
+  const {
+    isOpen: isTransactionDetailsOpen,
+    onOpen: onTransactionDetailsOpen,
+    onClose: onTransactionDetailsClose,
+  } = useDisclosure()
 
   // Transactions modal state
   const [transactionsPage, setTransactionsPage] = useState(1)
@@ -80,6 +87,7 @@ export default function AdminWallets() {
   const [transactionType, setTransactionType] = useState('')
   const [transactionDateFrom, setTransactionDateFrom] = useState(null)
   const [transactionDateTo, setTransactionDateTo] = useState(null)
+  const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [selectedTransactionOrder, setSelectedTransactionOrder] = useState(null)
 
   // Adjust wallet form
@@ -137,8 +145,21 @@ export default function AdminWallets() {
 
   const handleCloseTransactions = () => {
     onTransactionsClose()
+    onTransactionDetailsClose()
     onOrderDetailsClose()
+    setSelectedTransaction(null)
     setSelectedTransactionOrder(null)
+  }
+
+  const handleViewTransactionDetails = (transaction) => {
+    if (!transaction) return
+    setSelectedTransaction(transaction)
+    onTransactionDetailsOpen()
+  }
+
+  const handleCloseTransactionDetails = () => {
+    onTransactionDetailsClose()
+    setSelectedTransaction(null)
   }
 
   const handleViewTransactionOrder = (order) => {
@@ -248,8 +269,33 @@ export default function AdminWallets() {
     return companyInfo.contactPerson || '—'
   }
 
+  const getTransactionMeta = (txn) =>
+    txn?.meta && typeof txn.meta === 'object' && !Array.isArray(txn.meta) ? txn.meta : {}
+
+  const toAmount = (value) => {
+    if (value === undefined || value === null || value === '') return null
+    const amount = Number(value)
+    return Number.isFinite(amount) ? amount : null
+  }
+
+  const firstAmount = (...values) => {
+    for (const value of values) {
+      const amount = toAmount(value)
+      if (amount !== null) return amount
+    }
+    return null
+  }
+
+  const firstText = (...values) => {
+    for (const value of values) {
+      const text = String(value || '').trim()
+      if (text) return text
+    }
+    return ''
+  }
+
   const getTransactionAwb = (txn) => {
-    const meta = txn?.meta && typeof txn.meta === 'object' ? txn.meta : {}
+    const meta = getTransactionMeta(txn)
     return (
       txn?.awb_number ||
       txn?.awbNumber ||
@@ -259,6 +305,128 @@ export default function AdminWallets() {
       meta.awb ||
       ''
     )
+  }
+
+  const getTransactionOrderNumber = (txn) => {
+    const meta = getTransactionMeta(txn)
+    return firstText(txn?.order?.order_number, meta.order_number, meta.orderNumber, txn?.ref)
+  }
+
+  const getTransactionCourier = (txn) => {
+    const meta = getTransactionMeta(txn)
+    return firstText(
+      txn?.order?.courier_partner,
+      meta.courier_name,
+      meta.courier_partner,
+      meta.integration_type,
+    )
+  }
+
+  const getTransactionBreakupLines = (txn) => {
+    const backendLines = txn?.transaction_breakup?.lines || []
+    if (backendLines.length) return backendLines
+
+    const meta = getTransactionMeta(txn)
+    const order = txn?.order || {}
+    const reason = String(txn?.reason || '').toLowerCase()
+    const paymentType = firstText(meta.payment_type, order.order_type).toLowerCase()
+    const isCod = paymentType === 'cod' || reason.includes('cod')
+    const lines = []
+    const addLine = (key, label, amount, kind = 'charge', includeZero = false) => {
+      if (amount === null) return
+      if (amount === 0 && !includeZero) return
+      lines.push({ key, label, amount, kind })
+    }
+
+    addLine(
+      'freight_charges',
+      'Freight charge',
+      firstAmount(meta.freight_charges, meta.freightCharges, order.freight_charges),
+    )
+    addLine('other_charges', 'Other charge', firstAmount(meta.other_charges, order.other_charges))
+    addLine(
+      'cod_charges',
+      'COD charge',
+      firstAmount(meta.cod_charges, order.cod_charges),
+      'charge',
+      isCod,
+    )
+    addLine('taxable_subtotal', 'Taxable subtotal', firstAmount(meta.wallet_base_debit), 'subtotal')
+    const gstPercent = WALLET_TRANSACTION_GST_PERCENT
+    const taxableSubtotal =
+      firstAmount(meta.wallet_base_debit, order.wallet_debit_amount) ??
+      lines
+        .filter((line) => line.kind === 'charge')
+        .reduce((sum, line) => sum + Number(line.amount || 0), 0)
+    addLine(
+      'gst_amount',
+      `GST (${gstPercent}%)`,
+      taxableSubtotal > 0 ? Number(((taxableSubtotal * gstPercent) / 100).toFixed(2)) : null,
+      'tax',
+      taxableSubtotal > 0,
+    )
+    addLine(
+      'courier_cost',
+      'Courier actual cost',
+      firstAmount(meta.courier_cost, order.courier_cost),
+      'charge',
+    )
+    addLine(
+      'provider_quote_charge',
+      'Provider quoted charge',
+      firstAmount(meta.provider_quote_charge, meta.providerQuoteCharge),
+      'charge',
+    )
+    addLine(
+      'final_courier_charge',
+      'Final courier charge',
+      firstAmount(meta.final_courier_charge, meta.finalCourierCharge),
+      'charge',
+    )
+
+    if (!lines.some((line) => line.kind === 'charge')) {
+      const fallbackLabel = reason.includes('rto freight')
+        ? 'RTO freight charge'
+        : reason.includes('weight discrepancy')
+        ? 'Weight discrepancy charge'
+        : reason.includes('reverse')
+        ? 'Reverse shipment charge'
+        : 'Shipment charge'
+      addLine('shipment_charge', fallbackLabel, firstAmount(txn?.amount), 'charge', true)
+    }
+
+    addLine(
+      'wallet_transaction_total',
+      txn?.type === 'credit' ? 'Wallet credit total' : 'Wallet debit total',
+      firstAmount(meta.total_wallet_debit, order.wallet_debit_amount, txn?.amount),
+      'total',
+      true,
+    )
+
+    return lines
+  }
+
+  const getTransactionFacts = (txn) => {
+    const meta = getTransactionMeta(txn)
+    const backendFacts = txn?.transaction_breakup?.facts || []
+    const facts = [...backendFacts]
+    const existingLabels = new Set(facts.map((fact) => fact.label))
+    const addFact = (label, value, suffix = '') => {
+      if (existingLabels.has(label)) return
+      const text = firstText(value)
+      if (!text) return
+      facts.push({ label, value: `${text}${suffix}` })
+      existingLabels.add(label)
+    }
+
+    addFact('Order number', getTransactionOrderNumber(txn))
+    addFact('Courier', getTransactionCourier(txn))
+    addFact('Payment type', firstText(meta.payment_type, txn?.order?.order_type).toUpperCase())
+    addFact('Charged weight', firstText(meta.charged_weight, txn?.order?.charged_weight), ' kg')
+    addFact('Volumetric weight', firstText(meta.volumetric_weight, txn?.order?.volumetric_weight), ' kg')
+    addFact('Provider ref', firstText(meta.provider_reference, txn?.order?.provider_reference))
+
+    return facts
   }
 
   const renderTransactionAwb = (txn) => {
@@ -271,23 +439,15 @@ export default function AdminWallets() {
       )
     }
 
-    if (!txn.order) {
-      return (
-        <Text fontSize="xs" fontFamily="mono" color="gray.600">
-          {awb}
-        </Text>
-      )
-    }
-
     return (
-      <Tooltip label="View order details" hasArrow>
+      <Tooltip label="View transaction details" hasArrow>
         <Button
           variant="link"
           size="sm"
           colorScheme="blue"
           fontFamily="mono"
           fontWeight="700"
-          onClick={() => handleViewTransactionOrder(txn.order)}
+          onClick={() => handleViewTransactionDetails(txn)}
         >
           {awb}
         </Button>
@@ -555,6 +715,171 @@ export default function AdminWallets() {
           )}
         </VStack>
       </CustomModal>
+
+      {selectedTransaction && (
+        <CustomModal
+          isOpen={isTransactionDetailsOpen}
+          onClose={handleCloseTransactionDetails}
+          size="2xl"
+          title={
+            <VStack align="start" spacing={1}>
+              <Text>Transaction Details</Text>
+              <Text fontSize="sm" color="gray.500" fontWeight="normal">
+                AWB {getTransactionAwb(selectedTransaction) || '-'}
+              </Text>
+            </VStack>
+          }
+          footer={
+            <HStack>
+              {selectedTransaction.order && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const order = selectedTransaction.order
+                    handleCloseTransactionDetails()
+                    handleViewTransactionOrder(order)
+                  }}
+                >
+                  View Order
+                </Button>
+              )}
+              <Button onClick={handleCloseTransactionDetails}>Close</Button>
+            </HStack>
+          }
+        >
+          <VStack spacing={4} align="stretch">
+            <Box p={4} bg="gray.50" borderRadius="md" border="1px" borderColor="gray.100">
+              <Box
+                display="grid"
+                gridTemplateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }}
+                gap={3}
+              >
+                <Box>
+                  <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                    Order
+                  </Text>
+                  <Text fontSize="sm" fontWeight="700">
+                    {getTransactionOrderNumber(selectedTransaction) || '-'}
+                  </Text>
+                </Box>
+                <Box>
+                  <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                    Courier
+                  </Text>
+                  <Text fontSize="sm" fontWeight="700">
+                    {getTransactionCourier(selectedTransaction) || '-'}
+                  </Text>
+                </Box>
+                <Box>
+                  <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                    Type
+                  </Text>
+                  <Text fontSize="sm" fontWeight="700">
+                    {selectedTransaction.type?.toUpperCase() || '-'}
+                  </Text>
+                </Box>
+                <Box>
+                  <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                    Date
+                  </Text>
+                  <Text fontSize="sm" fontWeight="700">
+                    {formatDate(selectedTransaction.created_at)}
+                  </Text>
+                </Box>
+                <Box>
+                  <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                    Reason
+                  </Text>
+                  <Text fontSize="sm" fontWeight="700">
+                    {selectedTransaction.reason || '-'}
+                  </Text>
+                </Box>
+                <Box>
+                  <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                    Reference
+                  </Text>
+                  <Text fontSize="sm" fontFamily="mono" fontWeight="700">
+                    {selectedTransaction.ref || '-'}
+                  </Text>
+                </Box>
+              </Box>
+            </Box>
+
+            <Box>
+              <Text fontWeight="700" mb={2}>
+                Price Breakup
+              </Text>
+              <VStack
+                align="stretch"
+                spacing={0}
+                border="1px"
+                borderColor="gray.100"
+                borderRadius="md"
+                overflow="hidden"
+              >
+                {getTransactionBreakupLines(selectedTransaction).map((line) => (
+                  <Flex
+                    key={`${line.key || line.label}-${line.kind || 'line'}`}
+                    justify="space-between"
+                    align="center"
+                    px={4}
+                    py={3}
+                    bg={line.kind === 'total' ? 'gray.50' : 'white'}
+                    borderBottom={line.kind === 'total' ? '0' : '1px'}
+                    borderColor="gray.100"
+                  >
+                    <VStack align="start" spacing={0}>
+                      <Text
+                        fontSize="sm"
+                        fontWeight={line.kind === 'total' || line.kind === 'subtotal' ? '700' : '600'}
+                        color="gray.700"
+                      >
+                        {line.label}
+                      </Text>
+                      {line.adminOnly && (
+                        <Text fontSize="xs" color="purple.500" fontWeight="600">
+                          Admin
+                        </Text>
+                      )}
+                    </VStack>
+                    <Text
+                      fontSize="sm"
+                      fontWeight="800"
+                      color={line.kind === 'tax' ? 'orange.500' : 'gray.800'}
+                    >
+                      {formatBalance(line.amount)}
+                    </Text>
+                  </Flex>
+                ))}
+              </VStack>
+            </Box>
+
+            {getTransactionFacts(selectedTransaction).length > 0 && (
+              <Box>
+                <Text fontWeight="700" mb={2}>
+                  Shipment Details
+                </Text>
+                <Box
+                  display="grid"
+                  gridTemplateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }}
+                  gap={3}
+                >
+                  {getTransactionFacts(selectedTransaction).map((fact) => (
+                    <Box key={`${fact.label}-${fact.value}`} p={3} bg="gray.50" borderRadius="md">
+                      <Text fontSize="xs" color="gray.500" fontWeight="700" textTransform="uppercase">
+                        {fact.label}
+                      </Text>
+                      <Text fontSize="sm" fontWeight="700">
+                        {fact.value || '-'}
+                      </Text>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+          </VStack>
+        </CustomModal>
+      )}
 
       {selectedTransactionOrder && (
         <OrderDetailsModal

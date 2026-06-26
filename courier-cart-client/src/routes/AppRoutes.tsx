@@ -120,7 +120,7 @@ function PublicTrackingRoute() {
 
 export default function AppRoutes() {
   return (
-    <BrowserRouter basename={import.meta.env.VITE_ROUTER_BASENAME || undefined}>
+    <BrowserRouter>
       <GlobalRedirectHandler />
       <Suspense fallback={<Box />}>
         <Routes>
