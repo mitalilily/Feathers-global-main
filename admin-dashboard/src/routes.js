@@ -29,35 +29,36 @@ import { IoLocation } from 'react-icons/io5'
 import { MdGavel } from 'react-icons/md'
 import { AdminRoute } from 'views/Auth/AdminRoute'
 import SignIn from 'views/Auth/SignIn'
-import AdminBillingInvoices from 'views/Billing/AdminBillingInvoices'
-import AdminBillingPreferences from 'views/Billing/AdminBillingPreferences'
-import AdminCodRemittancePage from 'views/CodRemittance/AdminCodRemittancePage'
-import Couriers from 'views/Couriers/Couriers'
-import CourierCredentials from 'views/Couriers/CourierCredentials'
-import ServiceProviders from 'views/Couriers/ServiceProviders'
-import Dashboard from 'views/Dashboard/Dashboard'
-import DeveloperLogs from 'views/Developer/DeveloperLogs'
-import ApiIntegration from 'views/Integrations/ApiIntegration'
-import AdminNdr from 'views/Ops/AdminNdr'
-import AdminRto from 'views/Ops/AdminRto'
-import AdminNotificationsPage from 'views/Notifications/AdminNotificationsPage'
-import Orders from 'views/Orders/Orders'
-import PlanManagement from 'views/PlanManagement/PlanManagement'
-import ServiceabilityPage from 'views/Serviceability/ServiceabilityPage'
-import PaymentOptionsSettings from 'views/Settings/PaymentOptionsSettings'
-import AdminChangePassword from 'views/Settings/AdminChangePassword'
-import AboutUsEditor from 'views/Support/AboutUsEditor'
-import AdminTicketDashboard from 'views/Support/AdminTicketsDashboard'
-import OrderTrackingPage from 'views/Tools/OrderTrackingPage'
-import RateCalculatorPage from 'views/Tools/RateCalculatorPage'
-import UserDetails from 'views/UsersManagement/UserDetails'
-import UsersManagementPage from 'views/UsersManagement/UsersManagementPage'
-import AdminWallets from 'views/Wallets/AdminWallets'
-import AdminDisputeManagement from 'views/WeightReconciliation/AdminDisputeManagement'
-import AdminWeightReconciliationDashboard from 'views/WeightReconciliation/AdminWeightReconciliationDashboard'
-import ZoneMappingsPage from 'views/Zones/ZoneMappingsPage'
 
-// Lazy load pricing management pages
+const AdminBillingInvoices = lazy(() => import('views/Billing/AdminBillingInvoices'))
+const AdminBillingPreferences = lazy(() => import('views/Billing/AdminBillingPreferences'))
+const AdminCodRemittancePage = lazy(() => import('views/CodRemittance/AdminCodRemittancePage'))
+const Couriers = lazy(() => import('views/Couriers/Couriers'))
+const CourierCredentials = lazy(() => import('views/Couriers/CourierCredentials'))
+const ServiceProviders = lazy(() => import('views/Couriers/ServiceProviders'))
+const Dashboard = lazy(() => import('views/Dashboard/Dashboard'))
+const DeveloperLogs = lazy(() => import('views/Developer/DeveloperLogs'))
+const ApiIntegration = lazy(() => import('views/Integrations/ApiIntegration'))
+const AdminNdr = lazy(() => import('views/Ops/AdminNdr'))
+const AdminRto = lazy(() => import('views/Ops/AdminRto'))
+const AdminNotificationsPage = lazy(() => import('views/Notifications/AdminNotificationsPage'))
+const Orders = lazy(() => import('views/Orders/Orders'))
+const PlanManagement = lazy(() => import('views/PlanManagement/PlanManagement'))
+const ServiceabilityPage = lazy(() => import('views/Serviceability/ServiceabilityPage'))
+const PaymentOptionsSettings = lazy(() => import('views/Settings/PaymentOptionsSettings'))
+const AdminChangePassword = lazy(() => import('views/Settings/AdminChangePassword'))
+const AboutUsEditor = lazy(() => import('views/Support/AboutUsEditor'))
+const AdminTicketDashboard = lazy(() => import('views/Support/AdminTicketsDashboard'))
+const OrderTrackingPage = lazy(() => import('views/Tools/OrderTrackingPage'))
+const RateCalculatorPage = lazy(() => import('views/Tools/RateCalculatorPage'))
+const UserDetails = lazy(() => import('views/UsersManagement/UserDetails'))
+const UsersManagementPage = lazy(() => import('views/UsersManagement/UsersManagementPage'))
+const AdminWallets = lazy(() => import('views/Wallets/AdminWallets'))
+const AdminDisputeManagement = lazy(() => import('views/WeightReconciliation/AdminDisputeManagement'))
+const AdminWeightReconciliationDashboard = lazy(() =>
+  import('views/WeightReconciliation/AdminWeightReconciliationDashboard'),
+)
+const ZoneMappingsPage = lazy(() => import('views/Zones/ZoneMappingsPage'))
 const B2BPricingManagement = lazy(() => import('views/Pricing/B2BPricingManagement'))
 const B2CPricingManagement = lazy(() => import('views/Pricing/B2CPricingManagement'))
 const HolidayManagement = lazy(() => import('views/B2B/HolidayManagement'))

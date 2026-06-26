@@ -18,21 +18,15 @@ import {
   useColorModeValue,
   useToast,
 } from '@chakra-ui/react'
-import { jwtDecode } from 'jwt-decode'
 import { useEffect, useState } from 'react'
 import { FiCheckCircle } from 'react-icons/fi'
 import { useHistory } from 'react-router-dom'
 import { loginAdmin } from '../../services/auth.service'
-import { useAuthStore } from '../../store/useAuthStore'
+import { isTokenExpired, useAuthStore } from '../../store/useAuthStore'
 import { BRAND } from '../../constants/brand'
 
 function isTokenValid(token) {
-  try {
-    const decoded = jwtDecode(token)
-    return decoded.exp > Date.now() / 1000
-  } catch {
-    return false
-  }
+  return !isTokenExpired(token)
 }
 
 function SignIn() {
@@ -68,7 +62,18 @@ function SignIn() {
 
     try {
       const data = await loginAdmin(email, password)
-      login(data.token, data?.user?.id, data.refreshToken)
+      const accessToken = data?.token || data?.accessToken
+      const refreshToken = data?.refreshToken
+      const userId = data?.user?.id
+
+      if (data?.user?.role !== 'admin') {
+        throw new Error('This account does not have admin access.')
+      }
+
+      const stored = login(accessToken, userId, refreshToken)
+      if (!stored) {
+        throw new Error('Admin login response was incomplete. Please try again.')
+      }
 
       toast({
         title: 'Login successful',
@@ -81,7 +86,7 @@ function SignIn() {
     } catch (err) {
       toast({
         title: 'Login failed',
-        description: err.response?.data?.error || 'Something went wrong',
+        description: err.response?.data?.error || err.message || 'Something went wrong',
         status: 'error',
         duration: 3000,
         isClosable: true,
@@ -95,7 +100,7 @@ function SignIn() {
     const accessToken = localStorage.getItem('accessToken')
     const refreshToken = localStorage.getItem('refreshToken')
 
-    if (accessToken && refreshToken && isTokenValid(refreshToken)) {
+    if (accessToken && refreshToken && isTokenValid(accessToken) && isTokenValid(refreshToken)) {
       history.replace('/admin/dashboard')
     }
   }, [history])
