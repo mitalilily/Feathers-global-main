@@ -31,7 +31,6 @@ import { useAllCouriersWithDetails } from '../../../hooks/Integrations/useCourie
 import {
   useB2COrdersByUser,
   useCancelShipment,
-  useCreateReverseShipment,
   useRegenerateOrderDocuments,
   useRetryFailedManifest,
 } from '../../../hooks/Orders/useOrders'
@@ -101,7 +100,7 @@ import {
 } from '../bulkActionUtils'
 import ManifestPickupScheduleDialog from '../ManifestPickupScheduleDialog'
 import { OrderExpandedRow } from '../OrderExpandedRow'
-import ReverseModal from '../reverse/ReverseModal'
+import { buildReverseFlowPath, type ReverseFlowRouteState } from '../reverse/reverseFlow'
 import SourceOrderCourierDrawer from '../SourceOrderCourierDrawer'
 import B2COrderFormSteps from './B2COrderForm'
 import BulkB2CUpload from './BulkB2CUpload'
@@ -336,9 +335,6 @@ const B2COrdersList = () => {
   const { data: couriers } = useAllCouriersWithDetails()
   const { data: warehouses } = usePickupAddresses()
   const { mutateAsync: cancelShipment } = useCancelShipment()
-  const { mutate: createReverse } = useCreateReverseShipment()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [reverseOrder, setReverseOrder] = useState<any | null>(null)
   const orders: B2COrder[] = data?.orders || []
   const selectedOrders: B2COrder[] = orders.filter((order) => selectedOrderIds.includes(order.id))
   const manifestValidationMessage =
@@ -1569,8 +1565,13 @@ const B2COrdersList = () => {
                 renderActionItem({
                   key: 'reverse',
                   icon: <MdKeyboardReturn />,
-                  label: reversePickupSupported ? 'Create Reverse Pickup' : 'Reverse Pickup Unavailable',
-                  onClick: () => setReverseOrder(row),
+                  label: reversePickupSupported ? 'Open Reverse Flow' : 'Reverse Pickup Unavailable',
+                  onClick: () =>
+                    navigate(buildReverseFlowPath(row.id), {
+                      state: {
+                        reverseOrder: row as unknown as ReverseFlowRouteState['reverseOrder'],
+                      } satisfies ReverseFlowRouteState,
+                    }),
                   disabled: !reversePickupSupported,
                 })}
               {canCancelOrders &&
@@ -2186,15 +2187,6 @@ const B2COrdersList = () => {
           renderExpandedRow={(row) => <OrderExpandedRow row={row} />}
         />
       )}
-      <ReverseModal
-        open={Boolean(reverseOrder)}
-        order={reverseOrder}
-        onClose={() => setReverseOrder(null)}
-        onConfirm={(payload) => {
-          createReverse(payload)
-          setReverseOrder(null)
-        }}
-      />
       <CustomDrawer
         width={isXs ? '100%' : 820}
         open={Boolean(detailsOrder)}

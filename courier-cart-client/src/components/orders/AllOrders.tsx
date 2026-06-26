@@ -50,7 +50,6 @@ import { fetchTracking } from '../../api/tracking.service'
 import {
   useAllOrders,
   useCancelShipment,
-  useCreateReverseShipment,
   useRegenerateOrderDocuments,
   useRetryFailedManifest,
 } from '../../hooks/Orders/useOrders'
@@ -92,7 +91,7 @@ import {
 } from './bulkActionUtils'
 import ManifestPickupScheduleDialog from './ManifestPickupScheduleDialog'
 import { OrderExpandedRow } from './OrderExpandedRow'
-import ReverseModal from './reverse/ReverseModal'
+import { buildReverseFlowPath, type ReverseFlowRouteState } from './reverse/reverseFlow'
 import SourceOrderCourierDrawer from './SourceOrderCourierDrawer'
 
 interface Order {
@@ -297,9 +296,6 @@ const AllOrders = () => {
   const { mutateAsync: regenerateDocuments, isPending: regeneratingDocuments } =
     useRegenerateOrderDocuments()
   const { mutateAsync: cancelShipment } = useCancelShipment()
-  const { mutate: createReverse } = useCreateReverseShipment()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [reverseOrder, setReverseOrder] = useState<any | null>(null)
 
   const { data, isLoading, isError } = useAllOrders({
     page,
@@ -1319,8 +1315,13 @@ const AllOrders = () => {
             renderActionItem({
               key: 'reverse',
               icon: <MdKeyboardReturn />,
-              label: reversePickupSupported ? 'Create Reverse Pickup' : 'Reverse Pickup Unavailable',
-              onClick: () => setReverseOrder(row),
+              label: reversePickupSupported ? 'Open Reverse Flow' : 'Reverse Pickup Unavailable',
+              onClick: () =>
+                navigate(buildReverseFlowPath(row.id), {
+                  state: {
+                    reverseOrder: row as unknown as ReverseFlowRouteState['reverseOrder'],
+                  } satisfies ReverseFlowRouteState,
+                }),
               disabled: !reversePickupSupported,
             })}
           {isCancellable(row) &&
@@ -2294,16 +2295,6 @@ const AllOrders = () => {
           </Stack>
         </Box>
       )}
-
-      <ReverseModal
-        open={Boolean(reverseOrder)}
-        order={reverseOrder}
-        onClose={() => setReverseOrder(null)}
-        onConfirm={(payload) => {
-          createReverse(payload)
-          setReverseOrder(null)
-        }}
-      />
 
       <CustomDrawer
         width={isMobile ? '100%' : 820}
