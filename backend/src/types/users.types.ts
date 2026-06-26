@@ -176,7 +176,6 @@ export interface KycDetails {
   partnershipDeedRejectionReason?: string;
   llpAgreementRejectionReason?: string;
   cinRejectionReason?: string;
-  companyAddressProofRejectionReason?: string;
 
   /* ─ Workflow ─ */
   rejectionReason?: string; // global rejection reason (optional)

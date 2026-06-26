@@ -12,6 +12,7 @@ export interface CombinedOrderFilters {
   fromDate?: string
   toDate?: string
   search?: string
+  pickupAlert?: 'pending_for_pickup' | 'not_scheduled' | string
   sortOrder?: 'asc' | 'desc'
 }
 
@@ -68,6 +69,65 @@ const buildSearchCondition = (alias: 'b2c' | 'b2b', search?: string) => {
   )`
 }
 
+const buildPickupAlertCondition = (alias: 'b2c' | 'b2b', pickupAlert?: string) => {
+  const normalizedAlert = String(pickupAlert || '').trim()
+  if (!normalizedAlert) return null
+
+  const orderStatus = sql`lower(coalesce(${sql.raw(`${alias}.order_status`)}, ''))`
+  const activeShipmentCondition = sql`(
+    coalesce(${sql.raw(`${alias}.awb_number`)}, '') <> ''
+    OR coalesce(${sql.raw(`${alias}.shipment_id`)}, '') <> ''
+  ) AND ${orderStatus} NOT IN (
+    'in_transit',
+    'out_for_delivery',
+    'delivered',
+    'cancelled',
+    'rto',
+    'rto_in_transit',
+    'rto_delivered'
+  )`
+  const missingPickupSlotCondition = sql`(
+    coalesce(${sql.raw(`${alias}.pickup_details`)} ->> 'pickup_date', '') = ''
+    AND coalesce(${sql.raw(`${alias}.pickup_details`)} ->> 'pickupDate', '') = ''
+    AND coalesce(${sql.raw(`${alias}.pickup_details`)} ->> 'requested_pickup_date', '') = ''
+    AND coalesce(${sql.raw(`${alias}.pickup_details`)} ->> 'requestedPickupDate', '') = ''
+    AND coalesce(${sql.raw(`${alias}.pickup_details`)} ->> 'expected_pickup_date', '') = ''
+    AND coalesce(${sql.raw(`${alias}.pickup_details`)} ->> 'expectedPickupDate', '') = ''
+  )`
+
+  if (normalizedAlert === 'pending_for_pickup') {
+    if (alias === 'b2c') {
+      const pickupStatus = sql`lower(coalesce(${sql.raw(`${alias}.pickup_status`)}, ''))`
+      return sql`${activeShipmentCondition} AND (
+        ${orderStatus} IN ('shipment_created', 'pickup_initiated', 'booked')
+        OR ${pickupStatus} IN ('pending', 'scheduled', 'pickup_scheduled', 'pickup_initiated')
+      )`
+    }
+
+    return sql`${activeShipmentCondition} AND ${orderStatus} IN (
+      'shipment_created',
+      'pickup_initiated',
+      'booked',
+      'pending'
+    )`
+  }
+
+  if (normalizedAlert === 'not_scheduled') {
+    if (alias === 'b2c') {
+      const pickupStatus = sql`lower(coalesce(${sql.raw(`${alias}.pickup_status`)}, ''))`
+      return sql`${activeShipmentCondition} AND (
+        coalesce(${sql.raw(`${alias}.pickup_error`)}, '') <> ''
+        OR ${pickupStatus} IN ('', 'pending', 'failed', 'not_scheduled')
+        OR ${missingPickupSlotCondition}
+      )`
+    }
+
+    return sql`${activeShipmentCondition} AND ${missingPickupSlotCondition}`
+  }
+
+  return null
+}
+
 const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilters) => {
   const conditions: SQL[] = [sql`true`]
 
@@ -91,6 +151,11 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
   const searchCondition = buildSearchCondition(alias, filters.search)
   if (searchCondition) {
     conditions.push(searchCondition)
+  }
+
+  const pickupAlertCondition = buildPickupAlertCondition(alias, filters.pickupAlert)
+  if (pickupAlertCondition) {
+    conditions.push(pickupAlertCondition)
   }
 
   return conditions

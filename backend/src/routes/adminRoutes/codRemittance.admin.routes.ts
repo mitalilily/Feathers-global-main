@@ -8,6 +8,7 @@ import {
 import {
   exportAllCodRemittances,
   getAllCodRemittances,
+  getCodPayableReportController,
   getCodPlatformStats,
   getUserCodRemittances,
   manualMarkSettlement,
@@ -24,6 +25,7 @@ router.use(isAdminMiddleware)
 
 // Platform stats
 router.get('/stats', getCodPlatformStats)
+router.get('/payable-report', getCodPayableReportController)
 
 // All remittances (admin view)
 router.get('/remittances', getAllCodRemittances)

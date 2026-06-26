@@ -11,11 +11,11 @@ import {
 const storeMeta = {
   Shopify: {
     logo: 'https://www.google.com/s2/favicons?domain=shopify.com&sz=128',
-    status: 'Live',
+    status: 'Available',
   },
   WooCommerce: {
     logo: 'https://www.google.com/s2/favicons?domain=woocommerce.com&sz=128',
-    status: 'Coming Soon',
+    status: 'Available',
   },
   Amazon: {
     logo: 'https://www.google.com/s2/favicons?domain=amazon.in&sz=128',
@@ -72,6 +72,7 @@ const courierMeta = {
 
 export function IntegrationsPage() {
   const MotionDiv = motion.div
+  const isStoreAvailable = (item) => storeMeta[item].status === 'Available'
 
   return (
     <PageShell>
@@ -118,10 +119,10 @@ export function IntegrationsPage() {
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, amount: 0.35 }}
                     transition={{ duration: 0.45, delay: index * 0.04 }}
-                    className="rounded-[1.5rem] border border-ink/8 bg-white px-5 py-4"
+                    className="min-h-[7.9rem] rounded-[1.5rem] border border-ink/8 bg-white px-5 py-4"
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
+                    <div className="flex h-full flex-col justify-between gap-4">
+                      <div className="flex min-w-0 items-start gap-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-mist p-2 shadow-lg">
                           <img
                             src={storeMeta[item].logo}
@@ -129,23 +130,25 @@ export function IntegrationsPage() {
                             className="h-8 w-8 object-contain"
                           />
                         </div>
-                        <div>
-                          <p className="text-lg font-semibold text-ink">{item}</p>
+                        <div className="min-w-0">
+                          <p className="break-words text-lg font-semibold leading-snug text-ink">{item}</p>
                           <p className="text-sm text-steel">
-                            {storeMeta[item].status === 'Live'
+                            {isStoreAvailable(item)
                               ? 'Available now'
                               : 'Coming soon'}
                           </p>
                         </div>
                       </div>
-                      <div
-                        className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] ${
-                          storeMeta[item].status === 'Live'
-                            ? 'bg-[#e8f7d8] text-[#3f6f1f]'
-                            : 'bg-sand text-coral'
-                        }`}
-                      >
-                        {storeMeta[item].status}
+                      <div className="flex justify-end">
+                        <div
+                          className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] ${
+                            isStoreAvailable(item)
+                              ? 'bg-[#e8f7d8] text-[#3f6f1f]'
+                              : 'bg-sand text-coral'
+                          }`}
+                        >
+                          {storeMeta[item].status}
+                        </div>
                       </div>
                     </div>
                   </MotionDiv>

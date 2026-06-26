@@ -21,8 +21,8 @@ import type { GlobalSearchResult } from '../../api/globalSearch.api'
 import { useGlobalSearch } from '../../hooks/useGlobalSearch'
 import { getClientAwbTrackingPath, isValidAwb, normalizeAwb } from '../../utils/awb'
 
-const BRAND_PRIMARY = '#047b85'
-const BRAND_INVOICE = '#ff821c'
+const BRAND_PRIMARY = '#E85500'
+const BRAND_INVOICE = '#1A7500'
 const BRAND_INK = '#17171A'
 const BRAND_MUTED = '#6E6763'
 

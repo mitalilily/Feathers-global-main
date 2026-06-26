@@ -1,10 +1,21 @@
 import axios from 'axios'
 import * as crypto from 'crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { stores } from '../schema/stores'
-import { ensurePlatformRegistration, updateUserChannelIntegration, upsertStore } from './userService'
+import {
+  getCourierProviderDisplayName,
+  getProviderMetaCourierName,
+  resolveCourierProviderKeyFromFields,
+} from '../../utils/courierProvider'
+import {
+  ensurePlatformRegistration,
+  setUserChannelIntegration,
+  updateUserChannelIntegration,
+  upsertStore,
+} from './userService'
+import { recordSalesChannelSyncOutcome } from './salesChannelSyncAudit.service'
 
 export const SHOPIFY_PLATFORM_ID = 1
 export const SHOPIFY_PLATFORM = {
@@ -17,6 +28,12 @@ export const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-04'
 const SHOPIFY_API_TIMEOUT_MS = Number(process.env.PLATFORM_API_TIMEOUT_MS || 15000)
 const SHOPIFY_WEBHOOK_TOPICS = ['ORDERS_CREATE', 'ORDERS_UPDATED', 'ORDERS_CANCELLED'] as const
 const SHOPIFY_ORDER_CREATED_WEBHOOK_PATH = '/api/webhooks/shopify/order-created'
+export const SHOPIFY_COMPLIANCE_WEBHOOK_PATH = '/api/webhooks/shopify/compliance'
+const SHOPIFY_COMPLIANCE_TOPICS = [
+  'customers/data_request',
+  'customers/redact',
+  'shop/redact',
+] as const
 
 type ShopifyStore = typeof stores.$inferSelect
 
@@ -25,6 +42,31 @@ type SyncResult = {
   updated: number
   skipped: number
 }
+
+type ExistingShopifyOrderRow = {
+  id: string
+  order_id?: string | null
+  order_number?: string | null
+  order_status?: string | null
+  awb_number?: string | null
+  courier_partner?: string | null
+  integration_type?: string | null
+  provider_meta?: any
+  provider_service?: string | null
+}
+
+const DEFAULT_SHOPIFY_SYNC_SETTINGS = {
+  fulfillTrigger: 'order_booked',
+  customerNotifyOnFulfill: 'do_not_notify',
+  autoUpdateShipmentStatus: true,
+  autoCancelOrders: true,
+  markCodPaidOnDelivery: false,
+}
+
+const normalizeShopifySettings = (settings?: Record<string, any> | null) => ({
+  ...DEFAULT_SHOPIFY_SYNC_SETTINGS,
+  ...(settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {}),
+})
 
 type FulfillTrigger =
   | 'do_not_fulfill'
@@ -41,7 +83,25 @@ type ConnectShopifyStoreParams = {
   apiSecretKey?: string
   webhookSecret?: string
   settings?: Record<string, any>
+  authMethod?: string
+  oauth?: Record<string, any>
   tx?: any
+}
+
+type ShopifyOAuthStatePayload = {
+  nonce: string
+  shop: string
+  userId: string
+  returnTo?: string
+  issuedAt: number
+}
+
+type ShopifyAccessTokenResponse = {
+  access_token?: string
+  scope?: string
+  expires_in?: number
+  refresh_token?: string
+  refresh_token_expires_in?: number
 }
 
 const toNumber = (value: unknown, fallback = 0): number => {
@@ -57,6 +117,270 @@ export const normalizeShopifyDomain = (domain?: string): string => {
     .replace(/\/+$/, '')
     .replace(/\/admin(?:\/.*)?$/, '')
   return clean
+}
+
+export const isValidShopifyDomain = (domain?: string) =>
+  /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/.test(normalizeShopifyDomain(domain))
+
+const REQUIRED_SHOPIFY_OAUTH_SCOPES = [
+  'read_orders',
+  'write_orders',
+  'read_customers',
+  'read_products',
+  'read_webhooks',
+  'write_webhooks',
+  'read_merchant_managed_fulfillment_orders',
+  'write_merchant_managed_fulfillment_orders',
+] as const
+
+const parseShopifyScopes = () =>
+  [
+    ...REQUIRED_SHOPIFY_OAUTH_SCOPES,
+    ...String(process.env.SHOPIFY_SCOPES || process.env.SHOPIFY_OAUTH_SCOPES || '')
+      .split(',')
+      .map((scope) => scope.trim())
+      .filter(Boolean),
+  ].filter((scope, index, scopes) => scopes.indexOf(scope) === index)
+
+export const getShopifyOAuthConfig = () => {
+  const clientId = String(process.env.SHOPIFY_CLIENT_ID || '').trim()
+  const clientSecret = String(process.env.SHOPIFY_CLIENT_SECRET || '').trim()
+  const apiUrl = String(process.env.API_URL || '').trim().replace(/\/+$/, '')
+  const callbackPath = String(
+    process.env.SHOPIFY_OAUTH_CALLBACK_PATH || '/api/integrations/shopify/oauth/callback',
+  ).trim()
+  const redirectUri = String(
+    process.env.SHOPIFY_OAUTH_REDIRECT_URI || (apiUrl ? `${apiUrl}${callbackPath}` : ''),
+  ).trim()
+  const frontendUrl = String(
+    process.env.SHOPIFY_OAUTH_SUCCESS_URL ||
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      process.env.APP_URL ||
+      'http://localhost:5173/channels/connected',
+  ).trim()
+
+  const sendScopeValue = String(
+    process.env.SHOPIFY_SEND_OAUTH_SCOPE ?? process.env.SHOPIFY_USE_LEGACY_INSTALL_FLOW ?? '',
+  )
+    .trim()
+    .toLowerCase()
+
+  return {
+    clientId,
+    clientSecret,
+    redirectUri,
+    scopes: parseShopifyScopes(),
+    sendOAuthScope: ['true', '1', 'yes', 'on'].includes(sendScopeValue),
+    accessMode: 'offline',
+    frontendUrl,
+    useExpiringOfflineTokens:
+      String(process.env.SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS || 'true').toLowerCase() !== 'false',
+    configured: Boolean(clientId && clientSecret && redirectUri),
+  }
+}
+
+const getShopifyOAuthStateSecret = () => {
+  const config = getShopifyOAuthConfig()
+  return String(process.env.SHOPIFY_OAUTH_STATE_SECRET || process.env.JWT_SECRET || config.clientSecret || '').trim()
+}
+
+const timingSafeEqualString = (left: string, right: string, encoding: BufferEncoding = 'utf8') => {
+  const leftBuffer = Buffer.from(left, encoding)
+  const rightBuffer = Buffer.from(right, encoding)
+  if (leftBuffer.length !== rightBuffer.length) return false
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+export const createShopifyOAuthState = ({
+  shop,
+  userId,
+  returnTo,
+}: {
+  shop: string
+  userId: string
+  returnTo?: string
+}) => {
+  const secret = getShopifyOAuthStateSecret()
+  if (!secret) throw new Error('SHOPIFY_CLIENT_SECRET or SHOPIFY_OAUTH_STATE_SECRET is not configured')
+
+  const payload: ShopifyOAuthStatePayload = {
+    nonce: crypto.randomBytes(16).toString('hex'),
+    shop: normalizeShopifyDomain(shop),
+    userId,
+    returnTo,
+    issuedAt: Date.now(),
+  }
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const signature = crypto.createHmac('sha256', secret).update(body).digest('base64url')
+  return `${body}.${signature}`
+}
+
+export const verifyShopifyOAuthState = (state: string): ShopifyOAuthStatePayload => {
+  const secret = getShopifyOAuthStateSecret()
+  if (!secret) throw new Error('SHOPIFY_CLIENT_SECRET or SHOPIFY_OAUTH_STATE_SECRET is not configured')
+
+  const [body, signature] = String(state || '').split('.')
+  if (!body || !signature) throw new Error('Invalid Shopify OAuth state')
+
+  const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('base64url')
+  if (!timingSafeEqualString(expectedSignature, signature)) {
+    throw new Error('Invalid Shopify OAuth state signature')
+  }
+
+  const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as ShopifyOAuthStatePayload
+  const maxAgeMs = Number(process.env.SHOPIFY_OAUTH_STATE_TTL_MS || 10 * 60 * 1000)
+  if (!payload?.userId || !payload?.shop || !payload?.issuedAt) {
+    throw new Error('Invalid Shopify OAuth state payload')
+  }
+  if (Date.now() - Number(payload.issuedAt) > maxAgeMs) {
+    throw new Error('Shopify OAuth state expired')
+  }
+  if (!isValidShopifyDomain(payload.shop)) {
+    throw new Error('Invalid Shopify shop in OAuth state')
+  }
+
+  return payload
+}
+
+export const verifyShopifyOAuthQueryHmac = (query: Record<string, any>) => {
+  const config = getShopifyOAuthConfig()
+  if (!config.clientSecret) throw new Error('SHOPIFY_CLIENT_SECRET is not configured')
+
+  const receivedHmac = String(query?.hmac || '')
+  if (!receivedHmac) return false
+
+  const message = Object.keys(query || {})
+    .filter((key) => key !== 'hmac' && key !== 'signature')
+    .sort()
+    .flatMap((key) => {
+      const value = query[key]
+      if (Array.isArray(value)) return value.map((item) => `${key}=${String(item)}`)
+      return [`${key}=${String(value)}`]
+    })
+    .join('&')
+  const digest = crypto.createHmac('sha256', config.clientSecret).update(message).digest('hex')
+  return timingSafeEqualString(digest, receivedHmac, 'hex')
+}
+
+export const buildShopifyOAuthAuthorizeUrl = ({
+  shop,
+  userId,
+  returnTo,
+}: {
+  shop: string
+  userId: string
+  returnTo?: string
+}) => {
+  const normalizedShop = normalizeShopifyDomain(shop)
+  if (!isValidShopifyDomain(normalizedShop)) {
+    throw new Error('Enter a valid Shopify myshopify.com store domain')
+  }
+  if (!userId) throw new Error('User ID is required')
+
+  const config = getShopifyOAuthConfig()
+  if (!config.configured) {
+    throw new Error('Shopify OAuth is not configured. Set SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, and API_URL.')
+  }
+
+  const state = createShopifyOAuthState({ shop: normalizedShop, userId, returnTo })
+  const url = new URL(`https://${normalizedShop}/admin/oauth/authorize`)
+  url.searchParams.set('client_id', config.clientId)
+  if (config.sendOAuthScope) {
+    url.searchParams.set('scope', config.scopes.join(','))
+  }
+  url.searchParams.set('redirect_uri', config.redirectUri)
+  url.searchParams.set('state', state)
+  // Shopify returns an offline access token when grant_options[] is omitted.
+  // Shiplifi needs offline access for background order sync, webhooks, and fulfillment updates.
+  return {
+    authUrl: url.toString(),
+    shop: normalizedShop,
+    scopes: config.scopes,
+    scopeSource: config.sendOAuthScope ? 'oauth_query' : 'shopify_app_config',
+    redirectUri: config.redirectUri,
+    accessMode: config.accessMode,
+  }
+}
+
+const exchangeShopifyOAuthCode = async ({
+  shop,
+  code,
+}: {
+  shop: string
+  code: string
+}): Promise<ShopifyAccessTokenResponse> => {
+  const config = getShopifyOAuthConfig()
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    code,
+  })
+  if (config.useExpiringOfflineTokens) {
+    params.set('expiring', '1')
+  }
+
+  const response = await axios.post<ShopifyAccessTokenResponse>(
+    `https://${normalizeShopifyDomain(shop)}/admin/oauth/access_token`,
+    params.toString(),
+    {
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: SHOPIFY_API_TIMEOUT_MS,
+    },
+  )
+  return response.data
+}
+
+export const completeShopifyOAuthInstall = async (query: Record<string, any>) => {
+  const shop = normalizeShopifyDomain(String(query?.shop || ''))
+  const code = String(query?.code || '')
+  const state = String(query?.state || '')
+
+  if (!isValidShopifyDomain(shop)) throw new Error('Invalid Shopify shop domain')
+  if (!code) throw new Error('Missing Shopify OAuth code')
+  if (!state) throw new Error('Missing Shopify OAuth state')
+  if (!verifyShopifyOAuthQueryHmac(query)) throw new Error('Invalid Shopify OAuth HMAC')
+
+  const statePayload = verifyShopifyOAuthState(state)
+  if (statePayload.shop !== shop) {
+    throw new Error('Shopify OAuth state shop does not match callback shop')
+  }
+
+  const config = getShopifyOAuthConfig()
+  const tokenResponse = await exchangeShopifyOAuthCode({ shop, code })
+  const accessToken = String(tokenResponse.access_token || '').trim()
+  if (!accessToken) throw new Error('Shopify did not return an Admin API access token')
+
+  const result = await connectShopifyStore({
+    storeUrl: shop,
+    adminApiAccessToken: accessToken,
+    apiKey: config.clientId,
+    apiSecretKey: config.clientSecret,
+    webhookSecret: config.clientSecret,
+    userId: statePayload.userId,
+    authMethod: 'oauth',
+    oauth: {
+      scope: tokenResponse.scope,
+      tokenType: config.useExpiringOfflineTokens ? 'expiring_offline' : 'offline',
+      expiresIn: tokenResponse.expires_in,
+      expiresAt: toFutureIso(tokenResponse.expires_in),
+      refreshToken: tokenResponse.refresh_token,
+      refreshTokenExpiresIn: tokenResponse.refresh_token_expires_in,
+      refreshTokenExpiresAt: toFutureIso(tokenResponse.refresh_token_expires_in),
+      installedAt: new Date().toISOString(),
+    },
+  })
+
+  return {
+    ...result,
+    shop,
+    userId: statePayload.userId,
+    returnTo: statePayload.returnTo,
+    scope: tokenResponse.scope,
+  }
 }
 
 const toShopifyGid = (resource: string, id: string | number) => {
@@ -119,6 +443,11 @@ export const getShopifyWebhookAddress = ({ requirePublic = false }: { requirePub
     return `http://localhost:${process.env.PORT || 5003}${SHOPIFY_ORDER_CREATED_WEBHOOK_PATH}`
   }
   return `${baseUrl}${SHOPIFY_ORDER_CREATED_WEBHOOK_PATH}`
+}
+
+export const getShopifyComplianceWebhookAddress = () => {
+  const baseUrl = String(process.env.API_URL || '').trim().replace(/\/+$/, '')
+  return baseUrl ? `${baseUrl}${SHOPIFY_COMPLIANCE_WEBHOOK_PATH}` : SHOPIFY_COMPLIANCE_WEBHOOK_PATH
 }
 
 export const shopifyGraphqlRequest = async <T = any>({
@@ -388,17 +717,7 @@ export const upsertShopifySettingsMetafield = async ({
   })
 
   const existingMetafield = metafieldData?.shop?.shiplifiSettings || metafieldData?.shop?.legacySettings
-  const existingMetafieldId = existingMetafield?.id
-  const mutation = existingMetafieldId
-    ? `
-      mutation ShiplifiSettingsMetafieldSet($metafields: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $metafields) {
-          metafields { id namespace key }
-          userErrors { field message }
-        }
-      }
-    `
-    : `
+  const mutation = `
       mutation ShiplifiSettingsMetafieldSet($metafields: [MetafieldsSetInput!]!) {
         metafieldsSet(metafields: $metafields) {
           metafields { id namespace key }
@@ -416,7 +735,7 @@ export const upsertShopifySettingsMetafield = async ({
     variables: {
       metafields: [
         {
-          ...(existingMetafieldId ? { id: existingMetafieldId } : { ownerId: ownerData.shop.id }),
+          ownerId: ownerData.shop.id,
           namespace: existingMetafield?.namespace || 'shiplifi',
           key: 'settings',
           type: 'json',
@@ -447,6 +766,20 @@ const getStoreForUser = async (userId: string, storeId?: string, tx: any = db) =
   return store as ShopifyStore | undefined
 }
 
+const getStoreForStatusSync = async (userId: string, storeId?: string, tx: any = db) => {
+  const normalizedStoreId = String(storeId || '').trim()
+  if (normalizedStoreId) {
+    const [store] = await tx
+      .select()
+      .from(stores)
+      .where(and(eq(stores.id, normalizedStoreId), eq(stores.platformId, SHOPIFY_PLATFORM_ID)))
+      .limit(1)
+    if (store) return store as ShopifyStore
+  }
+
+  return getStoreForUser(userId, undefined, tx)
+}
+
 const getStoresForUser = async (userId: string, tx: any = db) => {
   const rows = await tx
     .select()
@@ -464,6 +797,140 @@ const getStoreByDomain = async (domain: string, tx: any = db) => {
   return store as ShopifyStore | undefined
 }
 
+const toFutureIso = (seconds?: number) => {
+  const durationSeconds = Number(seconds)
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return undefined
+  return new Date(Date.now() + durationSeconds * 1000).toISOString()
+}
+
+const getStoreOAuthMetadata = (store: ShopifyStore): Record<string, any> => {
+  const metadata = ((store as any)?.metadata || {}) as Record<string, any>
+  return metadata.oauth && typeof metadata.oauth === 'object' ? metadata.oauth : {}
+}
+
+const shouldRefreshShopifyToken = (oauth: Record<string, any>) => {
+  if (oauth.tokenType !== 'expiring_offline') return false
+  if (!String(oauth.refreshToken || '').trim()) return false
+
+  const expiresAtMs = oauth.expiresAt ? new Date(oauth.expiresAt).getTime() : 0
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return true
+
+  const safetyBufferMs = Number(process.env.SHOPIFY_TOKEN_REFRESH_BUFFER_MS || 5 * 60 * 1000)
+  return expiresAtMs - Date.now() <= safetyBufferMs
+}
+
+const refreshShopifyOfflineAccessToken = async (store: ShopifyStore, tx: any = db) => {
+  const config = getShopifyOAuthConfig()
+  const oauth = getStoreOAuthMetadata(store)
+  const refreshToken = String(oauth.refreshToken || '').trim()
+  if (!refreshToken) {
+    throw new Error(`Shopify refresh token is missing for ${store.domain}. Reconnect the Shopify store.`)
+  }
+
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+  })
+
+  const response = await axios.post<ShopifyAccessTokenResponse>(
+    `https://${normalizeShopifyDomain(store.domain)}/admin/oauth/access_token`,
+    params.toString(),
+    {
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: SHOPIFY_API_TIMEOUT_MS,
+    },
+  )
+
+  const accessToken = String(response.data?.access_token || '').trim()
+  if (!accessToken) {
+    throw new Error(`Shopify refresh did not return an access token for ${store.domain}`)
+  }
+
+  const metadata = ((store as any)?.metadata || {}) as Record<string, any>
+  const refreshedOAuth = {
+    ...oauth,
+    tokenType: 'expiring_offline',
+    scope: response.data?.scope || oauth.scope,
+    expiresIn: response.data?.expires_in,
+    expiresAt: toFutureIso(response.data?.expires_in),
+    refreshToken: response.data?.refresh_token || refreshToken,
+    refreshTokenExpiresIn: response.data?.refresh_token_expires_in,
+    refreshTokenExpiresAt:
+      toFutureIso(response.data?.refresh_token_expires_in) || oauth.refreshTokenExpiresAt,
+    refreshedAt: new Date().toISOString(),
+  }
+
+  await tx
+    .update(stores)
+    .set({
+      adminApiAccessToken: accessToken,
+      metadata: {
+        ...metadata,
+        oauth: refreshedOAuth,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(stores.id, store.id))
+
+  ;(store as any).adminApiAccessToken = accessToken
+  ;(store as any).metadata = {
+    ...metadata,
+    oauth: refreshedOAuth,
+  }
+
+  return accessToken
+}
+
+const getShopifyAccessTokenForStore = async (store: ShopifyStore, tx: any = db) => {
+  const oauth = getStoreOAuthMetadata(store)
+  if (!shouldRefreshShopifyToken(oauth)) {
+    const token = String(store.adminApiAccessToken || '').trim()
+    if (!token) throw new Error(`Shopify access token is missing for ${store.domain}`)
+    return token
+  }
+
+  return refreshShopifyOfflineAccessToken(store, tx)
+}
+
+const shopifyStoreGraphqlRequest = async <T = any>({
+  store,
+  query,
+  variables,
+  timeout,
+  tx = db,
+}: {
+  store: ShopifyStore
+  query: string
+  variables?: Record<string, any>
+  timeout?: number
+  tx?: any
+}) =>
+  {
+    const request = async (accessToken: string) =>
+      shopifyGraphqlRequest<T>({
+        storeUrl: store.domain,
+        accessToken,
+        query,
+        variables,
+        timeout,
+      })
+
+    try {
+      return await request(await getShopifyAccessTokenForStore(store, tx))
+    } catch (error: any) {
+      const oauth = getStoreOAuthMetadata(store)
+      if (error?.statusCode === 401 && String(oauth.refreshToken || '').trim()) {
+        return request(await refreshShopifyOfflineAccessToken(store, tx))
+      }
+      throw error
+    }
+  }
+
 export const connectShopifyStore = async ({
   storeUrl,
   adminApiAccessToken,
@@ -472,6 +939,8 @@ export const connectShopifyStore = async ({
   apiSecretKey,
   webhookSecret,
   settings,
+  authMethod,
+  oauth,
   tx = db,
 }: ConnectShopifyStoreParams) => {
   const normalizedDomain = normalizeShopifyDomain(storeUrl)
@@ -483,6 +952,7 @@ export const connectShopifyStore = async ({
   const signingSecret = String(
     webhookSecret || apiSecretKey || process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_API_SECRET || '',
   ).trim()
+  const normalizedSettings = normalizeShopifySettings(settings)
   let savedStore: ShopifyStore | undefined
 
   await tx.transaction(async (innerTx: any) => {
@@ -509,9 +979,11 @@ export const connectShopifyStore = async ({
         email: shopifyData.email,
         phone: shopifyData.phone,
         zip: shopifyData.zip,
-        apiKey: String(apiKey || '').trim() || 'shopify_custom_app',
+        apiKey: String(apiKey || '').trim() || (authMethod === 'oauth' ? 'shopify_oauth_app' : 'shopify_custom_app'),
         adminApiAccessToken,
         shopifyWebhookSecret: signingSecret || undefined,
+        authMethod: authMethod || 'legacy_custom_app',
+        oauth: oauth || undefined,
         graphqlId: shopifyData.graphqlId,
         primaryDomain: shopifyData.primaryDomain,
         storeInfo: shopifyData.raw,
@@ -524,11 +996,13 @@ export const connectShopifyStore = async ({
     await innerTx
       .update(stores)
       .set({
-        settings: settings || {},
+        settings: normalizedSettings,
         metadata: {
           ...(existingGlobalStore?.metadata || {}),
           shopifyWebhookSecret: signingSecret || undefined,
           apiSecretKey: apiSecretKey ? 'configured' : undefined,
+          authMethod: authMethod || 'legacy_custom_app',
+          oauth: oauth || undefined,
           graphqlId: shopifyData.graphqlId,
           primaryDomain: shopifyData.primaryDomain,
           storeInfo: shopifyData.raw,
@@ -546,7 +1020,7 @@ export const connectShopifyStore = async ({
       await upsertShopifySettingsMetafield({
         storeUrl: normalizedDomain,
         accessToken: adminApiAccessToken,
-        settings,
+        settings: normalizedSettings,
         id: savedStore.id,
       })
     } catch (err: any) {
@@ -571,6 +1045,48 @@ export const connectShopifyStore = async ({
   }
 
   return { shopifyData, store: savedStore, webhooks, warning }
+}
+
+export const updateShopifyStoreSettingsForUser = async ({
+  userId,
+  storeId,
+  settings,
+  tx = db,
+}: {
+  userId: string
+  storeId?: string
+  settings: Record<string, any>
+  tx?: any
+}) => {
+  if (!userId) throw new Error('User ID is required')
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    throw new Error('Shopify settings payload is required')
+  }
+
+  const store = await getStoreForUser(userId, storeId, tx)
+  if (!store) throw new Error('No connected Shopify store found for this user')
+
+  const normalizedSettings = normalizeShopifySettings(settings)
+
+  await tx.update(stores).set({ settings: normalizedSettings, updatedAt: new Date() }).where(eq(stores.id, store.id))
+
+  let warning: string | null = null
+  try {
+    const accessToken = await getShopifyAccessTokenForStore(store, tx)
+    await upsertShopifySettingsMetafield({
+      storeUrl: store.domain,
+      accessToken,
+      settings: normalizedSettings,
+      id: store.id,
+      tx,
+    })
+  } catch (err: any) {
+    warning = 'Settings saved locally, but Shopify metafield sync failed'
+    console.warn('Shopify settings metafield update failed:', err?.response?.data || err?.message || err)
+  }
+
+  const [updatedStore] = await tx.select().from(stores).where(eq(stores.id, store.id)).limit(1)
+  return { store: updatedStore as ShopifyStore | undefined, warning }
 }
 
 const parseCsvTags = (value: unknown): string[] =>
@@ -720,7 +1236,15 @@ const mapAddressFromGraphql = (address: any) =>
       }
     : null
 
-const normalizeGraphqlOrder = (node: any) => {
+const isShopifyCustomerDataAccessError = (error: any) =>
+  /not approved to access the customer object|personally identifiable information|protected customer data/i.test(
+    String(error?.message || error || ''),
+  )
+
+const normalizeGraphqlOrder = (
+  node: any,
+  options: { piiAccessRestricted?: boolean } = {},
+) => {
   const legacyId = extractLegacyId(node?.legacyResourceId || node?.id)
   const tags = Array.isArray(node?.tags) ? node.tags.join(', ') : String(node?.tags || '')
   const lineItems = Array.isArray(node?.lineItems?.nodes) ? node.lineItems.nodes : []
@@ -734,14 +1258,15 @@ const normalizeGraphqlOrder = (node: any) => {
     created_at: node?.createdAt,
     updated_at: node?.updatedAt,
     cancelled_at: node?.cancelledAt,
-    email: node?.email || node?.customer?.email || '',
-    phone: node?.phone || node?.customer?.phone || '',
+    email: node?.email || '',
+    phone: node?.phone || '',
     financial_status: String(node?.displayFinancialStatus || '').toLowerCase(),
     fulfillment_status: String(node?.displayFulfillmentStatus || '').toLowerCase(),
     payment_gateway_names: node?.paymentGatewayNames || [],
     tags,
     total_price: moneyAmount(node?.currentTotalPriceSet ?? node?.totalPriceSet),
     total_discounts: moneyAmount(node?.currentTotalDiscountsSet ?? node?.totalDiscountsSet),
+    shopify_pii_restricted: options.piiAccessRestricted === true,
     shipping_lines: [
       {
         price: moneyAmount(node?.currentShippingPriceSet ?? node?.totalShippingPriceSet),
@@ -749,19 +1274,12 @@ const normalizeGraphqlOrder = (node: any) => {
     ],
     shipping_address: mapAddressFromGraphql(node?.shippingAddress),
     billing_address: mapAddressFromGraphql(node?.billingAddress),
-    customer: node?.customer
-      ? {
-          first_name: node.customer.firstName,
-          last_name: node.customer.lastName,
-          email: node.customer.email,
-          phone: node.customer.phone,
-        }
-      : null,
+    customer: null,
     line_items: lineItems.map((item: any) => ({
       id: extractLegacyId(item?.id),
       name: item?.name || item?.title,
       title: item?.title || item?.name,
-      sku: item?.sku || item?.variant?.sku,
+      sku: item?.sku,
       quantity: item?.quantity,
       price: moneyAmount(item?.originalUnitPriceSet),
       grams: Math.round(toNumber(node?.totalWeight, 0) / Math.max(1, totalQuantity)),
@@ -779,100 +1297,241 @@ const normalizeGraphqlOrder = (node: any) => {
   }
 }
 
-const fetchShopifyOrders = async (store: ShopifyStore, limit = 50) => {
-  const clampedLimit = Math.min(Math.max(limit, 1), 250)
-  const data = await shopifyGraphqlRequest<{
-    orders: { edges: Array<{ node: any }> }
-  }>({
-    storeUrl: store.domain,
-    accessToken: String(store.adminApiAccessToken || '').trim(),
-    query: `
-      query ShiplifiOrders($first: Int!) {
-        orders(first: $first, sortKey: CREATED_AT, reverse: true) {
-          edges {
-            node {
+const appendOrderNumberSuffix = (base: string, suffix: string) => {
+  const cleanBase = String(base || '').trim() || 'SHOPIFY'
+  const cleanSuffix = String(suffix || '').replace(/[^a-zA-Z0-9-]/g, '').slice(-16)
+  const ending = cleanSuffix ? `-${cleanSuffix}` : ''
+  return `${cleanBase.slice(0, Math.max(1, 50 - ending.length))}${ending}`.slice(0, 50)
+}
+
+const resolveShopifyOrderNumber = async ({
+  tx,
+  userId,
+  baseOrderNumber,
+  storeId,
+  shopifyOrderId,
+  internalOrderId,
+  legacyInternalOrderId,
+  targetId,
+}: {
+  tx: any
+  userId: string
+  baseOrderNumber: string
+  storeId: string
+  shopifyOrderId: string
+  internalOrderId: string
+  legacyInternalOrderId: string
+  targetId?: string | null
+}) => {
+  const base = String(baseOrderNumber || '').trim().slice(0, 50) || shopifyOrderId.slice(-12)
+  const suffixBase = `${String(storeId || '').slice(-4)}${String(shopifyOrderId || '').slice(-6)}`
+  const candidates = [
+    base,
+    appendOrderNumberSuffix(base, suffixBase),
+    appendOrderNumberSuffix(base, String(shopifyOrderId || '').slice(-10)),
+  ]
+
+  for (let attempt = 2; attempt <= 20; attempt += 1) {
+    candidates.push(appendOrderNumberSuffix(base, `${suffixBase}-${attempt}`))
+  }
+
+  for (const candidate of candidates) {
+    const [conflict] = await tx
+      .select({ id: b2c_orders.id, order_id: b2c_orders.order_id })
+      .from(b2c_orders)
+      .where(and(eq(b2c_orders.user_id, userId), eq(b2c_orders.order_number, candidate)))
+      .limit(1)
+
+    if (!conflict) return candidate
+    if (targetId && conflict.id === targetId) return candidate
+    if ([internalOrderId, legacyInternalOrderId].includes(String(conflict.order_id || ''))) {
+      return candidate
+    }
+  }
+
+  return appendOrderNumberSuffix(base, `${suffixBase}-${Date.now().toString(36).slice(-4)}`)
+}
+
+const isSameShopifyOrderRow = (
+  row: { order_id?: string | null; provider_meta?: any } | undefined,
+  {
+    storeId,
+    shopifyOrderId,
+    internalOrderId,
+    legacyInternalOrderId,
+  }: {
+    storeId: string
+    shopifyOrderId: string
+    internalOrderId: string
+    legacyInternalOrderId: string
+  },
+) => {
+  if (!row) return false
+
+  const orderId = String(row.order_id || '')
+  if ([internalOrderId, legacyInternalOrderId].includes(orderId)) return true
+
+  const providerMeta = row.provider_meta && typeof row.provider_meta === 'object' ? row.provider_meta : {}
+  return (
+    String(providerMeta.source || '').toLowerCase() === 'shopify' &&
+    String(providerMeta.shopify_store_id || '') === String(storeId) &&
+    String(providerMeta.shopify_order_id || '') === String(shopifyOrderId)
+  )
+}
+
+const SHOPIFY_ORDERS_QUERY = `
+  query ShiplifiOrders($first: Int!) {
+    orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+      edges {
+        node {
+          id
+          legacyResourceId
+          name
+          number
+          createdAt
+          updatedAt
+          cancelledAt
+          email
+          phone
+          displayFinancialStatus
+          displayFulfillmentStatus
+          paymentGatewayNames
+          tags
+          totalWeight
+          currentTotalPriceSet { shopMoney { amount currencyCode } }
+          totalPriceSet { shopMoney { amount currencyCode } }
+          currentShippingPriceSet { shopMoney { amount currencyCode } }
+          totalShippingPriceSet { shopMoney { amount currencyCode } }
+          currentTotalDiscountsSet { shopMoney { amount currencyCode } }
+          totalDiscountsSet { shopMoney { amount currencyCode } }
+          shippingAddress {
+            name
+            firstName
+            lastName
+            address1
+            address2
+            city
+            province
+            provinceCode
+            country
+            countryCodeV2
+            zip
+            phone
+          }
+          billingAddress {
+            name
+            firstName
+            lastName
+            address1
+            address2
+            city
+            province
+            provinceCode
+            country
+            countryCodeV2
+            zip
+            phone
+          }
+          lineItems(first: 100) {
+            nodes {
               id
-              legacyResourceId
               name
-              number
-              createdAt
-              updatedAt
-              cancelledAt
-              email
-              phone
-              displayFinancialStatus
-              displayFulfillmentStatus
-              paymentGatewayNames
-              tags
-              totalWeight
-              currentTotalPriceSet { shopMoney { amount currencyCode } }
-              totalPriceSet { shopMoney { amount currencyCode } }
-              currentShippingPriceSet { shopMoney { amount currencyCode } }
-              totalShippingPriceSet { shopMoney { amount currencyCode } }
-              currentTotalDiscountsSet { shopMoney { amount currencyCode } }
-              totalDiscountsSet { shopMoney { amount currencyCode } }
-              customer {
-                firstName
-                lastName
-                email
-                phone
-              }
-              shippingAddress {
-                name
-                firstName
-                lastName
-                address1
-                address2
-                city
-                province
-                provinceCode
-                country
-                countryCodeV2
-                zip
-                phone
-              }
-              billingAddress {
-                name
-                firstName
-                lastName
-                address1
-                address2
-                city
-                province
-                provinceCode
-                country
-                countryCodeV2
-                zip
-                phone
-              }
-              lineItems(first: 100) {
-                nodes {
-                  id
-                  name
-                  title
-                  sku
-                  quantity
-                  originalUnitPriceSet { shopMoney { amount currencyCode } }
-                  totalDiscountSet { shopMoney { amount currencyCode } }
-                  taxLines {
-                    rate
-                    ratePercentage
-                  }
-                  variant {
-                    sku
-                  }
-                }
+              title
+              sku
+              quantity
+              originalUnitPriceSet { shopMoney { amount currencyCode } }
+              totalDiscountSet { shopMoney { amount currencyCode } }
+              taxLines {
+                rate
+                ratePercentage
               }
             }
           }
         }
       }
-    `,
-    variables: { first: clampedLimit },
-    timeout: 30000,
-  })
+    }
+  }
+`
 
-  return (data?.orders?.edges || []).map((edge) => normalizeGraphqlOrder(edge.node))
+const SHOPIFY_ORDERS_RESTRICTED_QUERY = `
+  query ShiplifiOrdersRestricted($first: Int!) {
+    orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+      edges {
+        node {
+          id
+          legacyResourceId
+          name
+          number
+          createdAt
+          updatedAt
+          cancelledAt
+          displayFinancialStatus
+          displayFulfillmentStatus
+          paymentGatewayNames
+          tags
+          totalWeight
+          currentTotalPriceSet { shopMoney { amount currencyCode } }
+          totalPriceSet { shopMoney { amount currencyCode } }
+          currentShippingPriceSet { shopMoney { amount currencyCode } }
+          totalShippingPriceSet { shopMoney { amount currencyCode } }
+          currentTotalDiscountsSet { shopMoney { amount currencyCode } }
+          totalDiscountsSet { shopMoney { amount currencyCode } }
+          lineItems(first: 100) {
+            nodes {
+              id
+              name
+              title
+              sku
+              quantity
+              originalUnitPriceSet { shopMoney { amount currencyCode } }
+              totalDiscountSet { shopMoney { amount currencyCode } }
+              taxLines {
+                rate
+                ratePercentage
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+const fetchShopifyOrders = async (store: ShopifyStore, limit = 50) => {
+  const clampedLimit = Math.min(Math.max(limit, 1), 250)
+  let piiAccessRestricted = false
+  let data: { orders: { edges: Array<{ node: any }> } }
+
+  try {
+    data = await shopifyStoreGraphqlRequest<{
+      orders: { edges: Array<{ node: any }> }
+    }>({
+      store,
+      query: SHOPIFY_ORDERS_QUERY,
+      variables: { first: clampedLimit },
+      timeout: 30000,
+    })
+  } catch (error: any) {
+    if (!isShopifyCustomerDataAccessError(error)) throw error
+
+    piiAccessRestricted = true
+    console.warn('[Shopify] Customer data access restricted; syncing non-PII order fields only', {
+      storeId: store.id,
+      domain: store.domain,
+    })
+    data = await shopifyStoreGraphqlRequest<{
+      orders: { edges: Array<{ node: any }> }
+    }>({
+      store,
+      query: SHOPIFY_ORDERS_RESTRICTED_QUERY,
+      variables: { first: clampedLimit },
+      timeout: 30000,
+    })
+  }
+
+  return (data?.orders?.edges || []).map((edge) =>
+    normalizeGraphqlOrder(edge.node, { piiAccessRestricted }),
+  )
 }
 
 const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings: any, tx: any = db) => {
@@ -897,10 +1556,68 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   const declaredWeight = totalWeightGrams > 0 ? totalWeightGrams : 500
   const orderAmount = toNumber(order?.total_price, 0)
   const orderName = String(order?.name || order?.order_number || shopifyOrderId).trim()
+  const piiAccessRestricted = order?.shopify_pii_restricted === true
+  const existingTags = String(order?.tags || '').trim()
+  const syncTags = existingTags || `shopify_store:${store.id}`
+  const providerMeta = {
+    source: 'shopify',
+    shopify_store_id: String(store.id),
+    shopify_order_id: shopifyOrderId,
+    shopify_pii_restricted: piiAccessRestricted,
+    customer_data_note: piiAccessRestricted
+      ? 'Shopify did not grant this app access to customer PII; buyer address and phone were not available during sync.'
+      : undefined,
+  }
+
+  const [existing] = await tx
+    .select({
+      id: b2c_orders.id,
+      order_number: b2c_orders.order_number,
+      order_status: b2c_orders.order_status,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+      provider_meta: b2c_orders.provider_meta,
+      provider_service: b2c_orders.provider_service,
+    })
+    .from(b2c_orders)
+    .where(eq(b2c_orders.order_id, internalOrderId))
+    .limit(1)
+
+  const [legacyExisting] = existing
+    ? [undefined]
+    : await tx
+        .select({
+          id: b2c_orders.id,
+          order_number: b2c_orders.order_number,
+          order_status: b2c_orders.order_status,
+          awb_number: b2c_orders.awb_number,
+          courier_partner: b2c_orders.courier_partner,
+          integration_type: b2c_orders.integration_type,
+          provider_meta: b2c_orders.provider_meta,
+          provider_service: b2c_orders.provider_service,
+        })
+        .from(b2c_orders)
+        .where(eq(b2c_orders.order_id, legacyInternalOrderId))
+        .limit(1)
+
+  const targetOrder = (existing || legacyExisting || null) as ExistingShopifyOrderRow | null
+  const targetId = targetOrder?.id || null
+  const resolvedOrderNumber = targetId
+    ? String(existing?.order_number || legacyExisting?.order_number || orderName).slice(0, 50)
+    : await resolveShopifyOrderNumber({
+        tx,
+        userId: store.userId,
+        baseOrderNumber: orderName,
+        storeId: String(store.id),
+        shopifyOrderId,
+        internalOrderId,
+        legacyInternalOrderId,
+      })
 
   const updatePayload: Partial<typeof b2c_orders.$inferInsert> = {
     user_id: store.userId,
-    order_number: orderName.slice(0, 50),
+    order_number: resolvedOrderNumber,
     order_date: String(order?.created_at || new Date().toISOString()).slice(0, 50),
     order_amount: orderAmount,
     order_id: internalOrderId,
@@ -934,40 +1651,166 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
     discount: toNumber(order?.total_discounts, 0),
     order_status: mappedStatus,
     courier_partner: 'Shopify',
+    provider_meta: providerMeta,
     integration_type: 'shopify',
     is_external_api: false,
-    tags: String(order?.tags || '').slice(0, 200) || `shopify_store:${store.id}`,
+    tags: syncTags.slice(0, 200),
     updated_at: new Date(),
   }
 
-  const [existing] = await tx
-    .select({ id: b2c_orders.id })
-    .from(b2c_orders)
-    .where(eq(b2c_orders.order_id, internalOrderId))
-    .limit(1)
+  const buildBookedUpdatePayload = (
+    row: ExistingShopifyOrderRow | null | undefined,
+    payload: Partial<typeof b2c_orders.$inferInsert> = updatePayload,
+  ) => {
+    if (!row?.awb_number) return payload
 
-  const [legacyExisting] = existing
-    ? [undefined]
-    : await tx
-        .select({ id: b2c_orders.id })
-        .from(b2c_orders)
-        .where(eq(b2c_orders.order_id, legacyInternalOrderId))
-        .limit(1)
+    const existingProviderMeta =
+      row.provider_meta && typeof row.provider_meta === 'object' && !Array.isArray(row.provider_meta)
+        ? row.provider_meta
+        : {}
+    const providerMetaCourierName = getProviderMetaCourierName(existingProviderMeta)
+    const bookedProviderKey = resolveCourierProviderKeyFromFields(
+      row.integration_type,
+      row.courier_partner,
+      providerMetaCourierName,
+      row.provider_service,
+    )
 
-  if (existing?.id || legacyExisting?.id) {
-    const targetId = existing?.id || legacyExisting?.id
+    return {
+      ...payload,
+      order_status:
+        String(payload.order_status || '').toLowerCase() === 'cancelled'
+          ? payload.order_status
+          : row.order_status || payload.order_status,
+      courier_partner:
+        providerMetaCourierName ||
+        (bookedProviderKey ? getCourierProviderDisplayName(bookedProviderKey) : '') ||
+        row.courier_partner ||
+        payload.courier_partner,
+      integration_type: bookedProviderKey || row.integration_type || payload.integration_type,
+      provider_meta: {
+        ...existingProviderMeta,
+        ...providerMeta,
+      },
+    }
+  }
+
+  if (targetOrder?.id) {
     await tx
       .update(b2c_orders)
-      .set({ ...updatePayload, order_id: internalOrderId })
-      .where(eq(b2c_orders.id, targetId as string))
+      .set({ ...buildBookedUpdatePayload(targetOrder), order_id: internalOrderId })
+      .where(eq(b2c_orders.id, targetOrder.id))
     return 'updated' as const
   }
 
-  await tx.insert(b2c_orders).values({
-    ...updatePayload,
-    created_at: new Date(),
-  } as any)
-  return 'created' as const
+  const updateExistingOrder = async (
+    row: ExistingShopifyOrderRow,
+    payload: Partial<typeof b2c_orders.$inferInsert> = updatePayload,
+  ) => {
+    await tx
+      .update(b2c_orders)
+      .set({ ...buildBookedUpdatePayload(row, payload), order_id: internalOrderId })
+      .where(eq(b2c_orders.id, row.id))
+    return 'updated' as const
+  }
+
+  const tryInsertOrder = async (payload: Partial<typeof b2c_orders.$inferInsert>) => {
+    const [inserted] = await tx
+      .insert(b2c_orders)
+      .values({
+        ...payload,
+        created_at: new Date(),
+      } as any)
+      .onConflictDoNothing({
+        target: [b2c_orders.user_id, b2c_orders.order_number],
+      })
+      .returning({ id: b2c_orders.id })
+
+    return inserted?.id ? 'created' as const : null
+  }
+
+  const inserted = await tryInsertOrder(updatePayload)
+  if (inserted) return inserted
+
+  const [orderNumberConflict] = await tx
+    .select({
+      id: b2c_orders.id,
+      order_id: b2c_orders.order_id,
+      order_status: b2c_orders.order_status,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+      provider_meta: b2c_orders.provider_meta,
+      provider_service: b2c_orders.provider_service,
+    })
+    .from(b2c_orders)
+    .where(and(eq(b2c_orders.user_id, store.userId), eq(b2c_orders.order_number, resolvedOrderNumber)))
+    .limit(1)
+
+  if (
+    isSameShopifyOrderRow(orderNumberConflict, {
+      storeId: String(store.id),
+      shopifyOrderId,
+      internalOrderId,
+      legacyInternalOrderId,
+    })
+  ) {
+    return updateExistingOrder(orderNumberConflict)
+  }
+
+  const fallbackOrderNumber = await resolveShopifyOrderNumber({
+    tx,
+    userId: store.userId,
+    baseOrderNumber: appendOrderNumberSuffix(
+      orderName,
+      `${String(store.id || '').slice(-4)}${String(shopifyOrderId || '').slice(-6)}-${Date.now().toString(36).slice(-4)}`,
+    ),
+    storeId: String(store.id),
+    shopifyOrderId,
+    internalOrderId,
+    legacyInternalOrderId,
+  })
+  const fallbackPayload = { ...updatePayload, order_number: fallbackOrderNumber }
+  const fallbackInserted = await tryInsertOrder(fallbackPayload)
+  if (fallbackInserted) return fallbackInserted
+
+  const [fallbackConflict] = await tx
+    .select({
+      id: b2c_orders.id,
+      order_id: b2c_orders.order_id,
+      order_status: b2c_orders.order_status,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+      provider_meta: b2c_orders.provider_meta,
+      provider_service: b2c_orders.provider_service,
+    })
+    .from(b2c_orders)
+    .where(and(eq(b2c_orders.user_id, store.userId), eq(b2c_orders.order_number, fallbackOrderNumber)))
+    .limit(1)
+
+  if (
+    isSameShopifyOrderRow(fallbackConflict, {
+      storeId: String(store.id),
+      shopifyOrderId,
+      internalOrderId,
+      legacyInternalOrderId,
+    })
+  ) {
+    return updateExistingOrder(fallbackConflict, fallbackPayload)
+  }
+
+  const lastChancePayload = {
+    ...fallbackPayload,
+    order_number: appendOrderNumberSuffix(
+      orderName,
+      `${String(store.id || '').slice(-4)}${String(shopifyOrderId || '').slice(-6)}-${Date.now().toString(36)}`,
+    ),
+  }
+  const lastChanceInserted = await tryInsertOrder(lastChancePayload)
+  if (lastChanceInserted) return lastChanceInserted
+
+  throw new Error(`Could not reserve a unique Shopify order number for order ${shopifyOrderId}`)
 }
 
 export const syncShopifyOrdersForUser = async (
@@ -987,7 +1830,7 @@ export const syncShopifyOrdersForUser = async (
 
   for (const store of storesToSync) {
     const orders = await fetchShopifyOrders(store as ShopifyStore, limit)
-    const settings = (store as any)?.settings || {}
+    const settings = normalizeShopifySettings((store as any)?.settings || {})
     for (const order of orders) {
       const state = await upsertFromShopifyOrder(store as ShopifyStore, order, settings, tx)
       result[state] += 1
@@ -1024,6 +1867,7 @@ const getStoreWebhookSecret = (store: ShopifyStore): string => {
     metadata.webhookSecret,
     metadata.apiSecret,
     metadata.apiSecretKey,
+    process.env.SHOPIFY_CLIENT_SECRET,
     process.env.SHOPIFY_WEBHOOK_SECRET,
     process.env.SHOPIFY_API_SECRET,
     process.env.SHOPIFY_API_SECRET_KEY,
@@ -1044,18 +1888,161 @@ export const verifyShopifyWebhookSignatureForDomain = async (
   const store = await getStoreByDomain(shopDomain, tx)
   if (!store) {
     const configured = getConfiguredShopifyCredentials()
-    if (
-      configured.webhookSecret &&
-      configured.storeUrl &&
-      configured.storeUrl === normalizeShopifyDomain(shopDomain)
-    ) {
-      return verifyShopifyWebhookSignatureWithSecret(rawBody, receivedHmac, configured.webhookSecret)
+    const fallbackSecret = String(
+      process.env.SHOPIFY_CLIENT_SECRET || configured.webhookSecret || '',
+    ).trim()
+    if (fallbackSecret) {
+      return verifyShopifyWebhookSignatureWithSecret(rawBody, receivedHmac, fallbackSecret)
     }
     return false
   }
   const secret = getStoreWebhookSecret(store)
   if (!secret) return false
   return verifyShopifyWebhookSignatureWithSecret(rawBody, receivedHmac, secret)
+}
+
+const buildShopifyOrderIdsForPayload = (store: ShopifyStore, orderIds: unknown[] = []) =>
+  orderIds
+    .map((orderId) => String(orderId || '').trim())
+    .filter(Boolean)
+    .flatMap((orderId) => [buildInternalOrderId(String(store.id), orderId), `shopify_${orderId}`])
+
+const redactShopifyOrderCustomerData = async ({
+  store,
+  payload,
+  scope,
+  tx = db,
+}: {
+  store: ShopifyStore
+  payload?: any
+  scope: 'customer' | 'shop'
+  tx?: any
+}) => {
+  const redactedAt = new Date()
+  const ordersToRedact = Array.isArray(payload?.orders_to_redact)
+    ? payload.orders_to_redact
+    : Array.isArray(payload?.orders_requested)
+      ? payload.orders_requested
+      : []
+  const orderIds = buildShopifyOrderIdsForPayload(store, ordersToRedact)
+  const customerEmail = String(payload?.customer?.email || '').trim().toLowerCase()
+  const customerPhone = String(payload?.customer?.phone || '').trim()
+
+  const redactedFields = {
+    buyer_name: 'Redacted Shopify customer',
+    buyer_phone: '',
+    buyer_email: null,
+    address: 'Redacted by Shopify privacy request',
+    city: 'Redacted',
+    state: 'Redacted',
+    pincode: '000000',
+    tags: scope === 'shop' ? 'shopify,privacy_redacted,shop_redacted' : 'shopify,privacy_redacted',
+    updated_at: redactedAt,
+  }
+
+  if (orderIds.length > 0) {
+    await tx.update(b2c_orders).set(redactedFields).where(inArray(b2c_orders.order_id, orderIds))
+  }
+
+  if (scope === 'shop') {
+    await tx
+      .update(b2c_orders)
+      .set(redactedFields)
+      .where(sql`${b2c_orders.order_id} LIKE ${`shopify_${store.id}_%`}`)
+    return
+  }
+
+  if (customerEmail || customerPhone) {
+    await tx
+      .update(b2c_orders)
+      .set(redactedFields)
+      .where(sql`
+        ${b2c_orders.order_id} LIKE ${`shopify_${store.id}_%`}
+        AND (
+          ${customerEmail ? sql`lower(coalesce(${b2c_orders.buyer_email}, '')) = ${customerEmail}` : sql`false`}
+          OR ${customerPhone ? sql`coalesce(${b2c_orders.buyer_phone}, '') = ${customerPhone}` : sql`false`}
+        )
+      `)
+  }
+}
+
+const getShopifyDataRequestSummary = async ({
+  store,
+  payload,
+  tx = db,
+}: {
+  store: ShopifyStore
+  payload?: any
+  tx?: any
+}) => {
+  const requestedOrderIds = Array.isArray(payload?.orders_requested) ? payload.orders_requested : []
+  const orderIds = buildShopifyOrderIdsForPayload(store, requestedOrderIds)
+  const customerEmail = String(payload?.customer?.email || '').trim().toLowerCase()
+  const customerPhone = String(payload?.customer?.phone || '').trim()
+
+  if (!orderIds.length && !customerEmail && !customerPhone) {
+    return { matchingOrders: 0, requestedOrders: requestedOrderIds.length }
+  }
+
+  const rows = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(b2c_orders)
+    .where(sql`
+      ${b2c_orders.order_id} LIKE ${`shopify_${store.id}_%`}
+      AND (
+        ${orderIds.length ? sql`${b2c_orders.order_id} IN (${sql.join(orderIds.map((id) => sql`${id}`), sql`, `)})` : sql`false`}
+        OR ${customerEmail ? sql`lower(coalesce(${b2c_orders.buyer_email}, '')) = ${customerEmail}` : sql`false`}
+        OR ${customerPhone ? sql`coalesce(${b2c_orders.buyer_phone}, '') = ${customerPhone}` : sql`false`}
+      )
+    `)
+
+  return {
+    matchingOrders: Number(rows?.[0]?.count || 0),
+    requestedOrders: requestedOrderIds.length,
+  }
+}
+
+export const processShopifyComplianceWebhook = async (
+  shopDomain: string,
+  topic: string,
+  payload: any,
+  tx: any = db,
+) => {
+  const normalizedTopic = String(topic || '').toLowerCase()
+  if (!SHOPIFY_COMPLIANCE_TOPICS.includes(normalizedTopic as any)) {
+    return { success: true, action: 'ignored_topic' }
+  }
+
+  const store = await getStoreByDomain(shopDomain, tx)
+  if (!store) {
+    return { success: true, action: 'store_not_found', shopDomain: normalizeShopifyDomain(shopDomain) }
+  }
+
+  if (normalizedTopic === 'customers/data_request') {
+    const summary = await getShopifyDataRequestSummary({ store, payload, tx })
+    console.log('Shopify customer data request received', {
+      shopDomain: normalizeShopifyDomain(shopDomain),
+      storeId: store.id,
+      dataRequestId: payload?.data_request?.id,
+      customerId: payload?.customer?.id,
+      ...summary,
+    })
+    return { success: true, action: 'data_request_logged', ...summary }
+  }
+
+  if (normalizedTopic === 'customers/redact') {
+    await redactShopifyOrderCustomerData({ store, payload, scope: 'customer', tx })
+    return { success: true, action: 'customer_data_redacted' }
+  }
+
+  if (normalizedTopic === 'shop/redact') {
+    await redactShopifyOrderCustomerData({ store, payload, scope: 'shop', tx })
+    await setUserChannelIntegration(store.userId, SHOPIFY_PLATFORM_ID, false, tx)
+    await tx.delete(stores).where(eq(stores.id, store.id))
+    return { success: true, action: 'shop_data_redacted' }
+  }
+
+  return { success: true, action: 'ignored_topic' }
 }
 
 export const processShopifyWebhookOrder = async (
@@ -1068,7 +2055,7 @@ export const processShopifyWebhookOrder = async (
   if (!store) {
     return { success: false, reason: 'store_not_found' }
   }
-  const settings = (store as any)?.settings || {}
+  const settings = normalizeShopifySettings((store as any)?.settings || {})
   const normalizedTopic = String(topic || '').toLowerCase()
 
   if (normalizedTopic.includes('orders/create') || normalizedTopic.includes('orders/updated')) {
@@ -1095,7 +2082,7 @@ export const processShopifyWebhookOrder = async (
 }
 
 const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId: string) => {
-  const data = await shopifyGraphqlRequest<{
+  const data = await shopifyStoreGraphqlRequest<{
     order: {
       id: string
       tags: string[]
@@ -1105,10 +2092,16 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
       fulfillmentOrders: {
         nodes: Array<{ id: string; status: string; requestStatus?: string }>
       }
+      fulfillments: {
+        nodes: Array<{
+          id: string
+          status?: string
+          trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
+        }>
+      }
     } | null
   }>({
-    storeUrl: store.domain,
-    accessToken: String(store.adminApiAccessToken || '').trim(),
+    store,
     query: `
       query ShiplifiOrderStatusSync($id: ID!) {
         order(id: $id) {
@@ -1122,6 +2115,17 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
               id
               status
               requestStatus
+            }
+          }
+          fulfillments(first: 20) {
+            nodes {
+              id
+              status
+              trackingInfo {
+                company
+                number
+                url
+              }
             }
           }
         }
@@ -1159,15 +2163,15 @@ const createShopifyFulfillment = async ({
   if (trackingNumber) {
     fulfillment.trackingInfo = {
       number: trackingNumber,
-      company: String(courierPartner || 'Feather Global').slice(0, 255),
+      company: String(courierPartner || 'Shiplifi').slice(0, 255),
+      url: buildTrackingUrl(trackingNumber),
     }
   }
 
-  const data = await shopifyGraphqlRequest<{
+  const data = await shopifyStoreGraphqlRequest<{
     fulfillmentCreate: { userErrors: Array<{ field?: string[]; message: string }> }
   }>({
-    storeUrl: store.domain,
-    accessToken: String(store.adminApiAccessToken || '').trim(),
+    store,
     query: `
       mutation ShiplifiFulfillmentCreate($fulfillment: FulfillmentInput!) {
         fulfillmentCreate(fulfillment: $fulfillment) {
@@ -1180,14 +2184,81 @@ const createShopifyFulfillment = async ({
   })
 
   assertNoUserErrors('Shopify fulfillmentCreate failed', data?.fulfillmentCreate?.userErrors)
+  return data?.fulfillmentCreate
+}
+
+const buildTrackingUrl = (trackingNumber: string) => {
+  const awb = String(trackingNumber || '').trim()
+  if (!awb) return undefined
+
+  const frontendUrl = String(
+    process.env.FRONTEND_URL ||
+      process.env.CLIENT_URL ||
+      process.env.APP_URL ||
+      'https://app.shiplifi.com',
+  )
+    .trim()
+    .replace(/\/+$/, '')
+
+  return `${frontendUrl}/tracking?awb=${encodeURIComponent(awb)}`
+}
+
+const updateShopifyFulfillmentTracking = async ({
+  store,
+  fulfillmentId,
+  trackingNumber,
+  courierPartner,
+  notifyCustomer,
+}: {
+  store: ShopifyStore
+  fulfillmentId: string
+  trackingNumber: string
+  courierPartner?: string
+  notifyCustomer: boolean
+}) => {
+  const data = await shopifyStoreGraphqlRequest<{
+    fulfillmentTrackingInfoUpdate: { userErrors: Array<{ field?: string[]; message: string }> }
+  }>({
+    store,
+    query: `
+      mutation ShiplifiFulfillmentTrackingUpdate(
+        $fulfillmentId: ID!,
+        $trackingInfoInput: FulfillmentTrackingInput!,
+        $notifyCustomer: Boolean
+      ) {
+        fulfillmentTrackingInfoUpdate(
+          fulfillmentId: $fulfillmentId,
+          trackingInfoInput: $trackingInfoInput,
+          notifyCustomer: $notifyCustomer
+        ) {
+          fulfillment { id status }
+          userErrors { field message }
+        }
+      }
+    `,
+    variables: {
+      fulfillmentId,
+      notifyCustomer,
+      trackingInfoInput: {
+        number: trackingNumber,
+        company: String(courierPartner || 'Shiplifi').slice(0, 255),
+        url: buildTrackingUrl(trackingNumber),
+      },
+    },
+  })
+
+  assertNoUserErrors(
+    'Shopify fulfillmentTrackingInfoUpdate failed',
+    data?.fulfillmentTrackingInfoUpdate?.userErrors,
+  )
+  return data?.fulfillmentTrackingInfoUpdate
 }
 
 const updateShopifyOrderTags = async (store: ShopifyStore, shopifyOrderId: string, tags: string[]) => {
-  const data = await shopifyGraphqlRequest<{
+  const data = await shopifyStoreGraphqlRequest<{
     orderUpdate: { userErrors: Array<{ field?: string[]; message: string }> }
   }>({
-    storeUrl: store.domain,
-    accessToken: String(store.adminApiAccessToken || '').trim(),
+    store,
     query: `
       mutation ShiplifiOrderTagsUpdate($input: OrderInput!) {
         orderUpdate(input: $input) {
@@ -1208,14 +2279,13 @@ const updateShopifyOrderTags = async (store: ShopifyStore, shopifyOrderId: strin
 }
 
 const cancelShopifyOrder = async (store: ShopifyStore, shopifyOrderId: string) => {
-  const data = await shopifyGraphqlRequest<{
+  const data = await shopifyStoreGraphqlRequest<{
     orderCancel: {
       orderCancelUserErrors?: Array<{ field?: string[]; message: string }>
       userErrors?: Array<{ field?: string[]; message: string }>
     }
   }>({
-    storeUrl: store.domain,
-    accessToken: String(store.adminApiAccessToken || '').trim(),
+    store,
     query: `
       mutation ShiplifiOrderCancel(
         $orderId: ID!,
@@ -1245,7 +2315,7 @@ const cancelShopifyOrder = async (store: ShopifyStore, shopifyOrderId: string) =
       refundMethod: { originalPaymentMethodsRefund: false },
       restock: false,
       reason: 'OTHER',
-      staffNote: 'Cancelled from Feather Global shipment status sync.',
+      staffNote: 'Cancelled from Shiplifi shipment status sync.',
     },
   })
 
@@ -1256,11 +2326,10 @@ const cancelShopifyOrder = async (store: ShopifyStore, shopifyOrderId: string) =
 }
 
 const markShopifyOrderAsPaid = async (store: ShopifyStore, shopifyOrderId: string) => {
-  const data = await shopifyGraphqlRequest<{
+  const data = await shopifyStoreGraphqlRequest<{
     orderMarkAsPaid: { userErrors: Array<{ field?: string[]; message: string }> }
   }>({
-    storeUrl: store.domain,
-    accessToken: String(store.adminApiAccessToken || '').trim(),
+    store,
     query: `
       mutation ShiplifiOrderMarkAsPaid($input: OrderMarkAsPaidInput!) {
         orderMarkAsPaid(input: $input) {
@@ -1275,22 +2344,57 @@ const markShopifyOrderAsPaid = async (store: ShopifyStore, shopifyOrderId: strin
   assertNoUserErrors('Shopify orderMarkAsPaid failed', data?.orderMarkAsPaid?.userErrors)
 }
 
-export const syncShopifyStatusForLocalOrder = async (order: any, tx: any = db) => {
+export const syncShopifyStatusForLocalOrder = async (
+  order: any,
+  tx: any = db,
+  options: { source?: string } = {},
+) => {
   const localOrderId = String(order?.order_id || '')
-  if (!localOrderId.startsWith('shopify_')) return
+  if (!localOrderId.startsWith('shopify_')) {
+    return { attempted: false, success: true, channel: 'shopify', reason: 'not_a_shopify_order' }
+  }
 
   const parsed = parseInternalShopifyOrderId(localOrderId)
   const shopifyOrderId = parsed.shopifyOrderId || ''
-  if (!shopifyOrderId) return
+  if (!shopifyOrderId) {
+    return { attempted: false, success: false, channel: 'shopify', reason: 'missing_shopify_order_id' }
+  }
 
-  const store = await getStoreForUser(order.user_id, parsed.storeId, tx)
-  if (!store) return
-  const settings = (store as any)?.settings || {}
+  const store = await getStoreForStatusSync(order.user_id, parsed.storeId, tx)
+  if (!store) {
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'shopify',
+        status: 'failed',
+        source: options.source,
+        reason: 'store_not_found',
+      },
+      tx,
+    )
+    return { attempted: false, success: false, channel: 'shopify', reason: 'store_not_found' }
+  }
+
+  const settings = normalizeShopifySettings((store as any)?.settings || {})
   const orderStatus = String(order?.order_status || '').toLowerCase()
+  const trackingNumber = String(order?.awb_number || '').trim()
+  const actions: string[] = []
 
   try {
     const remoteOrder = await getShopifyOrderForStatusSync(store, shopifyOrderId)
-    if (!remoteOrder) return
+    if (!remoteOrder) {
+      await recordSalesChannelSyncOutcome(
+        order,
+        {
+          channel: 'shopify',
+          status: 'failed',
+          source: options.source,
+          reason: 'remote_order_not_found',
+        },
+        tx,
+      )
+      return { attempted: true, success: false, channel: 'shopify', reason: 'remote_order_not_found' }
+    }
 
     if (shouldAttemptFulfillment(orderStatus, settings?.fulfillTrigger)) {
       const isAlreadyFulfilled = String(remoteOrder.displayFulfillmentStatus || '').toUpperCase() === 'FULFILLED'
@@ -1304,11 +2408,44 @@ export const syncShopifyStatusForLocalOrder = async (order: any, tx: any = db) =
         await createShopifyFulfillment({
           store,
           fulfillmentOrderIds: openFulfillmentOrders.map((fo: any) => fo.id),
-          trackingNumber: String(order?.awb_number || '').trim(),
+          trackingNumber,
           courierPartner: order?.courier_partner,
           notifyCustomer: shouldNotifyCustomerOnFulfill(settings),
         })
+        actions.push('fulfillment_created')
+      } else if (trackingNumber) {
+        const fulfillments = remoteOrder.fulfillments?.nodes || []
+        const fulfillmentWithCurrentTracking = fulfillments.find((fulfillment: any) =>
+          (fulfillment?.trackingInfo || []).some(
+            (tracking: any) => String(tracking?.number || '').trim() === trackingNumber,
+          ),
+        )
+        const targetFulfillment =
+          fulfillmentWithCurrentTracking ||
+          fulfillments.find((fulfillment: any) =>
+            ['SUCCESS', 'OPEN', 'PENDING'].includes(String(fulfillment?.status || '').toUpperCase()),
+          ) ||
+          fulfillments[0]
+
+        if (fulfillmentWithCurrentTracking) {
+          actions.push('tracking_already_current')
+        } else if (targetFulfillment?.id) {
+          await updateShopifyFulfillmentTracking({
+            store,
+            fulfillmentId: targetFulfillment.id,
+            trackingNumber,
+            courierPartner: order?.courier_partner,
+            notifyCustomer: shouldNotifyCustomerOnFulfill(settings),
+          })
+          actions.push('tracking_updated')
+        } else {
+          actions.push(isAlreadyFulfilled ? 'already_fulfilled_no_tracking_target' : 'no_open_fulfillment_orders')
+        }
+      } else {
+        actions.push(isAlreadyFulfilled ? 'already_fulfilled' : 'no_tracking_number')
       }
+    } else {
+      actions.push('fulfillment_skipped_by_settings')
     }
 
     if (settings?.autoUpdateShipmentStatus) {
@@ -1318,10 +2455,14 @@ export const syncShopifyStatusForLocalOrder = async (order: any, tx: any = db) =
         .filter((t: string) => !/^(mcw_status|dg_status):/i.test(t))
       cleanTags.push(`dg_status:${orderStatus}`)
       await updateShopifyOrderTags(store, shopifyOrderId, cleanTags)
+      actions.push('status_tag_updated')
+    } else {
+      actions.push('status_tag_skipped_by_settings')
     }
 
     if (settings?.autoCancelOrders && orderStatus === 'cancelled' && !remoteOrder.cancelledAt) {
       await cancelShopifyOrder(store, shopifyOrderId)
+      actions.push('order_cancelled')
     }
 
     if (
@@ -1331,11 +2472,47 @@ export const syncShopifyStatusForLocalOrder = async (order: any, tx: any = db) =
       remoteOrder.canMarkAsPaid
     ) {
       await markShopifyOrderAsPaid(store, shopifyOrderId)
+      actions.push('cod_marked_paid')
     }
+
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'shopify',
+        status: 'success',
+        source: options.source,
+        actions,
+        syncedStatus: orderStatus,
+        syncedAwb: trackingNumber,
+      },
+      tx,
+    )
+
+    return { attempted: true, success: true, channel: 'shopify', actions }
   } catch (err: any) {
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'shopify',
+        status: 'failed',
+        source: options.source,
+        actions,
+        error: err,
+        syncedStatus: orderStatus,
+        syncedAwb: trackingNumber,
+      },
+      tx,
+    )
     console.warn(
       `Shopify status sync failed for local order ${order?.order_number || order?.id}:`,
       err?.response?.data || err?.message || err,
     )
+    return {
+      attempted: true,
+      success: false,
+      channel: 'shopify',
+      actions,
+      error: err?.response?.data || err?.message || err,
+    }
   }
 }

@@ -19,43 +19,24 @@ export const seedAdmin = async ({
   email,
   role = 'admin',
 }: SeedAdminProps): Promise<User> => {
-  const normalizedEmail = email?.trim().toLowerCase() ?? null
+  // check if user already exists
+  const existing = await db.select().from(users).where(eq(users.phone, phone))
+  if (existing.length > 0) return existing[0] as User
+
+  // hash password
   const hashedPassword = await bcrypt.hash(password, 10)
-  const [existingByPhone] = await db.select().from(users).where(eq(users.phone, phone)).limit(1)
-  const [existingByEmail] = !existingByPhone && normalizedEmail
-    ? await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1)
-    : []
 
-  const existing = existingByPhone || existingByEmail
-
-  if (existing) {
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        phone,
-        email: normalizedEmail,
-        passwordHash: hashedPassword,
-        role,
-        phoneVerified: true,
-        emailVerified: !!normalizedEmail,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, existing.id))
-      .returning()
-
-    return updatedUser as User
-  }
-
+  // insert new user
   const [newUser] = await db
     .insert(users)
     .values({
       id: uuidv4(),
       phone,
-      email: normalizedEmail,
+      email: email ?? null,
       passwordHash: hashedPassword,
       role,
       phoneVerified: true,
-      emailVerified: !!normalizedEmail,
+      emailVerified: !!email,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -66,8 +47,8 @@ export const seedAdmin = async ({
 
 seedAdmin({
   phone: '+916283315911', // valid Indian phone format
-  email: 'admin@feathergsglobal.com', // requested admin login email
-  password: 'Admin@12345!', // requested admin password
+  email: 'admin@shiplifi.com', // professional-looking dev email
+  password: 'Admin@12345!', // strong password
   role: 'admin',
 })
   .then((user) => {

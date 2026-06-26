@@ -48,6 +48,7 @@ import { SellerAutocomplete } from 'components/Input/SellerAutocomplete'
 import TableFilters from 'components/Tables/TableFilters'
 import {
   useAllCodRemittances,
+  useCodPayableReport,
   useCodPlatformStats,
   useConfirmCourierSettlement,
   useManualMarkSettlement,
@@ -93,6 +94,56 @@ const remittanceFilterOptions = [
   },
 ]
 
+const payableReportFilterOptions = [
+  {
+    key: 'search',
+    label: 'Search',
+    type: 'text',
+    placeholder: 'Customer, AWB, order, courier',
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    type: 'select',
+    options: [
+      { label: 'Pending Payables', value: 'pending' },
+      { label: 'Credited', value: 'credited' },
+      { label: 'All', value: 'all' },
+    ],
+  },
+  {
+    key: 'courierPartner',
+    label: 'Courier',
+    type: 'text',
+    placeholder: 'Courier partner',
+  },
+  {
+    key: 'customerId',
+    label: 'Customer ID',
+    type: 'text',
+    placeholder: 'Seller UUID',
+  },
+  {
+    key: 'fromDate',
+    label: 'Delivered From',
+    type: 'date',
+  },
+  {
+    key: 'toDate',
+    label: 'Delivered To',
+    type: 'date',
+  },
+]
+
+const initialPayableReportFilters = {
+  search: '',
+  status: 'pending',
+  courierPartner: '',
+  customerId: '',
+  fromDate: '',
+  toDate: '',
+}
+
 export default function AdminCodRemittancePage() {
   const history = useHistory()
   const toast = useToast()
@@ -101,6 +152,8 @@ export default function AdminCodRemittancePage() {
   const [filters, setFilters] = useState({})
   const [selectedRemittance, setSelectedRemittance] = useState(null)
   const [notes, setNotes] = useState('')
+  const [payableReportFilters, setPayableReportFilters] = useState(initialPayableReportFilters)
+  const [courierReceivedAmounts, setCourierReceivedAmounts] = useState({})
 
   // CSV Upload States
   const [csvFile, setCsvFile] = useState(null)
@@ -154,6 +207,14 @@ export default function AdminCodRemittancePage() {
     limit: perPage,
     ...filters,
   })
+  const payableReportParams = {
+    limit: 1000,
+    ...Object.fromEntries(
+      Object.entries(payableReportFilters).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+    ),
+  }
+  const { data: payableReportData, isLoading: payableReportLoading } =
+    useCodPayableReport(payableReportParams)
   const { data: sellerRemittanceData, isLoading: sellerRemittancesLoading } =
     useUserCodRemittances(bulkSellerId)
   const manualSettlementMutation = useManualMarkSettlement()
@@ -163,6 +224,11 @@ export default function AdminCodRemittancePage() {
 
   const remittances = remittanceData?.data?.remittances || []
   const totalCount = remittanceData?.data?.totalCount || 0
+  const payableReport = payableReportData?.data || {}
+  const payableSummary = payableReport.summary || {}
+  const customerPayables = payableReport.customerPayables || []
+  const deliveryRows = payableReport.deliveryRows || []
+  const courierReceivables = payableReport.courierReceivables || []
   const sellerInfo = sellerRemittanceData?.data?.user || null
   const sellerPendingRemittances = useMemo(
     () =>
@@ -648,6 +714,18 @@ export default function AdminCodRemittancePage() {
     return Number.isFinite(n) ? n : 0
   }
 
+  const formatMoney = (value) =>
+    `₹${toAmount(value).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
+
+  const getCourierReceivedAmount = (courierPartner) => {
+    const value = courierReceivedAmounts[courierPartner]
+    const amount = Number(value || 0)
+    return Number.isFinite(amount) ? amount : 0
+  }
+
   const getEditedAmount = (item) => {
     const editValue = settlementAmountEdits[item.remittanceId]
     if (editValue === '' || editValue === undefined || editValue === null) {
@@ -724,6 +802,291 @@ export default function AdminCodRemittancePage() {
           </Stat>
         </Card>
       </SimpleGrid>
+
+      <Card mb="20px">
+        <VStack align="stretch" spacing={4}>
+          <Flex justify="space-between" align="flex-start" gap={3} flexWrap="wrap">
+            <Box>
+              <Text fontSize="xl" fontWeight="800">
+                COD Payable Report
+              </Text>
+              <Text fontSize="sm" color="gray.500">
+                Customer payable, wallet adjustment, delivery, and courier receivable view
+              </Text>
+            </Box>
+            {payableReportLoading && (
+              <Text fontSize="sm" color="gray.500">
+                Loading report...
+              </Text>
+            )}
+          </Flex>
+
+          <TableFilters
+            filters={payableReportFilterOptions}
+            values={payableReportFilters}
+            onApply={(finalFilters) => {
+              setPayableReportFilters({ ...initialPayableReportFilters, ...finalFilters })
+              setCourierReceivedAmounts({})
+            }}
+          />
+
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 5 }} spacing={3}>
+            <Box p={3} bg="orange.50" borderRadius="md" borderWidth={1} borderColor="orange.200">
+              <Text fontSize="xs" color="gray.600" fontWeight="700">
+                COD Payable
+              </Text>
+              <Text fontSize="xl" fontWeight="800" color="orange.600">
+                {formatMoney(payableSummary.codPayableAmount)}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                {payableSummary.pendingOrderCount || 0} delivered COD orders
+              </Text>
+            </Box>
+            <Box p={3} bg="red.50" borderRadius="md" borderWidth={1} borderColor="red.200">
+              <Text fontSize="xs" color="gray.600" fontWeight="700">
+                Negative Wallet Adjustment
+              </Text>
+              <Text fontSize="xl" fontWeight="800" color="red.600">
+                {formatMoney(payableSummary.negativeWalletAdjustment)}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                Customer dues recovered from COD
+              </Text>
+            </Box>
+            <Box p={3} bg="green.50" borderRadius="md" borderWidth={1} borderColor="green.200">
+              <Text fontSize="xs" color="gray.600" fontWeight="700">
+                Net Payable
+              </Text>
+              <Text fontSize="xl" fontWeight="800" color="green.600">
+                {formatMoney(payableSummary.netPayableBalance)}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                After wallet adjustment
+              </Text>
+            </Box>
+            <Box p={3} bg="blue.50" borderRadius="md" borderWidth={1} borderColor="blue.200">
+              <Text fontSize="xs" color="gray.600" fontWeight="700">
+                Courier Receivable
+              </Text>
+              <Text fontSize="xl" fontWeight="800" color="blue.600">
+                {formatMoney(payableSummary.courierReceivableAmount)}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                Expected from courier partners
+              </Text>
+            </Box>
+            <Box p={3} bg="purple.50" borderRadius="md" borderWidth={1} borderColor="purple.200">
+              <Text fontSize="xs" color="gray.600" fontWeight="700">
+                Customers
+              </Text>
+              <Text fontSize="xl" fontWeight="800" color="purple.600">
+                {payableSummary.customerCount || 0}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                With COD payable rows
+              </Text>
+            </Box>
+          </SimpleGrid>
+
+          <Tabs variant="enclosed">
+            <TabList overflowX="auto">
+              <Tab>Customer Wise Payable</Tab>
+              <Tab>COD Delivery Report</Tab>
+              <Tab>Courier Wise Receivables</Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel px={0}>
+                <Box overflowX="auto">
+                  <Table size="sm" variant="simple">
+                    <Thead>
+                      <Tr>
+                        <Th>Customer</Th>
+                        <Th>Customer ID</Th>
+                        <Th>COD Payable</Th>
+                        <Th>Wallet Balance</Th>
+                        <Th>Negative Adjustment</Th>
+                        <Th>Net Payable</Th>
+                        <Th>Orders</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {customerPayables.length > 0 ? (
+                        customerPayables.map((row) => (
+                          <Tr key={row.customerId}>
+                            <Td>
+                              <VStack align="start" spacing={0}>
+                                <Text fontWeight="700" fontSize="sm">
+                                  {row.customerName || '-'}
+                                </Text>
+                                <Text fontSize="xs" color="gray.500">
+                                  {row.customerEmail || '-'}
+                                </Text>
+                              </VStack>
+                            </Td>
+                            <Td>
+                              <Text fontSize="xs" fontFamily="mono">
+                                {row.customerId}
+                              </Text>
+                            </Td>
+                            <Td fontWeight="700">{formatMoney(row.codPayableAmount)}</Td>
+                            <Td color={toAmount(row.walletBalance) < 0 ? 'red.600' : 'green.600'}>
+                              {formatMoney(row.walletBalance)}
+                            </Td>
+                            <Td color="red.600">{formatMoney(row.negativeWalletAdjustment)}</Td>
+                            <Td fontWeight="800" color="green.600">
+                              {formatMoney(row.netPayableBalance)}
+                            </Td>
+                            <Td>{row.codOrderCount}</Td>
+                          </Tr>
+                        ))
+                      ) : (
+                        <Tr>
+                          <Td colSpan={7} textAlign="center" py={6}>
+                            <Text color="gray.500">No customer payables found</Text>
+                          </Td>
+                        </Tr>
+                      )}
+                    </Tbody>
+                  </Table>
+                </Box>
+              </TabPanel>
+
+              <TabPanel px={0}>
+                <Box overflowX="auto">
+                  <Table size="sm" variant="simple">
+                    <Thead>
+                      <Tr>
+                        <Th>Order</Th>
+                        <Th>Customer</Th>
+                        <Th>AWB</Th>
+                        <Th>Courier</Th>
+                        <Th>COD Amount</Th>
+                        <Th>Deductions</Th>
+                        <Th>Remittable</Th>
+                        <Th>Status</Th>
+                        <Th>Delivered/Collected</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {deliveryRows.length > 0 ? (
+                        deliveryRows.map((row) => (
+                          <Tr key={row.id}>
+                            <Td fontWeight="700">{row.orderNumber}</Td>
+                            <Td>{row.customerName}</Td>
+                            <Td>
+                              <Text fontSize="xs" fontFamily="mono">
+                                {row.awbNumber || '-'}
+                              </Text>
+                            </Td>
+                            <Td>{row.courierPartner || '-'}</Td>
+                            <Td>{formatMoney(row.codAmount)}</Td>
+                            <Td color="red.600">{formatMoney(row.deductions)}</Td>
+                            <Td fontWeight="700" color="green.600">
+                              {formatMoney(row.remittableAmount)}
+                            </Td>
+                            <Td>
+                              <StatusBadge
+                                status={row.status === 'pending' ? 'PENDING' : 'CREDITED'}
+                                type={row.status === 'pending' ? 'warning' : 'success'}
+                              />
+                            </Td>
+                            <Td fontSize="xs">
+                              {row.collectedAt
+                                ? new Date(row.collectedAt).toLocaleDateString()
+                                : '-'}
+                            </Td>
+                          </Tr>
+                        ))
+                      ) : (
+                        <Tr>
+                          <Td colSpan={9} textAlign="center" py={6}>
+                            <Text color="gray.500">No delivered COD rows found</Text>
+                          </Td>
+                        </Tr>
+                      )}
+                    </Tbody>
+                  </Table>
+                </Box>
+              </TabPanel>
+
+              <TabPanel px={0}>
+                <Alert status="info" borderRadius="md" mb={4}>
+                  <AlertIcon />
+                  <Box>
+                    <AlertTitle fontSize="sm">Receivable calculator</AlertTitle>
+                    <AlertDescription fontSize="xs">
+                      Enter the amount received from each courier to preview the remaining receivable.
+                      Use the existing settlement actions below to actually mark remittances settled.
+                    </AlertDescription>
+                  </Box>
+                </Alert>
+                <Box overflowX="auto">
+                  <Table size="sm" variant="simple">
+                    <Thead>
+                      <Tr>
+                        <Th>Courier Partner</Th>
+                        <Th>Delivered COD Orders</Th>
+                        <Th>COD To Be Collected</Th>
+                        <Th>Deductions</Th>
+                        <Th>Expected Receivable</Th>
+                        <Th>Received Amount</Th>
+                        <Th>New Receivable</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {courierReceivables.length > 0 ? (
+                        courierReceivables.map((row) => {
+                          const receivedAmount = getCourierReceivedAmount(row.courierPartner)
+                          const newReceivable = Math.max(
+                            0,
+                            toAmount(row.expectedReceivable) - receivedAmount,
+                          )
+                          return (
+                            <Tr key={row.courierPartner}>
+                              <Td fontWeight="700">{row.courierPartner}</Td>
+                              <Td>{row.deliveredCodOrders}</Td>
+                              <Td>{formatMoney(row.codToBeCollectedAmount)}</Td>
+                              <Td color="red.600">{formatMoney(row.deductions)}</Td>
+                              <Td fontWeight="700" color="blue.600">
+                                {formatMoney(row.expectedReceivable)}
+                              </Td>
+                              <Td>
+                                <Input
+                                  size="sm"
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={courierReceivedAmounts[row.courierPartner] || ''}
+                                  onChange={(e) =>
+                                    setCourierReceivedAmounts((prev) => ({
+                                      ...prev,
+                                      [row.courierPartner]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="0.00"
+                                />
+                              </Td>
+                              <Td fontWeight="800" color={newReceivable > 0 ? 'orange.600' : 'green.600'}>
+                                {formatMoney(newReceivable)}
+                              </Td>
+                            </Tr>
+                          )
+                        })
+                      ) : (
+                        <Tr>
+                          <Td colSpan={7} textAlign="center" py={6}>
+                            <Text color="gray.500">No courier receivables found</Text>
+                          </Td>
+                        </Tr>
+                      )}
+                    </Tbody>
+                  </Table>
+                </Box>
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
+        </VStack>
+      </Card>
 
       {/* Filters */}
       <TableFilters

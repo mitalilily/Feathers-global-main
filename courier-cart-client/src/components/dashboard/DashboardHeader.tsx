@@ -7,7 +7,7 @@ interface DashboardHeaderProps {
   onCustomize?: () => void
 }
 
-const BRAND_PRIMARY = '#047b85'
+const BRAND_PRIMARY = '#E85500'
 export default function DashboardHeader({
   isRefetching,
   onRefresh,
@@ -69,7 +69,7 @@ export default function DashboardHeader({
               letterSpacing: '-0.03em',
             }}
           >
-            Run shipping, finance, and exceptions from one cleaner Feather Global workspace.
+            Run shipping, finance, and exceptions from one cleaner Shiplifi workspace.
           </Typography>
           <Typography sx={{ fontSize: '0.95rem', color: alpha('#fff', 0.82), lineHeight: 1.6 }}>
             Keep pickup readiness, courier allocation, remittance exposure, and delivery exceptions

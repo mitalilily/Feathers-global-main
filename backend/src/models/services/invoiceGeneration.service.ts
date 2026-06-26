@@ -239,7 +239,7 @@ export const generateInvoiceForUser = async (
     .where(eq(userProfiles.userId, userId))
     .limit(1)
 
-  const issuerName = adminPrefs?.brandName || 'Feather Global'
+  const issuerName = adminPrefs?.brandName || 'Shiplifi'
   const issuerAddress = adminPrefs?.sellerAddress || 'N/A'
   const issuerStateCode = adminPrefs?.stateCode || 'N/A'
   const issuerGST = adminPrefs?.gstNumber || 'N/A'
@@ -355,7 +355,7 @@ export const generateInvoiceForUser = async (
     }
   }
 
-  // Platform (Feather Global) logo for footer branding from admin billing preferences
+  // Platform (Shiplifi) logo for footer branding from admin billing preferences
   let platformLogoDataUrl: string | undefined
   if (adminLogoFile) {
     try {
@@ -595,7 +595,7 @@ export const generateInvoiceForUser = async (
             : null,
 
           {
-            text: 'Powered by Feather Global',
+            text: 'Powered by Shiplifi',
             alignment: 'center',
             italics: true,
             fontSize: fontSize - 1,
@@ -873,7 +873,7 @@ export const generateInvoiceForUser = async (
 
           // FOOTER
           {
-            text: 'Thank you for trusting and doing business with Feather Global.',
+            text: 'Thank you for trusting and doing business with Shiplifi.',
             style: 'footer',
           },
           // Show admin signature only if includeSignature is true
@@ -901,7 +901,7 @@ export const generateInvoiceForUser = async (
               }
             : null,
           {
-            text: 'Powered by Feather Global',
+            text: 'Powered by Shiplifi',
             alignment: 'center',
             italics: true,
             margin: [0, 6, 0, 0],

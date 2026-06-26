@@ -60,22 +60,6 @@ export type EkartTrackResponse = {
   order_number?: string
 }
 
-export type EkartPricingEstimateResponse = {
-  type?: string
-  zone?: string
-  volumetricWeight?: string
-  billingWeight?: string
-  shippingCharge?: string
-  rtoCharge?: string
-  fuelSurcharge?: string
-  codCharge?: string
-  qcCharge?: string
-  taxes?: string
-  total?: string
-  rid?: string
-  rSnapshotId?: string
-}
-
 export class EkartService {
   private baseApi: string = process.env.EKART_BASE_API || EKART_ELITE_BASE_URL
   private baseAuth: string = process.env.EKART_BASE_AUTH || EKART_ELITE_BASE_URL
@@ -116,8 +100,6 @@ export class EkartService {
       invoice_number: payload?.invoice_number ?? null,
       invoice_date: payload?.invoice_date ?? null,
       invoice_amount: payload?.invoice_amount ?? null,
-      document_number: payload?.document_number ?? null,
-      document_date: payload?.document_date ?? null,
       seller_name: payload?.seller_name ?? null,
       consignee_name: payload?.consignee_name ?? payload?.drop?.name ?? null,
       consignee_phone: this.maskPhone(
@@ -145,13 +127,6 @@ export class EkartService {
             name: payload.pickup_location.name ?? null,
           }
         : null,
-      return_location: payload?.return_location
-        ? {
-            name: payload.return_location.name ?? null,
-          }
-        : null,
-      templateName: payload?.templateName ?? null,
-      return_reason: payload?.return_reason ?? null,
       consignee: payload?.drop
         ? {
             name: payload.drop.name ?? null,
@@ -166,7 +141,6 @@ export class EkartService {
         : Array.isArray(payload?.order_items)
           ? payload.order_items.length
           : 0,
-      obd_shipment: Boolean(payload?.obd_shipment),
     }
   }
 
@@ -265,20 +239,6 @@ export class EkartService {
     return normalized || fallback
   }
 
-  private normalizeAliasCandidate(value: any) {
-    const normalized = this.sanitizeText(value)
-    if (!normalized) return ''
-
-    if (
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized) ||
-      /^[0-9a-f]{32}$/i.test(normalized)
-    ) {
-      return ''
-    }
-
-    return normalized
-  }
-
   private sanitizePhoneNumber(value: any, fallback = '') {
     const digits = String(value ?? '').replace(/\D/g, '')
     if (!digits) return fallback
@@ -324,14 +284,6 @@ export class EkartService {
     return this.uniqueValues(configured.split(',').map((value) => this.normalizeEndpoint(value)))
   }
 
-  private getAddressListEndpoints() {
-    const configured =
-      process.env.EKART_ADDRESS_LIST_ENDPOINTS ||
-      process.env.EKART_ADDRESS_LIST_ENDPOINT ||
-      '/api/v2/addresses,/api/v2/address'
-    return this.uniqueValues(configured.split(',').map((value) => this.normalizeEndpoint(value)))
-  }
-
   private getServiceabilityBaseUrls() {
     return this.uniqueValues(
       [process.env.EKART_SERVICEABILITY_BASE_API, this.baseApi, this.baseAuth].map((value) =>
@@ -349,9 +301,12 @@ export class EkartService {
   }
 
   private buildEkartShipmentPayload(payload: any) {
-    const paymentType = String(payload?.payment_type || '').toLowerCase()
-    const isReverseShipment = payload?.isReverse === true || paymentType === 'reverse'
-    const paymentMode = paymentType === 'cod' ? 'COD' : isReverseShipment ? 'Pickup' : 'Prepaid'
+    const paymentMode =
+      String(payload?.payment_type || '').toLowerCase() === 'cod'
+        ? 'COD'
+        : String(payload?.payment_type || '').toLowerCase() === 'reverse'
+          ? 'Pickup'
+          : 'Prepaid'
 
     const rawItems = Array.isArray(payload?.order_items) ? payload.order_items : []
     const normalizedItems = rawItems
@@ -422,7 +377,7 @@ export class EkartService {
     const packageBreadth = this.toNumber(payload?.package_breadth ?? payload?.breadth ?? payload?.width, 10)
     const packageHeight = this.toNumber(payload?.package_height ?? payload?.height, 10)
 
-    const sellerName = this.sanitizeText(payload?.company?.name || payload?.pickup?.name, 'Feather Global')
+    const sellerName = this.sanitizeText(payload?.company?.name || payload?.pickup?.name, 'Shiplifi')
     const sellerAddress = [
       this.sanitizeText(payload?.pickup?.address),
       this.sanitizeText(payload?.pickup?.address_2),
@@ -479,81 +434,31 @@ export class EkartService {
 
     const invoiceDate = this.getNormalizedInvoiceDate(payload)
     const invoiceNumber = this.sanitizeText(payload?.invoice_number || payload?.order_number)
-    const documentNumber = this.sanitizeText(payload?.document_number || invoiceNumber)
-    const documentDate = this.sanitizeText(payload?.document_date || invoiceDate)
     const categoryOfGoods = this.sanitizeText(
       payload?.category_of_goods || normalizedItems.map((item: any) => item.name).join(', '),
       'General Merchandise',
     )
-    const ewbn = this.sanitizeText(payload?.ewbn || payload?.ewbn_number || payload?.ewbnNumber)
-    const pickupLocationAlias = this.normalizeAliasCandidate(
-      payload?.pickup_location?.name ||
-        payload?.pickup_location_alias ||
-        payload?.pickup_location_id ||
+    const pickupLocationAlias = this.sanitizeText(
+      payload?.pickup_location_alias ||
         payload?.pickup?.warehouse_name ||
-        payload?.pickup?.name ||
-        payload?.pickup?.contact_name ||
         payload?.pickup?.addressNickname ||
         payload?.pickup?.address_nickname,
     )
-    const returnLocationAlias = this.normalizeAliasCandidate(
-      payload?.return_location?.name ||
-        payload?.return_location_alias ||
-        payload?.return_location_id ||
+    if (!pickupLocationAlias) {
+      throw new HttpError(
+        400,
+        'Ekart pickup warehouse name is required. Please select a saved pickup warehouse before booking.',
+      )
+    }
+    const returnLocationAlias = this.sanitizeText(
+      payload?.return_location_alias ||
         payload?.rto?.warehouse_name ||
-        payload?.rto?.name ||
-        payload?.rto?.contact_name ||
         payload?.rto?.addressNickname ||
         payload?.rto?.address_nickname ||
         pickupLocationAlias,
     )
     const delayedDispatch = this.isDelayedDispatch(payload)
     const preferredDispatchDate = delayedDispatch ? '' : this.resolvePreferredDispatchDate(payload)
-    const qcDetails = payload?.qc_details && typeof payload.qc_details === 'object' ? payload.qc_details : undefined
-    const templateName = this.sanitizeText(payload?.templateName)
-    const returnReason = this.sanitizeText(payload?.return_reason || payload?.reason || payload?.returnReason)
-    const useTemplateName = Boolean(templateName)
-    const useMultiPackage = Boolean(payload?.mps)
-    if (isReverseShipment && !returnReason) {
-      throw new HttpError(400, 'return_reason is required for Ekart reverse pickup shipments')
-    }
-    if (useMultiPackage && (!Array.isArray(payload?.packages) || payload.packages.length === 0)) {
-      throw new HttpError(400, 'packages are required when mps is enabled for Ekart shipments')
-    }
-    const pickupLocationPayload = pickupLocationAlias
-      ? {
-          location_type: payload?.pickup_location?.location_type || 'Office',
-          address: pickupContact.address1,
-          city: pickupContact.city,
-          state: pickupContact.state,
-          country: pickupContact.country,
-          name: pickupLocationAlias,
-          phone: pickupContact.phone,
-          pin: pickupContact.pincode,
-        }
-      : undefined
-    const dropLocationPayload = {
-      location_type: payload?.drop_location?.location_type || 'Office',
-      address: dropContact.address1,
-      city: dropContact.city,
-      state: dropContact.state,
-      country: dropContact.country,
-      name: dropContact.name,
-      phone: dropContact.phone,
-      pin: dropContact.pincode,
-    }
-    const returnLocationPayload = returnLocationAlias
-      ? {
-          location_type: payload?.return_location?.location_type || 'Office',
-          address: returnContact.address1,
-          city: returnContact.city,
-          state: returnContact.state,
-          country: returnContact.country,
-          name: returnLocationAlias,
-          phone: returnContact.phone,
-          pin: returnContact.pincode,
-        }
-      : undefined
 
     return {
       trackingId: payload?.order_number,
@@ -563,8 +468,6 @@ export class EkartService {
       order_date: invoiceDate,
       invoice_number: invoiceNumber,
       invoice_date: invoiceDate,
-      document_number: documentNumber,
-      document_date: documentDate,
       invoice_amount: computedTotalAmount,
       seller_name: sellerName,
       seller_address: sellerAddress,
@@ -582,7 +485,6 @@ export class EkartService {
       products_desc: normalizedItems.map((item: any) => item.name).join(', '),
       paymentType: paymentMode,
       payment_mode: paymentMode,
-      shippingDirection: isReverseShipment ? 'REVERSE' : 'FORWARD',
       codAmount,
       cod_amount: codAmount,
       invoiceAmount: computedTotalAmount,
@@ -594,58 +496,49 @@ export class EkartService {
       commodity_value: String(taxableAmount),
       quantity: totalQuantity || 1,
       weight: packageWeight,
-      ...(useTemplateName || useMultiPackage
-        ? {}
-        : {
-            length: packageLength,
-            breadth: packageBreadth,
-            width: packageBreadth,
-            height: packageHeight,
-          }),
-      obd_shipment: Boolean(payload?.obd_shipment),
+      length: packageLength,
+      breadth: packageBreadth,
+      width: packageBreadth,
+      height: packageHeight,
       pickup: pickupContact,
       drop: dropContact,
       returnAddress: returnContact,
-      ...(pickupLocationPayload ? { pickup_location: pickupLocationPayload } : {}),
+      pickup_location: {
+        name: pickupLocationAlias,
+      },
       ...(delayedDispatch
         ? { delayed_dispatch: true }
         : { preferred_dispatch_date: preferredDispatchDate }),
-      drop_location: dropLocationPayload,
-      ...(returnLocationPayload ? { return_location: returnLocationPayload } : {}),
-      ...(templateName ? { templateName } : {}),
-      ...(returnReason ? { return_reason: returnReason } : {}),
-      ...(qcDetails ? { qc_details: qcDetails } : {}),
-      ...(payload?.what3words_address ? { what3words_address: this.sanitizeText(payload.what3words_address) } : {}),
-      ...(ewbn ? { ewbn } : {}),
-      ...(payload?.mps
-        ? {
-            mps: true,
-            packages: Array.isArray(payload?.packages) && payload.packages.length ? payload.packages : [],
-            items: normalizedItems,
-          }
-          : {
-            package: {
-              weight: packageWeight,
-              length: templateName ? undefined : packageLength,
-              breadth: templateName ? undefined : packageBreadth,
-              width: templateName ? undefined : packageBreadth,
-              height: templateName ? undefined : packageHeight,
-              items: normalizedItems,
-            },
-            items: normalizedItems,
-          }),
+      drop_location: {
+        name: dropContact.name,
+        address: dropContact.address1,
+        city: dropContact.city,
+        state: dropContact.state,
+        pin: dropContact.pincode,
+        phone: dropContact.phone,
+        country: dropContact.country,
+      },
+      return_location: {
+        name: returnLocationAlias,
+      },
+      package: {
+        weight: packageWeight,
+        length: packageLength,
+        breadth: packageBreadth,
+        width: packageBreadth,
+        height: packageHeight,
+        items: normalizedItems,
+      },
+      items: normalizedItems,
     }
   }
 
   private buildWarehousePayloadFromShipment(originalPayload: any, shipmentPayload: any) {
     const pickup = shipmentPayload?.pickup || {}
-    const alias = this.normalizeAliasCandidate(
+    const alias = this.sanitizeText(
       shipmentPayload?.pickup_location?.name ||
         originalPayload?.pickup_location_alias ||
-        originalPayload?.pickup_location_id ||
         originalPayload?.pickup?.warehouse_name ||
-        originalPayload?.pickup?.name ||
-        originalPayload?.pickup?.contact_name ||
         originalPayload?.pickup?.addressNickname ||
         originalPayload?.pickup?.address_nickname,
     )
@@ -666,76 +559,6 @@ export class EkartService {
     }
   }
 
-  private buildReturnWarehousePayloadFromShipment(originalPayload: any, shipmentPayload: any) {
-    const returnContact = shipmentPayload?.returnAddress || shipmentPayload?.rto || {}
-    const alias = this.normalizeAliasCandidate(
-      shipmentPayload?.return_location?.name ||
-        originalPayload?.return_location_alias ||
-        originalPayload?.return_location_id ||
-        originalPayload?.rto?.warehouse_name ||
-        originalPayload?.rto?.name ||
-        originalPayload?.rto?.contact_name ||
-        originalPayload?.rto?.addressNickname ||
-        originalPayload?.rto?.address_nickname ||
-        originalPayload?.pickup_location_alias ||
-        shipmentPayload?.pickup_location?.name,
-    )
-
-    if (!alias || !returnContact.address1 || !returnContact.city || !returnContact.state || !returnContact.pincode) {
-      return null
-    }
-
-    return {
-      alias,
-      phone: returnContact.phone || originalPayload?.rto?.phone || originalPayload?.pickup?.phone || 0,
-      addressLine1: returnContact.address1,
-      addressLine2: returnContact.address2 || '',
-      pincode: returnContact.pincode,
-      city: returnContact.city,
-      state: returnContact.state,
-      country: originalPayload?.rto?.country || originalPayload?.pickup?.country || 'India',
-    }
-  }
-
-  private async preflightShipmentLocations(payload: any, shipmentPayload: any) {
-    const pickupWarehousePayload = this.buildWarehousePayloadFromShipment(payload, shipmentPayload)
-    const returnWarehousePayload = this.buildReturnWarehousePayloadFromShipment(payload, shipmentPayload)
-    const requestedLocations = [
-      pickupWarehousePayload,
-      returnWarehousePayload,
-    ]
-      .filter(Boolean) as Array<{
-      alias: string
-      city: string
-      state: string
-      pincode: string | number
-      phone: string | number
-      addressLine1: string
-      addressLine2?: string
-      country?: string
-    }>
-    const uniqueRequestedLocations = requestedLocations.filter(
-      (location, index, all) => all.findIndex((item: any) => item?.alias === location.alias) === index,
-    )
-    for (const location of uniqueRequestedLocations) {
-      this.log('Preflighting Ekart warehouse address', {
-        alias: location.alias,
-        city: location.city,
-        state: location.state,
-        pincode: location.pincode,
-        phone: this.maskPhone(location.phone),
-      })
-
-      try {
-        await this.createWarehouse(location)
-      } catch (registrationErr: any) {
-        if (!this.isAddressAlreadyRegisteredError(registrationErr)) {
-          throw registrationErr
-        }
-      }
-    }
-  }
-
   private isLocationNotRegisteredError(err: any) {
     const message = this.extractErrorMessage(err, '')
     return /location/i.test(message) && /not registered/i.test(message)
@@ -744,18 +567,6 @@ export class EkartService {
   private isAddressAlreadyRegisteredError(err: any) {
     const message = this.extractErrorMessage(err, '')
     return /already/i.test(message) && /(exist|registered|created|used)/i.test(message)
-  }
-
-  private isAccountLevelBookingBlockedError(err: any) {
-    const status = Number(err?.response?.status || err?.statusCode || 0)
-    const message = this.extractErrorMessage(err, '').toLowerCase()
-
-    return (
-      status === 400 &&
-      (message.includes('contact your account manager') ||
-        message.includes('shipment creation blocked') ||
-        message.includes('swift_validation_exception'))
-    )
   }
 
   private extractErrorMessage(err: any, fallback: string) {
@@ -849,17 +660,6 @@ export class EkartService {
   async checkPincodeServiceability(pincode: string | number): Promise<EkartServiceabilityDetail> {
     const http = await this.getHttp()
     const res = await http.get(`/api/v2/serviceability/${pincode}`)
-    return res.data
-  }
-
-  async getBulkServiceability(type: 'NON_LARGE' | 'LARGE', format?: 'JSON' | 'EXCEL') {
-    const http = await this.getHttp()
-    const params: Record<string, string> = {}
-    if (format) params.format = format
-
-    const res = await http.get(`/data/serviceability/bulk/${type}`, {
-      params,
-    })
     return res.data
   }
 
@@ -1228,47 +1028,6 @@ export class EkartService {
     return this.checkPairServiceability(payload)
   }
 
-  async estimateShippingRates(payload: {
-    pickupPincode: string | number
-    dropPincode: string | number
-    invoiceAmount?: string | number
-    weight: string | number
-    length: string | number
-    height: string | number
-    width: string | number
-    serviceType?: 'SURFACE' | 'EXPRESS' | string
-    shippingDirection?: string
-    codAmount?: string | number
-    packages?: any[]
-  }): Promise<EkartPricingEstimateResponse> {
-    const http = await this.getHttp()
-    const body: Record<string, any> = {
-      pickupPincode: this.normalizePin(payload.pickupPincode),
-      dropPincode: this.normalizePin(payload.dropPincode),
-      weight: this.toNumber(payload.weight),
-      length: this.toNumber(payload.length),
-      height: this.toNumber(payload.height),
-      width: this.toNumber(payload.width),
-      serviceType: String(payload.serviceType || 'SURFACE').trim().toUpperCase(),
-      shippingDirection: String(payload.shippingDirection || 'FORWARD').trim().toUpperCase() || 'FORWARD',
-    }
-
-    if (payload.invoiceAmount !== undefined && payload.invoiceAmount !== null && payload.invoiceAmount !== '') {
-      body.invoiceAmount = Number(payload.invoiceAmount)
-    }
-
-    if (payload.codAmount !== undefined && payload.codAmount !== null && payload.codAmount !== '') {
-      body.codAmount = Number(payload.codAmount)
-    }
-
-    if (Array.isArray(payload.packages) && payload.packages.length > 0) {
-      body.packages = payload.packages
-    }
-
-    const res = await http.post('/data/pricing/estimate', body)
-    return res.data
-  }
-
   // ---------- Booking ----------
   async createShipment(payload: any): Promise<EkartCreateShipmentResponse> {
     const http = await this.getHttp()
@@ -1283,7 +1042,6 @@ export class EkartService {
     })
 
     try {
-      await this.preflightShipmentLocations(payload, normalizedPayload)
       const res = await http.put(endpoint, normalizedPayload)
       this.log('Create shipment response', {
         baseApi: this.baseApi,
@@ -1293,7 +1051,6 @@ export class EkartService {
       })
       return res.data
     } catch (err: any) {
-      const accountBlocked = this.isAccountLevelBookingBlockedError(err)
       this.log('Create shipment failed', {
         baseApi: this.baseApi,
         endpoint,
@@ -1302,18 +1059,7 @@ export class EkartService {
         statusText: err?.response?.statusText || null,
         response: err?.response?.data || null,
         message: err?.message || err,
-        accountBlocked,
       })
-
-      if (accountBlocked) {
-        throw new HttpError(
-          403,
-          this.extractErrorMessage(
-            err,
-            'Ekart shipment creation is currently blocked for this account. Please contact your Ekart account manager to enable live booking permissions.',
-          ),
-        )
-      }
 
       if (this.isLocationNotRegisteredError(err)) {
         const warehousePayload = this.buildWarehousePayloadFromShipment(payload, normalizedPayload)
@@ -1450,7 +1196,7 @@ export class EkartService {
     address_line1: string
     address_line2?: string | null
     pincode: string | number
-    city?: string | null
+    city: string
     state: string
     country?: string
     geo?: { lat?: number; lon?: number }
@@ -1467,7 +1213,7 @@ export class EkartService {
       address_line1: payload.address_line1,
       address_line2: payload.address_line2 ?? null,
       pincode: Number(payload.pincode),
-      city: payload.city ?? null,
+      city: payload.city,
       state: payload.state,
       country: payload.country || 'India',
       ...(hasValidGeo
@@ -1559,62 +1305,6 @@ export class EkartService {
       country: payload?.country || 'India',
       geo: payload?.geo,
     })
-  }
-
-  async listAddresses() {
-    const token = await this.getAccessToken()
-    const baseUrls = this.getAddressBaseUrls()
-    const endpoints = this.getAddressListEndpoints()
-    const tried: string[] = []
-    let lastError: any = null
-
-    for (const baseUrl of baseUrls) {
-      for (const endpoint of endpoints) {
-        const url = `${baseUrl}${endpoint}`
-        tried.push(url)
-
-        try {
-          const res = await axios.get(url, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: 20000,
-          })
-          this.log('Address list response', {
-            url,
-            status: res.status,
-            count: Array.isArray(res.data) ? res.data.length : null,
-          })
-          return res.data
-        } catch (err: any) {
-          lastError = err
-          const status = Number(err?.response?.status || 502)
-          this.log('Address list failed', {
-            url,
-            status,
-            statusText: err?.response?.statusText || null,
-            response: err?.response?.data || null,
-            message: err?.message || err,
-          })
-
-          if (status === 404) continue
-
-          const httpError = new HttpError(status, this.extractErrorMessage(err, 'Ekart address listing failed')) as any
-          httpError.code = 'EKART_ADDRESS_LIST_FAILED'
-          httpError.response = err?.response
-          throw httpError
-        }
-      }
-    }
-
-    const httpError = new HttpError(
-      404,
-      `Ekart address listing endpoint not found. Tried: ${tried.join(', ')}`,
-    ) as any
-    httpError.code = 'EKART_ADDRESS_ENDPOINT_NOT_FOUND'
-    httpError.response = lastError?.response
-    throw httpError
   }
 
   // ---------- NDR ----------

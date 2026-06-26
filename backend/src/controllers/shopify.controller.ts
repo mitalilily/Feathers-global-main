@@ -4,12 +4,21 @@ import { db } from '../models/client'
 import { users } from '../models/schema/users'
 import {
   SHOPIFY_API_VERSION,
+  buildShopifyOAuthAuthorizeUrl,
+  completeShopifyOAuthInstall,
   connectShopifyStore,
   getConfiguredShopifyCredentials,
+  getShopifyOAuthConfig,
+  getShopifyComplianceWebhookAddress,
   getShopifyWebhookAddress,
+  processShopifyComplianceWebhook,
   processShopifyWebhookOrder,
   probeShopifyStore,
   syncShopifyOrdersForUser,
+  updateShopifyStoreSettingsForUser,
+  isValidShopifyDomain,
+  normalizeShopifyDomain,
+  verifyShopifyOAuthQueryHmac,
   verifyShopifyWebhookSignatureForDomain,
 } from '../models/services/shopify.service'
 
@@ -22,23 +31,139 @@ const ensureCanConnectForUser = async (actorUserId: string, targetUserId: string
 
 const getShopifyAdminStatusPayload = () => {
   const configured = getConfiguredShopifyCredentials()
+  const oauthConfig = getShopifyOAuthConfig()
   const webhookUrl = getShopifyWebhookAddress()
 
   return {
     configured: configured.configured,
+    oauthConfigured: oauthConfig.configured,
     store: configured.storeUrl || null,
     apiVersion: SHOPIFY_API_VERSION,
+    oauthRedirectUri: oauthConfig.redirectUri || null,
     webhookUrl,
+    complianceWebhookUrl: getShopifyComplianceWebhookAddress(),
     webhookPublic: /^https:\/\//i.test(webhookUrl) && !/localhost|127\.0\.0\.1/i.test(webhookUrl),
     hasAccessToken: Boolean(configured.adminApiAccessToken),
     hasWebhookSecret: Boolean(configured.webhookSecret),
-    requiredScopes: [
-      'read_orders',
-      'write_orders',
-      'read_webhooks',
-      'write_webhooks',
-      'write_merchant_managed_fulfillment_orders',
-    ],
+    requiredScopes: oauthConfig.scopes,
+    protectedCustomerData: {
+      required: true,
+      fields: ['name', 'email', 'phone', 'shipping_address', 'billing_address'],
+      note:
+        'Shopify only returns buyer name, phone, email, and addresses after the app is granted protected customer data access for these fields.',
+    },
+  }
+}
+
+const buildShopifyOAuthFrontendRedirect = ({
+  status,
+  shop,
+  message,
+  returnTo,
+}: {
+  status: 'connected' | 'error'
+  shop?: string
+  message?: string
+  returnTo?: string
+}) => {
+  const config = getShopifyOAuthConfig()
+  const fallbackUrl = config.frontendUrl || 'http://localhost:5173/channels/connected'
+  const target = String(returnTo || '').trim()
+  let url: URL
+
+  try {
+    const fallback = new URL(fallbackUrl)
+    if (target.startsWith('/')) {
+      url = new URL(target, fallback.origin)
+    } else if (target) {
+      const requested = new URL(target)
+      url = requested.origin === fallback.origin ? requested : fallback
+    } else {
+      url = fallback
+    }
+  } catch {
+    url = new URL('http://localhost:5173/channels/connected')
+  }
+
+  url.searchParams.set('shopify', status)
+  if (shop) url.searchParams.set('shop', shop)
+  if (message) url.searchParams.set('message', message)
+  return url.toString()
+}
+
+export const shopifyOAuthInstallController = async (req: Request, res: Response): Promise<any> => {
+  const shop = normalizeShopifyDomain(String(req.query?.shop || ''))
+
+  try {
+    if (!isValidShopifyDomain(shop)) {
+      throw new Error('Invalid Shopify shop domain')
+    }
+
+    if (req.query?.hmac && !verifyShopifyOAuthQueryHmac(req.query as Record<string, any>)) {
+      throw new Error('Invalid Shopify install request')
+    }
+
+    const config = getShopifyOAuthConfig()
+    const url = new URL(config.frontendUrl || 'http://localhost:5173/channels/connected')
+    url.searchParams.set('shopifyInstall', '1')
+    url.searchParams.set('shop', shop)
+    return res.redirect(302, url.toString())
+  } catch (error: any) {
+    const redirectUrl = buildShopifyOAuthFrontendRedirect({
+      status: 'error',
+      message: error?.message || 'Shopify install could not be started',
+    })
+    return res.redirect(302, redirectUrl)
+  }
+}
+
+export const startShopifyOAuthController = async (req: any, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' })
+
+    const requestedUserId = String(req.body?.userId || req.body?.targetUserId || '').trim()
+    const targetUserId = requestedUserId || userId
+    const canConnect = await ensureCanConnectForUser(userId, targetUserId)
+    if (!canConnect) {
+      return res.status(403).json({ success: false, error: 'Admin access is required to bind another user' })
+    }
+
+    const shop = String(req.body?.shop || req.body?.storeUrl || req.query?.shop || '').trim()
+    const returnTo = String(req.body?.returnTo || req.query?.returnTo || '/channels/connected').trim()
+    const result = buildShopifyOAuthAuthorizeUrl({ shop, userId: targetUserId, returnTo })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shopify OAuth authorization URL created',
+      data: result,
+      authUrl: result.authUrl,
+    })
+  } catch (error: any) {
+    return res.status(error?.statusCode || 400).json({
+      success: false,
+      error: error?.message || 'Failed to start Shopify OAuth',
+    })
+  }
+}
+
+export const shopifyOAuthCallbackController = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await completeShopifyOAuthInstall(req.query as Record<string, any>)
+    const redirectUrl = buildShopifyOAuthFrontendRedirect({
+      status: 'connected',
+      shop: result.shop,
+      message: result.warning || 'Shopify connected successfully',
+      returnTo: result.returnTo,
+    })
+    return res.redirect(302, redirectUrl)
+  } catch (error: any) {
+    console.error('Shopify OAuth callback failed:', error?.response?.data || error?.message || error)
+    const redirectUrl = buildShopifyOAuthFrontendRedirect({
+      status: 'error',
+      message: error?.message || 'Shopify OAuth failed',
+    })
+    return res.redirect(302, redirectUrl)
   }
 }
 
@@ -88,6 +213,14 @@ export const testShopifyConnectionController = async (_req: any, res: Response):
 }
 
 export const connectConfiguredShopifyStoreController = async (req: any, res: Response): Promise<any> => {
+  if (String(process.env.SHOPIFY_ALLOW_LEGACY_MANUAL_AUTH || '').toLowerCase() !== 'true') {
+    return res.status(410).json({
+      success: false,
+      error: 'Configured Shopify custom app connection is no longer supported. Connect Shopify through OAuth.',
+      migrationPath: '/api/integrations/shopify/oauth/start',
+    })
+  }
+
   try {
     const actorUserId = req.user?.sub
     if (!actorUserId) return res.status(401).json({ success: false, error: 'Unauthorized' })
@@ -177,6 +310,36 @@ export const syncShopifyOrdersController = async (req: any, res: Response): Prom
   }
 }
 
+export const updateShopifySettingsController = async (req: any, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+    const settings =
+      req.body?.settings && typeof req.body.settings === 'object' && !Array.isArray(req.body.settings)
+        ? req.body.settings
+        : null
+    if (!settings) {
+      return res.status(400).json({ success: false, error: 'Shopify settings payload is required' })
+    }
+
+    const storeId = String(req.body?.storeId || req.body?.id || '').trim() || undefined
+    const result = await updateShopifyStoreSettingsForUser({ userId, storeId, settings })
+    return res.status(200).json({
+      success: true,
+      message: result.warning ? 'Shopify settings saved with warning' : 'Shopify settings saved successfully',
+      store: result.store,
+      warning: result.warning,
+    })
+  } catch (error: any) {
+    console.error('Shopify settings update failed:', error)
+    return res.status(error?.statusCode || 500).json({
+      success: false,
+      error: error?.message || 'Failed to update Shopify settings',
+    })
+  }
+}
+
 export const shopifyOrderWebhookController = async (req: Request, res: Response): Promise<any> => {
   try {
     const rawBody: Buffer = req.body as Buffer
@@ -201,6 +364,34 @@ export const shopifyOrderWebhookController = async (req: Request, res: Response)
     return res.status(500).json({
       success: false,
       error: error?.message || 'Failed to process Shopify webhook',
+    })
+  }
+}
+
+export const shopifyComplianceWebhookController = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const rawBody: Buffer = req.body as Buffer
+    const hmac = String(req.headers['x-shopify-hmac-sha256'] || '')
+    const topic = String(req.headers['x-shopify-topic'] || '')
+    const shopDomain = String(req.headers['x-shopify-shop-domain'] || '')
+
+    if (!rawBody || !Buffer.isBuffer(rawBody)) {
+      return res.status(400).json({ success: false, error: 'Invalid webhook payload' })
+    }
+
+    const isValid = await verifyShopifyWebhookSignatureForDomain(rawBody, hmac, shopDomain)
+    if (!isValid) {
+      return res.status(401).json({ success: false, error: 'Invalid Shopify webhook signature' })
+    }
+
+    const payload = JSON.parse(rawBody.toString('utf8') || '{}')
+    const result = await processShopifyComplianceWebhook(shopDomain, topic, payload)
+    return res.status(200).json({ success: true, result })
+  } catch (error: any) {
+    console.error('Shopify compliance webhook handling failed:', error)
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to process Shopify compliance webhook',
     })
   }
 }

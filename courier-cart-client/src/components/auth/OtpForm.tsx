@@ -1,7 +1,6 @@
 import { Box, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { FiEdit2, FiRefreshCcw } from 'react-icons/fi'
-import { BRAND } from '../../config/brand'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useRequestOtp, useVerifyOtp } from '../../hooks/useOTP'
 import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
@@ -9,34 +8,32 @@ import { toast } from '../UI/Toast'
 
 const OTP_LENGTH = 6
 const OTP_RESEND_DELAY_MS = 30000
-const BRAND_DARK = BRAND.colors.ink
-const BRAND_TEAL = BRAND.colors.teal
+const BRAND_ORANGE = '#E85500'
+const BRAND_DARK = '#141414'
 
 const primaryButtonStyles = {
   width: '100%',
-  borderRadius: 1,
-  background: `linear-gradient(135deg, ${BRAND_TEAL} 0%, #013f49 100%)`,
-  boxShadow: '0 16px 26px rgba(4, 123, 133, 0.18)',
+  borderRadius: 4,
+  background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, #C23E00 100%)`,
+  boxShadow: 'none',
   minHeight: 52,
 }
 
 const ghostButtonStyles = {
   width: '100%',
-  border: '1px solid rgba(91, 119, 150, 0.32)',
+  border: '1px solid rgba(20, 20, 20, 0.1)',
   color: BRAND_DARK,
   backgroundColor: '#ffffff',
-  borderRadius: 1,
+  borderRadius: 4,
   minHeight: 48,
 }
 
 type Props = {
   email: string
-  debugOtp?: string
-  onDebugOtpChange?: (otp: string) => void
   onEditEmail: () => void
 }
 
-export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail }: Props) {
+export default function OtpForm({ email, onEditEmail }: Props) {
   const { setTokens, setUserId } = useAuth()
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const [error, setError] = useState('')
@@ -135,12 +132,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
     if (!resendEnabled || resending) return
 
     resendOtp(email.toLowerCase().trim(), {
-      onSuccess: (data: { devOtp?: string; otp?: string }) => {
-        const nextOtp = data?.devOtp ?? data?.otp ?? ''
-        if (nextOtp) {
-          console.log('[AUTH OTP]', { email: email.toLowerCase().trim(), otp: nextOtp })
-        }
-        onDebugOtpChange?.(nextOtp)
+      onSuccess: () => {
         setOtpDigits(Array(OTP_LENGTH).fill(''))
         setError('')
         setResendEnabled(false)
@@ -165,7 +157,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
           if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
         }, OTP_RESEND_DELAY_MS)
 
-        toast.open({ message: 'Verification code generated again.', severity: 'success' })
+        toast.open({ message: 'Verification code sent again.', severity: 'success' })
       },
       onError: (err: any) => {
         setError(err?.response?.data?.error || 'Failed to resend OTP')
@@ -174,17 +166,17 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
   }, [email, resendOtp, resendEnabled, resending])
 
   return (
-    <Stack component="form" onSubmit={handleSubmit} width="100%" mt={0} gap={1.75}>
+    <Stack component="form" onSubmit={handleSubmit} width="100%" mt={1} gap={2}>
       <Box
         sx={{
-          p: 1.65,
-          borderRadius: 1.25,
-          background: 'linear-gradient(135deg, rgba(228,246,248,0.76), rgba(255,255,255,0.92))',
-          border: '1px solid rgba(4,123,133,0.12)',
+          p: 1.8,
+          borderRadius: 2,
+          backgroundColor: '#f7f1ed',
+          border: '1px solid rgba(20, 20, 20, 0.08)',
         }}
       >
         <Typography variant="body2" sx={{ color: '#5F5A57', lineHeight: 1.7 }}>
-          We generated a 6-digit sign-in code for <strong>{email}</strong>.
+          We sent a 6-digit sign-in code to <strong>{email}</strong>.
           <Box
             component="span"
             sx={{
@@ -192,7 +184,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
               display: 'inline-flex',
               alignItems: 'center',
               cursor: 'pointer',
-              color: BRAND_TEAL,
+              color: BRAND_ORANGE,
             }}
             onClick={onEditEmail}
           >
@@ -201,25 +193,6 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
           </Box>
         </Typography>
       </Box>
-
-      {debugOtp && (
-        <Box
-          sx={{
-            p: 1.35,
-            borderRadius: 1.25,
-            textAlign: 'center',
-            background: 'linear-gradient(135deg, rgba(4,123,133,0.1), rgba(255,130,28,0.12))',
-            border: '1px solid rgba(4,123,133,0.2)',
-          }}
-        >
-          <Typography sx={{ fontSize: '0.72rem', fontWeight: 800, color: BRAND_TEAL, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-            Test OTP
-          </Typography>
-          <Typography sx={{ mt: 0.4, fontSize: '1.5rem', fontWeight: 800, color: BRAND_DARK, letterSpacing: '0.18em' }}>
-            {debugOtp}
-          </Typography>
-        </Box>
-      )}
 
       <Box
         sx={{
@@ -256,17 +229,17 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
               width: '100%',
               '& .MuiOutlinedInput-root': {
                 height: 52,
-                borderRadius: 1,
-                backgroundColor: '#f8fcfd',
+                borderRadius: 1.5,
+                backgroundColor: '#fbf7f4',
                 color: BRAND_DARK,
                 '& fieldset': {
-                  borderColor: 'rgba(4, 123, 133, 0.18)',
+                  borderColor: 'rgba(20, 20, 20, 0.1)',
                 },
                 '&:hover fieldset': {
-                  borderColor: BRAND_TEAL,
+                  borderColor: BRAND_ORANGE,
                 },
                 '&.Mui-focused fieldset': {
-                  borderColor: BRAND_TEAL,
+                  borderColor: BRAND_ORANGE,
                   borderWidth: 2,
                 },
               },
@@ -285,7 +258,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
       )}
 
       <Typography variant="caption" color="#6E6763" textAlign="center" sx={{ userSelect: 'none' }}>
-        Enter the test code above to continue to the merchant shipping workspace.
+        Enter the code from your inbox to continue to the merchant shipping workspace.
       </Typography>
 
       <CustomIconLoadingButton

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm'
+import { and, eq, gte, ilike, lte, or, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { userProfiles } from '../schema/userProfile'
@@ -89,38 +89,77 @@ export async function listNdrEvents(
       : whereBase
 
   const offset = (page - 1) * limit
+  const countResult = (await db.execute(sql`
+    WITH filtered AS (
+      SELECT
+        ${ndr_events.id} AS id,
+        ${ndr_events.order_id} AS order_id,
+        row_number() OVER (
+          PARTITION BY ${ndr_events.order_id}
+          ORDER BY ${ndr_events.created_at} DESC, ${ndr_events.id} DESC
+        ) AS rn
+      FROM ${ndr_events}
+      LEFT JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
+      WHERE ${where}
+    )
+    SELECT COUNT(*)::int AS total
+    FROM filtered
+    WHERE rn = 1
+  `)) as any
 
-  const rows = await db
-    .select({
-      id: ndr_events.id,
-      awb_number: ndr_events.awb_number,
-      order_id: ndr_events.order_id,
-      status: ndr_events.status,
-      reason: ndr_events.reason,
-      remarks: ndr_events.remarks,
-      attempt_no: ndr_events.attempt_no,
-      created_at: ndr_events.created_at,
-      last_event_time: ndr_events.updated_at,
-      order_number: b2c_orders.order_number,
-      buyer_name: b2c_orders.buyer_name,
-      buyer_phone: b2c_orders.buyer_phone,
-      courier_partner: b2c_orders.courier_partner,
-      integration_type: b2c_orders.integration_type,
-    })
-    .from(ndr_events)
-    .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
-    .where(where)
-    .orderBy(desc(ndr_events.created_at))
-    .limit(limit)
-    .offset(offset)
+  const totalCount = Number(countResult.rows?.[0]?.total || 0)
+  if (totalCount === 0) {
+    return { rows: [], totalCount: 0 }
+  }
 
-  const [{ count }] = (await db
-    .select({ count: sql<number>`count(*)` })
-    .from(ndr_events)
-    .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
-    .where(where)) as unknown as Array<{ count: number }>
+  const rowsResult = (await db.execute(sql`
+    WITH filtered AS (
+      SELECT
+        ${ndr_events.id} AS id,
+        ${ndr_events.awb_number} AS awb_number,
+        ${ndr_events.order_id} AS order_id,
+        ${ndr_events.status} AS status,
+        ${ndr_events.reason} AS reason,
+        ${ndr_events.remarks} AS remarks,
+        ${ndr_events.attempt_no} AS attempt_no,
+        ${ndr_events.created_at} AS created_at,
+        ${ndr_events.updated_at} AS last_event_time,
+        ${b2c_orders.order_number} AS order_number,
+        ${b2c_orders.buyer_name} AS buyer_name,
+        ${b2c_orders.buyer_phone} AS buyer_phone,
+        ${b2c_orders.courier_partner} AS courier_partner,
+        ${b2c_orders.integration_type} AS integration_type,
+        row_number() OVER (
+          PARTITION BY ${ndr_events.order_id}
+          ORDER BY ${ndr_events.created_at} DESC, ${ndr_events.id} DESC
+        ) AS rn
+      FROM ${ndr_events}
+      LEFT JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
+      WHERE ${where}
+    )
+    SELECT
+      id,
+      awb_number,
+      order_id,
+      status,
+      reason,
+      remarks,
+      attempt_no,
+      created_at,
+      last_event_time,
+      order_number,
+      buyer_name,
+      buyer_phone,
+      courier_partner,
+      integration_type
+    FROM filtered
+    WHERE rn = 1
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `)) as any
 
-  return { rows, totalCount: Number(count) || 0 }
+  return { rows: rowsResult.rows || [], totalCount }
 }
 
 export async function listNdrEventsAdmin(
@@ -186,62 +225,95 @@ export async function listNdrEventsAdmin(
   )
 
   const offset = (page - 1) * limit
+  const scopedWhere = and(
+    whereFinal,
+    courier ? ilike(b2c_orders.courier_partner, `%${courier}%`) : sql`true`,
+    integration_type ? ilike(b2c_orders.integration_type, `%${integration_type}%`) : sql`true`,
+    attempt_count ? eq(ndr_events.attempt_no, String(attempt_count)) : sql`true`,
+  )
 
-  const rows = await db
-    .select({
-      id: ndr_events.id,
-      awb_number: ndr_events.awb_number,
-      order_id: ndr_events.order_id,
-      status: ndr_events.status,
-      reason: ndr_events.reason,
-      remarks: ndr_events.remarks,
-      attempt_no: ndr_events.attempt_no,
-      created_at: ndr_events.created_at,
-      order_number: b2c_orders.order_number,
-      buyer_name: b2c_orders.buyer_name,
-      buyer_phone: b2c_orders.buyer_phone,
-      courier_partner: b2c_orders.courier_partner,
-      integration_type: b2c_orders.integration_type,
-      merchant_id: b2c_orders.user_id,
-      merchant_name: sql<string>`(${userProfiles.companyInfo} ->> 'companyName')`.as('merchant_name'),
-      last_event_time: ndr_events.updated_at,
-      source: sql<string>`
+  const countResult = (await db.execute(sql`
+    WITH filtered AS (
+      SELECT
+        ${ndr_events.id} AS id,
+        ${ndr_events.order_id} AS order_id,
+        row_number() OVER (
+          PARTITION BY ${ndr_events.order_id}
+          ORDER BY ${ndr_events.created_at} DESC, ${ndr_events.id} DESC
+        ) AS rn
+      FROM ${ndr_events}
+      LEFT JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
+      LEFT JOIN ${userProfiles} ON ${userProfiles.userId} = ${b2c_orders.user_id}
+      WHERE ${scopedWhere}
+    )
+    SELECT COUNT(*)::int AS total
+    FROM filtered
+    WHERE rn = 1
+  `)) as any
+
+  const totalCount = Number(countResult.rows?.[0]?.total || 0)
+  if (totalCount === 0) {
+    return { rows: [], totalCount: 0 }
+  }
+
+  const rowsResult = (await db.execute(sql`
+    WITH filtered AS (
+      SELECT
+        ${ndr_events.id} AS id,
+        ${ndr_events.awb_number} AS awb_number,
+        ${ndr_events.order_id} AS order_id,
+        ${ndr_events.status} AS status,
+        ${ndr_events.reason} AS reason,
+        ${ndr_events.remarks} AS remarks,
+        ${ndr_events.attempt_no} AS attempt_no,
+        ${ndr_events.created_at} AS created_at,
+        ${b2c_orders.order_number} AS order_number,
+        ${b2c_orders.buyer_name} AS buyer_name,
+        ${b2c_orders.buyer_phone} AS buyer_phone,
+        ${b2c_orders.courier_partner} AS courier_partner,
+        ${b2c_orders.integration_type} AS integration_type,
+        ${b2c_orders.user_id} AS merchant_id,
+        ${userProfiles.companyInfo} ->> 'companyName' AS merchant_name,
+        ${ndr_events.updated_at} AS last_event_time,
         CASE
           WHEN ${ndr_events.payload} ->> 'source' = 'admin_manual' THEN 'admin'
           ELSE 'webhook'
-        END
-      `.as('source'),
-    })
-    .from(ndr_events)
-    .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
-    .leftJoin(userProfiles, eq(userProfiles.userId, b2c_orders.user_id))
-    .where(
-      and(
-        whereFinal,
-        courier ? ilike(b2c_orders.courier_partner, `%${courier}%`) : sql`true`,
-        integration_type ? ilike(b2c_orders.integration_type, `%${integration_type}%`) : sql`true`,
-        attempt_count ? eq(ndr_events.attempt_no, String(attempt_count)) : sql`true`,
-      ),
+        END AS source,
+        row_number() OVER (
+          PARTITION BY ${ndr_events.order_id}
+          ORDER BY ${ndr_events.created_at} DESC, ${ndr_events.id} DESC
+        ) AS rn
+      FROM ${ndr_events}
+      LEFT JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
+      LEFT JOIN ${userProfiles} ON ${userProfiles.userId} = ${b2c_orders.user_id}
+      WHERE ${scopedWhere}
     )
-    .orderBy(desc(ndr_events.created_at))
-    .limit(limit)
-    .offset(offset)
+    SELECT
+      id,
+      awb_number,
+      order_id,
+      status,
+      reason,
+      remarks,
+      attempt_no,
+      created_at,
+      order_number,
+      buyer_name,
+      buyer_phone,
+      courier_partner,
+      integration_type,
+      merchant_id,
+      merchant_name,
+      last_event_time,
+      source
+    FROM filtered
+    WHERE rn = 1
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `)) as any
 
-  const [{ count }] = (await db
-    .select({ count: sql<number>`count(*)` })
-    .from(ndr_events)
-    .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
-    .leftJoin(userProfiles, eq(userProfiles.userId, b2c_orders.user_id))
-    .where(
-      and(
-        whereFinal,
-        courier ? ilike(b2c_orders.courier_partner, `%${courier}%`) : sql`true`,
-        integration_type ? ilike(b2c_orders.integration_type, `%${integration_type}%`) : sql`true`,
-        attempt_count ? ilike(ndr_events.attempt_no, `%${String(attempt_count)}%`) : sql`true`,
-      ),
-    )) as unknown as Array<{ count: number }>
-
-  return { rows, totalCount: Number(count) || 0 }
+  return { rows: rowsResult.rows || [], totalCount }
 }
 
 export async function getNdrTimeline(params: { awb?: string; orderId?: string }) {

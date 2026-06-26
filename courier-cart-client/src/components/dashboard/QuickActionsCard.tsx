@@ -10,7 +10,7 @@ import {
 import { TbTruckDelivery } from 'react-icons/tb'
 import { useNavigate } from 'react-router-dom'
 
-const BRAND_PRIMARY = '#047b85'
+const BRAND_PRIMARY = '#E85500'
 export default function QuickActionsCard() {
   const navigate = useNavigate()
 

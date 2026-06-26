@@ -1,11 +1,10 @@
 import { Router } from 'express'
 import { createReversePickup, quoteReverse } from '../controllers/returns.controller'
 import { requireAuth } from '../middlewares/requireAuth'
-import { requireKycVerified } from '../middlewares/requireKycVerified'
 
 const r = Router()
 
-r.post('/returns/create', requireAuth, requireKycVerified, createReversePickup)
+r.post('/returns/create', requireAuth, createReversePickup)
 r.post('/returns/quote', requireAuth, quoteReverse)
 
 export default r

@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   adjustAdminWalletBalance,
+  downloadAdminWalletMisReportCsv,
   getAdminWallet,
+  getAdminWalletMisReport,
   getAdminWalletTransactions,
   listAdminWallets,
 } from 'services/wallet.service'
@@ -30,6 +32,21 @@ export function useAdminWalletTransactions(userId, params, enabled = true) {
     queryFn: () => getAdminWalletTransactions(userId, { page, limit, type, dateFrom, dateTo }),
     enabled: enabled && !!userId,
     keepPreviousData: true,
+  })
+}
+
+export function useAdminWalletMisReport(params, enabled = true) {
+  return useQuery({
+    queryKey: ['admin-wallet-mis-report', params],
+    queryFn: () => getAdminWalletMisReport(params),
+    enabled,
+    keepPreviousData: true,
+  })
+}
+
+export function useDownloadAdminWalletMisReportCsv() {
+  return useMutation({
+    mutationFn: (params) => downloadAdminWalletMisReportCsv(params),
   })
 }
 

@@ -2,8 +2,8 @@ import { alpha, Box, Button, Grid, LinearProgress, Stack, Typography } from '@mu
 import { useNavigate } from 'react-router-dom'
 import { useMerchantReadiness } from '../../hooks/useMerchantReadiness'
 
-const BRAND_PRIMARY = '#047b85'
-const BRAND_ACCENT = '#ff821c'
+const BRAND_PRIMARY = '#E85500'
+const BRAND_ACCENT = '#1A7500'
 const INK = '#111827'
 const MUTED = '#6B7280'
 

@@ -27,6 +27,17 @@ import {
   createXpressbeesManualAwbRange,
   getXpressbeesManualAwbSummary,
 } from '../../models/services/xpressbeesAwbRange.service'
+import {
+  AMAZON_CREDENTIALS_PROVIDER,
+  AMAZON_DEFAULT_BUSINESS_ID,
+  AMAZON_DEFAULT_REGION,
+  applyAmazonShippingCredentialsToEnv,
+  buildAmazonShippingCredentialsFromRow,
+  maskAmazonCredential,
+  normalizeAmazonCredentialTokens,
+  normalizeAmazonCredentialValue,
+  parseAmazonSandboxFlag,
+} from '../../models/services/amazonShippingCredentials.service'
 
 export interface ShippingRateFilters {
   courier_name?: string[]
@@ -257,7 +268,7 @@ export const updateCourierStatusController = async (req: Request, res: Response)
 export const getServiceProvidersController = async (req: Request, res: Response) => {
   try {
     // Only expose the main integrated service providers in the enable/disable UI
-    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax']
+    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
 
     const rows = await db
       .select({
@@ -303,7 +314,7 @@ export const updateServiceProviderStatusController = async (req: Request, res: R
   const { isEnabled } = req.body
 
   try {
-    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax']
+    const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
 
     if (!serviceProvider || typeof isEnabled !== 'boolean') {
       return res.status(400).json({
@@ -345,8 +356,81 @@ export const updateServiceProviderStatusController = async (req: Request, res: R
   }
 }
 
+const buildAmazonCredentialResponse = (
+  row?: Partial<typeof courier_credentials.$inferSelect> | null,
+) => {
+  const credentials = buildAmazonShippingCredentialsFromRow(row)
+  const accessToken = normalizeAmazonCredentialValue(credentials.accessToken)
+  const refreshToken = normalizeAmazonCredentialValue(credentials.refreshToken)
+  const lwaClientId = normalizeAmazonCredentialValue(credentials.lwaClientId)
+  const lwaClientSecret = normalizeAmazonCredentialValue(credentials.lwaClientSecret)
+
+  return {
+    provider: AMAZON_CREDENTIALS_PROVIDER,
+    apiBase: normalizeAmazonCredentialValue(credentials.endpoint),
+    endpoint: normalizeAmazonCredentialValue(credentials.endpoint),
+    lwaClientId,
+    shippingBusinessId:
+      normalizeAmazonCredentialValue(credentials.shippingBusinessId) || AMAZON_DEFAULT_BUSINESS_ID,
+    region: normalizeAmazonCredentialValue(credentials.region) || AMAZON_DEFAULT_REGION,
+    sandbox: Boolean(credentials.sandbox),
+    lwaTokenUrl: normalizeAmazonCredentialValue(credentials.lwaTokenUrl),
+    hasAccessToken: Boolean(accessToken),
+    accessTokenMasked: maskAmazonCredential(accessToken),
+    hasRefreshToken: Boolean(refreshToken),
+    refreshTokenMasked: maskAmazonCredential(refreshToken),
+    hasLwaClientSecret: Boolean(lwaClientSecret),
+    configured: Boolean(accessToken || (refreshToken && lwaClientId && lwaClientSecret)),
+  }
+}
+
 const optionalCredentialString = (value: unknown) =>
   typeof value === 'string' ? value.trim() : undefined
+
+const normalizePublicUrl = (value: unknown, fallback: string) => {
+  const normalized = String(value || fallback).trim()
+  return normalized.replace(/\/+$/, '')
+}
+
+const getPublicApiUrl = () =>
+  normalizePublicUrl(process.env.API_URL || process.env.PUBLIC_API_URL, 'https://api.shiplifi.com')
+
+const resolvePublicWebhookUrl = (envName: string, path: string) => {
+  const configured = optionalCredentialString(process.env[envName])
+  if (configured) {
+    return /^https?:\/\//i.test(configured)
+      ? normalizePublicUrl(configured, configured)
+      : `${getPublicApiUrl()}/${configured.replace(/^\/+/, '')}`
+  }
+
+  return `${getPublicApiUrl()}${path}`
+}
+
+const buildDelhiveryWebhookConfig = () => ({
+  scanPushUrl: resolvePublicWebhookUrl(
+    'DELHIVERY_SCAN_PUSH_WEBHOOK_URL',
+    '/api/webhook/delhivery/scan',
+  ),
+  documentPushUrl: resolvePublicWebhookUrl(
+    'DELHIVERY_DOCUMENT_PUSH_WEBHOOK_URL',
+    '/api/webhook/delhivery/document',
+  ),
+  legacyUnifiedUrl: resolvePublicWebhookUrl(
+    'DELHIVERY_LEGACY_WEBHOOK_URL',
+    '/api/webhook/delhivery/order',
+  ),
+  method: 'POST',
+  contentType: 'application/json',
+  expectedResponse: '200 OK',
+  requiredFields: [
+    'Shipment.AWB',
+    'Shipment.ReferenceNo',
+    'Shipment.Status.Status',
+    'Shipment.Status.StatusType',
+    'Shipment.Status.Instructions',
+    'Shipment.NSLCode or Shipment.Status.StatusCode',
+  ],
+})
 
 export const getCourierCredentialsController = async (req: Request, res: Response) => {
   try {
@@ -379,6 +463,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
           'ekart',
           'xpressbees',
           'shadowfax',
+          AMAZON_CREDENTIALS_PROVIDER,
         ]),
       )
 
@@ -389,10 +474,11 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         clientName: '',
         hasApiKey: false,
         apiKeyMasked: '',
+        webhookConfig: buildDelhiveryWebhookConfig(),
       },
       ekart: {
         provider: 'ekart',
-        apiBase: 'https://app.elite.ekartlogistics.in',
+        apiBase: 'https://api.ekartlogistics.com',
         clientId: '',
         username: '',
         hasPassword: false,
@@ -426,12 +512,13 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       shadowfax: {
         provider: 'shadowfax',
-        apiBase: 'https://dale.shadowfax.in/api',
+        apiBase: 'https://dale.staging.shadowfax.in/api',
         clientName: '',
         hasApiKey: false,
         apiKeyMasked: '',
         hasWebhookSecret: false,
       },
+      amazon: buildAmazonCredentialResponse(),
     }
 
     const data = rows.reduce<Record<string, any>>((acc, row) => {
@@ -447,13 +534,14 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
           apiKeyMasked: apiKey
             ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(apiKey.length - 8, 0))}${apiKey.slice(-4)}`
             : '',
+          webhookConfig: buildDelhiveryWebhookConfig(),
         }
       } else if (provider === 'ekart') {
         const hasPassword = Boolean((row.password || '').trim())
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.ekart = {
           provider: 'ekart',
-          apiBase: row.apiBase || 'https://app.elite.ekartlogistics.in',
+          apiBase: row.apiBase || 'https://api.ekartlogistics.com',
           clientId: row.clientId || '',
           username: row.username || '',
           hasPassword,
@@ -513,7 +601,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.shadowfax = {
           provider: 'shadowfax',
-          apiBase: row.apiBase || 'https://dale.shadowfax.in/api',
+          apiBase: row.apiBase || 'https://dale.staging.shadowfax.in/api',
           clientName: row.clientName || '',
           hasApiKey: Boolean(apiKey.trim()),
           apiKeyMasked: apiKey
@@ -521,6 +609,8 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
             : '',
           hasWebhookSecret,
         }
+      } else if (provider === AMAZON_CREDENTIALS_PROVIDER) {
+        acc.amazon = buildAmazonCredentialResponse(row)
       }
       return acc
     }, { ...defaults })
@@ -618,6 +708,7 @@ export const updateDelhiveryCredentialsController = async (req: Request, res: Re
         apiBase: saved?.apiBase || 'https://track.delhivery.com',
         clientName: saved?.clientName || '',
         hasApiKey: Boolean((saved?.apiKey || '').trim()),
+        webhookConfig: buildDelhiveryWebhookConfig(),
       },
     })
   } catch (err) {
@@ -648,7 +739,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://app.elite.ekartlogistics.in'
+        updatePayload.apiBase = nextApiBase || 'https://api.ekartlogistics.com'
       }
       if (nextClientId !== undefined) {
         updatePayload.clientId = nextClientId
@@ -670,7 +761,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
     } else {
       await db.insert(courier_credentials).values({
         provider: 'ekart',
-        apiBase: nextApiBase || 'https://app.elite.ekartlogistics.in',
+        apiBase: nextApiBase || 'https://api.ekartlogistics.com',
         clientName: '',
         apiKey: '',
         clientId: nextClientId || '',
@@ -697,7 +788,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
       message: 'Ekart credentials updated successfully',
       data: {
         provider: 'ekart',
-        apiBase: saved?.apiBase || 'https://app.elite.ekartlogistics.in',
+        apiBase: saved?.apiBase || 'https://api.ekartlogistics.com',
         clientId: saved?.clientId || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
@@ -958,7 +1049,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://dale.shadowfax.in/api'
+        updatePayload.apiBase = nextApiBase || 'https://dale.staging.shadowfax.in/api'
       }
       if (nextClientName !== undefined) {
         updatePayload.clientName = nextClientName
@@ -977,7 +1068,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
     } else {
       await db.insert(courier_credentials).values({
         provider: 'shadowfax',
-        apiBase: nextApiBase || 'https://dale.shadowfax.in/api',
+        apiBase: nextApiBase || 'https://dale.staging.shadowfax.in/api',
         clientName: nextClientName || '',
         apiKey: hasNewApiKey ? nextApiKey : '',
         webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
@@ -1002,7 +1093,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
       message: 'Shadowfax credentials updated successfully',
       data: {
         provider: 'shadowfax',
-        apiBase: saved?.apiBase || 'https://dale.shadowfax.in/api',
+        apiBase: saved?.apiBase || 'https://dale.staging.shadowfax.in/api',
         clientName: saved?.clientName || '',
         hasApiKey: Boolean((saved?.apiKey || '').trim()),
         hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
@@ -1011,6 +1102,131 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
   } catch (err) {
     console.error(err)
     res.status(500).json({ success: false, message: 'Failed to update Shadowfax credentials' })
+  }
+}
+
+export const updateAmazonCredentialsController = async (req: Request, res: Response) => {
+  const {
+    apiBase,
+    endpoint,
+    accessToken,
+    refreshToken,
+    lwaClientId,
+    clientId,
+    lwaClientSecret,
+    clientSecret,
+    shippingBusinessId,
+    region,
+    sandbox,
+    lwaTokenUrl,
+    tokenUrl,
+  } = req.body || {}
+
+  try {
+    const [existing] = await db
+      .select()
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, AMAZON_CREDENTIALS_PROVIDER))
+      .limit(1)
+
+    const nextCredentials = { ...buildAmazonShippingCredentialsFromRow(existing) }
+    const nextEndpoint = optionalCredentialString(endpoint) ?? optionalCredentialString(apiBase)
+    const nextAccessToken = optionalCredentialString(accessToken)
+    const nextRefreshToken = optionalCredentialString(refreshToken)
+    const nextLwaClientId = optionalCredentialString(lwaClientId) ?? optionalCredentialString(clientId)
+    const nextLwaClientSecret =
+      optionalCredentialString(lwaClientSecret) ?? optionalCredentialString(clientSecret)
+    const nextShippingBusinessId = optionalCredentialString(shippingBusinessId)
+    const nextRegion = optionalCredentialString(region)
+    const nextLwaTokenUrl =
+      optionalCredentialString(lwaTokenUrl) ?? optionalCredentialString(tokenUrl)
+
+    if (nextEndpoint !== undefined) {
+      nextCredentials.endpoint = nextEndpoint
+    }
+    if (nextAccessToken) {
+      nextCredentials.accessToken = nextAccessToken
+    }
+    if (nextRefreshToken) {
+      nextCredentials.refreshToken = nextRefreshToken
+    }
+    if (nextLwaClientId !== undefined) {
+      nextCredentials.lwaClientId = nextLwaClientId
+    }
+    if (nextLwaClientSecret) {
+      nextCredentials.lwaClientSecret = nextLwaClientSecret
+    }
+    if (nextShippingBusinessId !== undefined) {
+      nextCredentials.shippingBusinessId = nextShippingBusinessId || AMAZON_DEFAULT_BUSINESS_ID
+    }
+    if (nextRegion !== undefined) {
+      nextCredentials.region = nextRegion || AMAZON_DEFAULT_REGION
+    }
+    if (sandbox !== undefined) {
+      nextCredentials.sandbox = parseAmazonSandboxFlag(sandbox)
+    }
+    if (nextLwaTokenUrl !== undefined) {
+      nextCredentials.lwaTokenUrl = nextLwaTokenUrl
+    }
+
+    const normalizedTokens = normalizeAmazonCredentialTokens({
+      accessToken: nextCredentials.accessToken,
+      refreshToken: nextCredentials.refreshToken,
+    })
+    nextCredentials.accessToken = normalizedTokens.accessToken
+    nextCredentials.refreshToken = normalizedTokens.refreshToken
+
+    const metadata = {
+      accessToken: normalizeAmazonCredentialValue(nextCredentials.accessToken),
+      refreshToken: normalizeAmazonCredentialValue(nextCredentials.refreshToken),
+      lwaClientId: normalizeAmazonCredentialValue(nextCredentials.lwaClientId),
+      lwaClientSecret: normalizeAmazonCredentialValue(nextCredentials.lwaClientSecret),
+      endpoint: normalizeAmazonCredentialValue(nextCredentials.endpoint),
+      region: normalizeAmazonCredentialValue(nextCredentials.region) || AMAZON_DEFAULT_REGION,
+      sandbox: Boolean(nextCredentials.sandbox),
+      shippingBusinessId:
+        normalizeAmazonCredentialValue(nextCredentials.shippingBusinessId) ||
+        AMAZON_DEFAULT_BUSINESS_ID,
+      lwaTokenUrl: normalizeAmazonCredentialValue(nextCredentials.lwaTokenUrl),
+    }
+
+    const values = {
+      provider: AMAZON_CREDENTIALS_PROVIDER,
+      apiBase: metadata.endpoint,
+      clientName: metadata.shippingBusinessId,
+      apiKey: metadata.refreshToken || metadata.accessToken,
+      clientId: metadata.lwaClientId,
+      username: metadata.region,
+      password: metadata.lwaClientSecret,
+      webhookSecret: String(metadata.sandbox),
+      metadata,
+      updatedAt: new Date(),
+    }
+
+    await db
+      .insert(courier_credentials)
+      .values(values)
+      .onConflictDoUpdate({
+        target: courier_credentials.provider,
+        set: values,
+      })
+
+    applyAmazonShippingCredentialsToEnv(nextCredentials, { overwriteExisting: true })
+
+    const [saved] = await db
+      .select()
+      .from(courier_credentials)
+      .where(eq(courier_credentials.provider, AMAZON_CREDENTIALS_PROVIDER))
+      .limit(1)
+
+    res.json({
+      success: true,
+      message: 'Amazon credentials updated successfully',
+      data: buildAmazonCredentialResponse(saved),
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ success: false, message: 'Failed to update Amazon credentials' })
   }
 }
 

@@ -1,5 +1,5 @@
-import { Box, Chip, CircularProgress, Divider, Grid, Paper, Stack, Typography, alpha } from '@mui/material'
-import { useEffect } from 'react'
+import { Box, Chip, CircularProgress, Divider, Grid, MenuItem, Paper, Select, Stack, Typography, alpha } from '@mui/material'
+import { useEffect, useState } from 'react'
 import { useFormContext } from 'react-hook-form'
 import { BiCalendar, BiCheckCircle, BiMap, BiPackage, BiUser } from 'react-icons/bi'
 import { TbPlane, TbTruck } from 'react-icons/tb'
@@ -11,13 +11,15 @@ import { courierLogos, defaultLogo } from '../../utils/constants'
 import type { Box as B2BBox, B2BFormData } from './b2b/B2BOrderForm'
 import type { B2CFormData } from './b2c/B2COrderForm'
 
-const ACCENT = '#047b85'
+const ACCENT = '#E85500'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_SECONDARY = '#4C6185'
 const SURFACE = '#F6F8FC'
+type CourierSortOption = 'recommended' | 'price_low_to_high' | 'faster_delivery'
 
 export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b2c' }) => {
   const { watch, setValue, clearErrors } = useFormContext<B2BFormData | B2CFormData>()
+  const [courierSort, setCourierSort] = useState<CourierSortOption>('recommended')
   const watchFormValue = watch as any
   const setFormValue = setValue as any
 
@@ -26,9 +28,12 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   const pickupPincode = watch('pickupLocationPincode') ?? ''
   const pickupName = watch('pickupLocationName') ?? ''
   const pickupId = watch('pickupLocationId') ?? ''
+  const pickupPhone = watchFormValue('pickupLocationPOCPhone') ?? ''
   const pickupAddressLine = watch('pickupAddress') ?? ''
   const pickupCity = watch('pickupCity') ?? ''
   const pickupState = watch('pickupState') ?? ''
+  const buyerName = watchFormValue('buyerName') ?? ''
+  const buyerPhone = watchFormValue('buyerPhone') ?? ''
   const deliveryAddressLine = watch('address') ?? ''
   const deliveryCity = watch('city') ?? ''
   const deliveryState = watch('state') ?? ''
@@ -51,6 +56,20 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   const gstPercent = Number(watchFormValue('gstPercent') || 0)
   const gstAmount = Number(watchFormValue('gstAmount') || 0)
   const walletDebitAmount = Number(watchFormValue('walletDebitAmount') || 0)
+  const activeRateKey = 'forward'
+  const effectivePaymentType: 'cod' | 'prepaid' = orderType
+  const originPincode = pickupPincode
+  const destinationPincode = deliveryPincode
+  const originName = pickupName
+  const originPhone = pickupPhone
+  const originAddressLine = pickupAddressLine
+  const originCity = pickupCity
+  const originState = pickupState
+  const destinationName = buyerName
+  const destinationPhone = buyerPhone
+  const destinationAddressLine = deliveryAddressLine
+  const destinationCity = deliveryCity
+  const destinationState = deliveryState
 
   // COMPUTE TOTAL WEIGHT AND PRICE
   let totalWeight = 0
@@ -95,7 +114,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   }
 
   // Total shown to seller: customer-facing charges only (what customer pays)
-  // Includes: products + shipping + COD (for COD orders only) + transaction_fee + gift_wrap - discount - prepaid
+  // Includes: products + shipping + transaction_fee + gift_wrap - discount - prepaid
   // Does NOT include courier freight/COD/other charges (those are what seller pays to courier)
   const totalOrderValue =
     totalProductPrice + shippingCharges + transactionFee + giftWrap - discount - prepaidAmount
@@ -103,14 +122,14 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   // product value, not customer-facing shipping/fees collected from the buyer.
   const courierPayloadOrderAmount = Math.max(totalProductPrice, 0)
 
-  const cod = orderType === 'cod' ? 1 : 0
+  const cod = effectivePaymentType === 'cod' ? 1 : 0
   const hasRequiredPackageDetails =
     Number(totalWeight) > 0 &&
     (shipment_type !== 'b2c' ||
       (Number(length) > 0 && Number(breadth) > 0 && Number(height) > 0))
   const hasRequiredOrderAmount = shipment_type !== 'b2c' || courierPayloadOrderAmount > 0
   const canFetchCouriers = Boolean(
-    pickupPincode && deliveryPincode && hasRequiredPackageDetails && hasRequiredOrderAmount,
+    originPincode && destinationPincode && hasRequiredPackageDetails && hasRequiredOrderAmount,
   )
 
   const preferredShadowfaxForwardMode: 'marketplace' | 'warehouse' | undefined =
@@ -118,23 +137,24 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
 
   // COURIER API payload
   const courierPayload: UseAvailableCouriersParams = {
-    pickupPincode,
-    deliveryPincode,
-    pickupName,
+    pickupPincode: originPincode,
+    deliveryPincode: destinationPincode,
+    pickupName: originName,
     pickupId,
-    pickupAddress: pickupAddressLine,
-    pickupCity,
-    pickupState,
-    deliveryName: watch('buyerName') ?? '',
-    deliveryPhone: watch('buyerPhone') ?? '',
-    deliveryAddress: deliveryAddressLine,
-    deliveryCity,
-    deliveryState,
-    pickupAddressKey: `${pickupPincode}-${pickupAddressLine}-${pickupCity}-${pickupState}`,
-    deliveryAddressKey: `${deliveryPincode}-${deliveryAddressLine}-${deliveryCity}-${deliveryState}`,
+    pickupPhone: originPhone,
+    pickupAddress: originAddressLine,
+    pickupCity: originCity,
+    pickupState: originState,
+    deliveryName: destinationName,
+    deliveryPhone: destinationPhone,
+    deliveryAddress: destinationAddressLine,
+    deliveryCity: destinationCity,
+    deliveryState: destinationState,
+    pickupAddressKey: `${originPincode}-${originAddressLine}-${originCity}-${originState}`,
+    deliveryAddressKey: `${destinationPincode}-${destinationAddressLine}-${destinationCity}-${destinationState}`,
     weight: totalWeight,
     cod,
-    payment_type: orderType,
+    payment_type: effectivePaymentType,
     orderAmount: courierPayloadOrderAmount,
     shipmentType: shipment_type,
     enabled: canFetchCouriers,
@@ -156,11 +176,60 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   const { data: couriers, isLoading, isError, isFetching } = useAvailableCouriers(courierPayload)
   const availableCouriers = couriers ?? []
 
+  const getCourierOptionKey = (courier: any) =>
+    String(courier?.courier_option_key ?? courier?.id ?? courier?.courier_id ?? '')
+  const isCourierBookingUnavailable = (courier: any) =>
+    courier?.booking_available === false ||
+    courier?.can_book === false ||
+    courier?.provider_serviceability?.booking_available === false ||
+    courier?.provider_serviceability?.can_book === false
+  const getCourierBookingBlockedReason = (courier: any) =>
+    String(
+      courier?.booking_blocked_reason ||
+        courier?.provider_serviceability?.booking_blocked_reason ||
+        'This courier is not bookable for the current pickup and delivery combination.',
+    )
+
   useEffect(() => {
-    if (orderType !== 'cod') {
+    if (effectivePaymentType !== 'cod') {
       setValue('courierCod', 0)
     }
-  }, [orderType, setValue])
+  }, [effectivePaymentType, setValue])
+
+  useEffect(() => {
+    const selectedCourier = availableCouriers.find((courier) => {
+      const courierOptionKey = getCourierOptionKey(courier)
+      return selectedCourierOptionKey
+        ? selectedCourierOptionKey === courierOptionKey
+        : String(selectedCourierId) === String(courier?.id ?? courier?.courier_id ?? '')
+    })
+
+    if (!selectedCourier || !isCourierBookingUnavailable(selectedCourier)) return
+
+    setValue('courierPartner', '')
+    setValue('courierPartnerId', '')
+    setValue('courierOptionKey', '')
+    setValue('amazonRequestToken', null)
+    setValue('amazonRateId', null)
+    setValue('amazonServiceId', null)
+    setValue('amazonCarrierId', null)
+    setValue('selectedMaxSlabWeight', null)
+    setValue('courierCod', 0)
+    setValue('forwardCharges', 0)
+    setValue('otherCharges', 0)
+    setFormValue('gstPercent', 0)
+    setFormValue('gstAmount', 0)
+    setFormValue('walletDebitAmount', 0)
+    setValue('courierCost', null)
+    setValue('integrationType', undefined)
+    setValue('shadowfaxForwardMode', undefined)
+    setValue('shadowfaxServiceMode', undefined)
+    setValue('zone', '')
+    setValue('zoneId', '')
+    setValue('chargeableWeight', null)
+    setValue('volumetricWeight', null)
+    setValue('slabs', null)
+  }, [availableCouriers, selectedCourierId, selectedCourierOptionKey, setFormValue, setValue])
 
   if (!canFetchCouriers) {
     return <Typography>Fill pickup, delivery, package, and order value first to fetch couriers</Typography>
@@ -193,8 +262,10 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
     return `${(grams / 1000).toFixed(2)} kg`
   }
   const getCourierDisplayName = (courier: any) => courier?.displayName || courier?.name || 'Courier'
+  const getActiveLocalRate = (courier: any) =>
+    courier?.localRates?.[activeRateKey] ?? courier?.localRates?.forward ?? {}
   const getZoneDisplayName = (courier: any) => {
-    const zone = courier?.approxZone || courier?.localRates?.forward
+    const zone = courier?.approxZone || getActiveLocalRate(courier)
     const zoneName = String(zone?.name || '').trim()
     const zoneCode = String(zone?.code || '').trim()
     return (
@@ -204,50 +275,147 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
     )
   }
   const getCourierChargeableWeight = (courier: any) => {
-    const forwardChargeableWeight = courier?.localRates?.forward?.chargeable_weight
+    const activeChargeableWeight = getActiveLocalRate(courier)?.chargeable_weight
     if (shipment_type === 'b2c') {
-      return forwardChargeableWeight !== undefined && forwardChargeableWeight !== null
-        ? forwardChargeableWeight
+      return activeChargeableWeight !== undefined && activeChargeableWeight !== null
+        ? activeChargeableWeight
         : null
     }
 
-    return forwardChargeableWeight ?? courier?.chargeable_weight ?? null
+    return activeChargeableWeight ?? courier?.chargeable_weight ?? null
   }
   const getCourierForwardCharge = (courier: any) =>
-    courier?.localRates?.forward?.rate !== undefined && courier?.localRates?.forward?.rate !== null
-      ? Number(courier.localRates.forward.rate)
+    getActiveLocalRate(courier)?.rate !== undefined && getActiveLocalRate(courier)?.rate !== null
+      ? Number(getActiveLocalRate(courier).rate)
       : courier?.rate !== undefined && courier?.rate !== null
       ? Number(courier.rate)
       : 0
   const getCourierCodCharge = (courier: any) =>
-    orderType === 'cod' ? Number(courier?.localRates?.forward?.cod_charges ?? courier?.cod_charges ?? 0) : 0
+    effectivePaymentType === 'cod'
+      ? Number(getActiveLocalRate(courier)?.cod_charges ?? courier?.cod_charges ?? 0)
+      : 0
   const getCourierOtherCharge = (courier: any) =>
-    Number(courier?.localRates?.forward?.other_charges ?? courier?.other_charges ?? 0)
+    Number(getActiveLocalRate(courier)?.other_charges ?? courier?.other_charges ?? 0)
   const getCourierTotalCharge = (courier: any) => {
-    const explicitTotal = courier?.localRates?.forward?.total_charges ?? courier?.total_charges
+    const explicitTotal = getActiveLocalRate(courier)?.total_charges ?? courier?.total_charges
     if (explicitTotal !== undefined && explicitTotal !== null) return Number(explicitTotal)
     return getCourierForwardCharge(courier) + getCourierCodCharge(courier) + getCourierOtherCharge(courier)
   }
   const getCourierGstPercent = (courier: any) =>
-    Number(courier?.localRates?.forward?.gst_percent ?? courier?.gst_percent ?? 0)
+    Number(getActiveLocalRate(courier)?.gst_percent ?? courier?.gst_percent ?? 0)
   const getCourierGstAmount = (courier: any) =>
-    Number(courier?.localRates?.forward?.gst_amount ?? courier?.gst_amount ?? 0)
+    Number(getActiveLocalRate(courier)?.gst_amount ?? courier?.gst_amount ?? 0)
   const getCourierTaxInclusiveCharge = (courier: any) => {
     const explicitTotal =
-      courier?.localRates?.forward?.total_charges_with_gst ??
+      getActiveLocalRate(courier)?.total_charges_with_gst ??
       courier?.total_charges_with_gst ??
-      courier?.localRates?.forward?.wallet_debit_amount ??
+      getActiveLocalRate(courier)?.wallet_debit_amount ??
       courier?.wallet_debit_amount
     if (explicitTotal !== undefined && explicitTotal !== null) return Number(explicitTotal)
     return getCourierTotalCharge(courier) + getCourierGstAmount(courier)
   }
+  const toRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const parseDateValue = (value: string) => {
+    const trimmed = value.trim()
+    const ymdMatch = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/)
+    let parsed: Date | null = null
+
+    if (ymdMatch) {
+      parsed = new Date(Number(ymdMatch[1]), Number(ymdMatch[2]) - 1, Number(ymdMatch[3]))
+    } else if (dmyMatch) {
+      const year = Number(dmyMatch[3]) < 100 ? 2000 + Number(dmyMatch[3]) : Number(dmyMatch[3])
+      parsed = new Date(year, Number(dmyMatch[2]) - 1, Number(dmyMatch[1]))
+    } else {
+      const date = new Date(trimmed)
+      parsed = Number.isNaN(date.getTime()) ? null : date
+    }
+
+    if (!parsed || Number.isNaN(parsed.getTime())) return null
+    parsed.setHours(0, 0, 0, 0)
+    return parsed
+  }
+  const getDeliveryDaysFromValue = (value?: unknown) => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
+    if (value === undefined || value === null) return Number.POSITIVE_INFINITY
+
+    const rawValue = String(value).trim()
+    if (!rawValue) return Number.POSITIVE_INFINITY
+
+    const normalizedValue = rawValue.toLowerCase()
+    if (normalizedValue.includes('today')) return 0
+    if (normalizedValue.includes('tomorrow')) return 1
+
+    const dateValue = parseDateValue(rawValue)
+    if (dateValue) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const daysUntilDelivery = Math.ceil((dateValue.getTime() - today.getTime()) / 86400000)
+      return Math.max(daysUntilDelivery, 0)
+    }
+
+    const numericParts = rawValue.match(/\d+(?:\.\d+)?/g)?.map(Number) ?? []
+    if (!numericParts.length) return Number.POSITIVE_INFINITY
+
+    const fastestValue = Math.min(...numericParts)
+    if (normalizedValue.includes('hour')) return fastestValue / 24
+    return fastestValue
+  }
+  const getCourierDeliveryRank = (courier: unknown) => {
+    const courierRecord = toRecord(courier)
+    const ratesByType = toRecord(courierRecord.localRates)
+    const activeRates = toRecord(ratesByType[activeRateKey] ?? ratesByType.forward)
+    const deliveryValues = [
+      courierRecord.estimated_delivery_days,
+      courierRecord.edd_days,
+      courierRecord.tat,
+      activeRates.estimated_delivery_days,
+      activeRates.edd_days,
+      activeRates.tat,
+      courierRecord.estimated_delivery_date,
+      activeRates.estimated_delivery_date,
+      courierRecord.edd,
+    ]
+
+    for (const value of deliveryValues) {
+      const days = getDeliveryDaysFromValue(value)
+      if (Number.isFinite(days)) return days
+    }
+
+    return Number.POSITIVE_INFINITY
+  }
+  const getCourierPriceRank = (courier: unknown) => {
+    const price = getCourierTaxInclusiveCharge(courier)
+    return Number.isFinite(price) ? price : Number.POSITIVE_INFINITY
+  }
+  const sortedAvailableCouriers = availableCouriers
+    .map((courier, index) => ({ courier, index }))
+    .sort((a, b) => {
+      if (courierSort === 'price_low_to_high') {
+        return getCourierPriceRank(a.courier) - getCourierPriceRank(b.courier) || a.index - b.index
+      }
+
+      if (courierSort === 'faster_delivery') {
+        const fastestTagDelta =
+          (a.courier?.tag === 'fastest' ? 0 : 1) - (b.courier?.tag === 'fastest' ? 0 : 1)
+
+        return (
+          getCourierDeliveryRank(a.courier) - getCourierDeliveryRank(b.courier) ||
+          fastestTagDelta ||
+          a.index - b.index
+        )
+      }
+
+      return a.index - b.index
+    })
+    .map(({ courier }) => courier)
   const selectedWalletDebitAmount =
-    walletDebitAmount || forwardCharges + (orderType === 'cod' ? courierCod : 0) + otherCharges + gstAmount
+    walletDebitAmount ||
+    forwardCharges + (effectivePaymentType === 'cod' ? courierCod : 0) + otherCharges + gstAmount
 
   const selectedCourierSummary = availableCouriers.find((courier) => {
-    const courierOptionKey = String(
-      courier?.courier_option_key ?? courier?.id ?? courier?.courier_id ?? '',
-    )
+    const courierOptionKey = getCourierOptionKey(courier)
     return selectedCourierOptionKey
       ? selectedCourierOptionKey === courierOptionKey
       : String(selectedCourierId) === String(courier?.id ?? courier?.courier_id ?? '')
@@ -276,7 +444,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                 py: 1.15,
                 color: '#fff',
                 background:
-                  'linear-gradient(135deg, #047b85 0%, #047b85 55%, #c6e7ff 100%)',
+                  'linear-gradient(135deg, #E85500 0%, #1A5DD1 55%, #3D8BFF 100%)',
               }}
             >
                 <Typography sx={{ fontSize: 10, letterSpacing: '0.08em', opacity: 0.88, color: '#fff' }}>
@@ -286,7 +454,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                 {watch('orderId') || 'Pending Order ID'}
               </Typography>
               <Typography sx={{ mt: 0.35, opacity: 0.9, color: '#fff', fontSize: 12 }}>
-                {shipment_type.toUpperCase()} • {orderType.toUpperCase()} •{' '}
+                {shipment_type.toUpperCase()} • {effectivePaymentType.toUpperCase()} •{' '}
                 {(Number(totalWeight) / 1000).toFixed(2)} kg
               </Typography>
             </Box>
@@ -294,11 +462,14 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
             <Box sx={{ p: 1.35, bgcolor: '#fff' }}>
               <Grid container spacing={0.75}>
                 {[
-                  { label: 'Customer Total', value: formatCurrency(totalOrderValue) },
+                  {
+                    label: 'Customer Total',
+                    value: formatCurrency(totalOrderValue),
+                  },
                   { label: 'Courier Options', value: String(availableCouriers.length) },
                   { label: 'Zone', value: shipmentZoneDisplay || '-' },
-                  { label: 'Pickup', value: pickupPincode || '-' },
-                  { label: 'Delivery', value: deliveryPincode || '-' },
+                  { label: 'Pickup', value: originPincode || '-' },
+                  { label: 'Delivery', value: destinationPincode || '-' },
                 ].map((item) => (
                   <Grid key={item.label} size={{ xs: 6 }}>
                     <Box
@@ -368,7 +539,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                 )}
               </Stack>
 
-              {(forwardCharges > 0 || (orderType === 'cod' && courierCod > 0) || otherCharges > 0) && (
+              {(forwardCharges > 0 || (effectivePaymentType === 'cod' && courierCod > 0) || otherCharges > 0) && (
                 <>
                   <Divider sx={{ my: 1.1 }} />
                   <Stack spacing={0.65}>
@@ -383,7 +554,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                         </Typography>
                       </Stack>
                     )}
-                    {orderType === 'cod' && courierCod > 0 && (
+                    {effectivePaymentType === 'cod' && courierCod > 0 && (
                       <Stack direction="row" justifyContent="space-between">
                         <Typography sx={{ color: TEXT_SECONDARY }}>Courier COD</Typography>
                         <Typography sx={{ fontWeight: 700, color: TEXT_PRIMARY }}>
@@ -423,16 +594,18 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
           </Paper>
 
           <Paper sx={{ p: 1.25, borderRadius: 2, bgcolor: '#fff' }}>
-            <Typography sx={{ fontWeight: 800, color: TEXT_PRIMARY }}>Delivery Summary</Typography>
+            <Typography sx={{ fontWeight: 800, color: TEXT_PRIMARY }}>
+              Delivery Summary
+            </Typography>
             <Stack spacing={0.75} sx={{ mt: 0.85 }}>
               <Stack direction="row" spacing={1.2} alignItems="flex-start">
                 <BiUser color={ACCENT} size={18} />
                 <Box>
                   <Typography sx={{ fontWeight: 700, color: TEXT_PRIMARY }}>
-                    {watch('buyerName') || 'Customer'}
+                    {buyerName || 'Customer'}
                   </Typography>
                   <Typography sx={{ color: TEXT_SECONDARY, fontSize: 12 }}>
-                    {watch('buyerPhone') || '-'}
+                    {buyerPhone || '-'}
                   </Typography>
                   <Typography sx={{ color: TEXT_SECONDARY, fontSize: 12 }}>
                     {watch('buyerEmail') || '-'}
@@ -458,7 +631,9 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
           </Paper>
 
           <Paper sx={{ p: 1.25, borderRadius: 2, bgcolor: '#fff' }}>
-            <Typography sx={{ fontWeight: 800, color: TEXT_PRIMARY }}>Pickup Summary</Typography>
+            <Typography sx={{ fontWeight: 800, color: TEXT_PRIMARY }}>
+              Pickup Summary
+            </Typography>
             <Stack spacing={0.75} sx={{ mt: 0.85 }}>
               <Stack direction="row" spacing={1.2} alignItems="flex-start">
                 <BiCalendar color={ACCENT} size={18} />
@@ -542,24 +717,52 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                 Compare freight, speed and chargeable weight before locking the shipment.
               </Typography>
             </Box>
-            <Chip
-              label={`${availableCouriers.length} options`}
-              sx={{
-                bgcolor: alpha(ACCENT, 0.08),
-                color: ACCENT,
-                fontWeight: 700,
-                borderRadius: '999px',
-              }}
-            />
+            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+              <Stack direction="row" spacing={0.6} alignItems="center">
+                <Typography sx={{ fontSize: 12, color: TEXT_SECONDARY, fontWeight: 700 }}>
+                  Sort by
+                </Typography>
+                <Select
+                  size="small"
+                  value={courierSort}
+                  onChange={(event) => setCourierSort(event.target.value as CourierSortOption)}
+                  sx={{
+                    minWidth: 172,
+                    height: 34,
+                    bgcolor: '#fff',
+                    borderRadius: 1.5,
+                    '& .MuiSelect-select': {
+                      py: 0.75,
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: TEXT_PRIMARY,
+                    },
+                  }}
+                >
+                  <MenuItem value="recommended">Recommended</MenuItem>
+                  <MenuItem value="price_low_to_high">Price low to high</MenuItem>
+                  <MenuItem value="faster_delivery">Faster delivery</MenuItem>
+                </Select>
+              </Stack>
+              <Chip
+                label={`${availableCouriers.length} options`}
+                sx={{
+                  bgcolor: alpha(ACCENT, 0.08),
+                  color: ACCENT,
+                  fontWeight: 700,
+                  borderRadius: '999px',
+                }}
+              />
+            </Stack>
           </Stack>
 
           <Stack spacing={1}>
-            {availableCouriers?.map((courier) => {
-              const local = courier?.localRates
+            {sortedAvailableCouriers?.map((courier) => {
+              const activeLocalRate = getActiveLocalRate(courier)
               const zoneDisplay = getZoneDisplayName(courier)
-              const courierOptionKey = String(
-                courier?.courier_option_key ?? courier?.id ?? courier?.courier_id ?? '',
-              )
+              const courierOptionKey = getCourierOptionKey(courier)
+              const bookingUnavailable = isCourierBookingUnavailable(courier)
+              const bookingBlockedReason = getCourierBookingBlockedReason(courier)
               const isSelected = selectedCourierOptionKey
                 ? selectedCourierOptionKey === courierOptionKey
                 : String(selectedCourierId) === String(courier?.id ?? courier?.courier_id ?? '')
@@ -574,7 +777,10 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
               return (
                 <Paper
                   key={courierOptionKey}
+                  aria-disabled={bookingUnavailable}
                   onClick={() => {
+                    if (bookingUnavailable) return
+
                     setValue('courierPartner', courier?.name ?? '')
                     setValue('courierPartnerId', courier?.id ?? '')
                     setValue('courierOptionKey', courierOptionKey)
@@ -583,7 +789,10 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                     setValue('amazonServiceId', courier?.amazon_service_id ?? null)
                     setValue('amazonCarrierId', courier?.amazon_carrier_id ?? null)
                     setValue('selectedMaxSlabWeight', courier?.max_slab_weight ?? null)
-                    setValue('courierCod', orderType === 'cod' ? Number(local?.forward?.cod_charges ?? 0) : 0)
+                    setValue(
+                      'courierCod',
+                      effectivePaymentType === 'cod' ? Number(activeLocalRate?.cod_charges ?? 0) : 0,
+                    )
                     setValue('forwardCharges', forwardCharge)
                     setValue('otherCharges', otherCharge)
                     setFormValue('gstPercent', courierGstPercent)
@@ -609,28 +818,39 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                     setValue('chargeableWeight', getCourierChargeableWeight(courier))
                     setValue(
                       'volumetricWeight',
-                      courier?.localRates?.forward?.volumetric_weight ?? courier?.volumetric_weight ?? null,
+                      activeLocalRate?.volumetric_weight ?? courier?.volumetric_weight ?? null,
                     )
-                    setValue('slabs', courier?.slabs ?? null)
+                    setValue('slabs', activeLocalRate?.slabs ?? courier?.slabs ?? null)
                     clearErrors('courierPartnerId')
                   }}
                   sx={{
                     p: 1.15,
-                    cursor: 'pointer',
+                    cursor: bookingUnavailable ? 'not-allowed' : 'pointer',
                     borderRadius: 2,
-                    border: isSelected
+                    border: bookingUnavailable
+                      ? `1px solid ${alpha('#F79009', 0.34)}`
+                      : isSelected
                       ? `2px solid ${alpha(ACCENT, 0.42)}`
                       : `1px solid ${alpha('#17171A', 0.12)}`,
-                    bgcolor: isSelected ? alpha(ACCENT, 0.045) : '#fff',
-                    boxShadow: isSelected
+                    bgcolor: bookingUnavailable
+                      ? alpha('#F79009', 0.06)
+                      : isSelected
+                      ? alpha(ACCENT, 0.045)
+                      : '#fff',
+                    opacity: bookingUnavailable ? 0.78 : 1,
+                    boxShadow: isSelected && !bookingUnavailable
                       ? '0 18px 36px rgba(13,59,142,0.14)'
                       : '0 8px 22px rgba(16,42,84,0.06)',
                     transition: '0.25s ease',
-                    '&:hover': {
-                      borderColor: alpha(ACCENT, 0.38),
-                      boxShadow: '0 18px 36px rgba(13,59,142,0.12)',
-                      transform: 'translateY(-1px)',
-                    },
+                    '&:hover': bookingUnavailable
+                      ? {
+                          borderColor: alpha('#F79009', 0.42),
+                        }
+                      : {
+                          borderColor: alpha(ACCENT, 0.38),
+                          boxShadow: '0 18px 36px rgba(13,59,142,0.12)',
+                          transform: 'translateY(-1px)',
+                        },
                   }}
                 >
                   <Stack spacing={0.9}>
@@ -665,7 +885,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                         </Box>
                         <Box>
                           <Stack direction="row" spacing={0.8} alignItems="center" flexWrap="wrap">
-                            {getModeIcon(local?.forward?.mode || local?.mode)}
+                            {getModeIcon(activeLocalRate?.mode || courier?.mode)}
                             <Typography sx={{ fontWeight: 800, color: TEXT_PRIMARY }}>
                               {getCourierDisplayName(courier)}
                             </Typography>
@@ -695,10 +915,27 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                                 }}
                               />
                             )}
+                            {bookingUnavailable && (
+                              <Chip
+                                size="small"
+                                label="Live unavailable"
+                                sx={{
+                                  bgcolor: alpha('#F79009', 0.12),
+                                  color: '#B54708',
+                                  fontWeight: 700,
+                                  border: `1px solid ${alpha('#F79009', 0.24)}`,
+                                }}
+                              />
+                            )}
                           </Stack>
                           <Typography sx={{ mt: 0.2, fontSize: 12, color: TEXT_SECONDARY }}>
                             {courier?.edd ? `Estimated delivery: ${courier.edd}` : 'EDD unavailable'}
                           </Typography>
+                          {bookingUnavailable && (
+                            <Typography sx={{ mt: 0.25, fontSize: 12, color: '#B54708' }}>
+                              {bookingBlockedReason}
+                            </Typography>
+                          )}
                         </Box>
                       </Stack>
 
@@ -715,7 +952,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                     <Grid container spacing={0.65}>
                       {[
                         ['Freight', formatCurrency(forwardCharge)] as [string, string],
-                        ...(orderType === 'cod'
+                        ...(effectivePaymentType === 'cod'
                           ? [['COD', formatCurrency(codCharge)] as [string, string]]
                           : []),
                         ['Other', formatCurrency(otherCharge)] as [string, string],
@@ -732,8 +969,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                         [
                           'Volumetric',
                           formatWeightDisplay(
-                            courier?.localRates?.forward?.volumetric_weight ??
-                              courier?.volumetric_weight,
+                            activeLocalRate?.volumetric_weight ?? courier?.volumetric_weight,
                           ),
                         ] as [string, string],
                       ].map(([label, value]) => (
@@ -764,7 +1000,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
                       )}
                     </Stack>
 
-                    {isSelected && (
+                    {isSelected && !bookingUnavailable && (
                       <Stack direction="row" spacing={1} alignItems="center">
                         <BiCheckCircle size={20} color={ACCENT} />
                         <Typography sx={{ fontWeight: 800, color: ACCENT }}>

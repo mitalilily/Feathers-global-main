@@ -52,7 +52,7 @@ const statusLabels: Record<string, string> = {
 
 const ColorConnector = styled(StepConnector)(() => ({
   '& .MuiStepConnector-alternativeLabel': { top: 22 },
-  '&.Mui-active .MuiStepConnector-line': { backgroundColor: '#047b85' },
+  '&.Mui-active .MuiStepConnector-line': { backgroundColor: '#E85500' },
   '&.Mui-completed .MuiStepConnector-line': { backgroundColor: '#3DD598' },
   '& .MuiStepConnector-line': { height: 4, border: 0, backgroundColor: '#E0E6ED', borderRadius: 2 },
 }))
@@ -82,7 +82,7 @@ export default function TrackingPage() {
           justifyContent: 'center',
           height: '100vh',
           bgcolor: '#F5F7FA',
-          color: '#047b85',
+          color: '#E85500',
           px: 2,
         }}
       >
@@ -93,7 +93,7 @@ export default function TrackingPage() {
             height: 80,
             borderRadius: '50%',
             border: '6px solid rgba(51, 51, 105, 0.1)',
-            borderTopColor: '#047b85',
+            borderTopColor: '#E85500',
             animation: 'spin 1s linear infinite',
             mb: 3,
           }}
@@ -106,7 +106,7 @@ export default function TrackingPage() {
             fontWeight: 600,
             letterSpacing: 0.5,
             textAlign: 'center',
-            color: '#047b85',
+            color: '#E85500',
             '&::after': {
               content: '"..."',
               animation: 'dots 1.5s steps(5, end) infinite',
@@ -250,12 +250,12 @@ export default function TrackingPage() {
                   left: 0,
                   right: 0,
                   height: '4px',
-                  background: 'linear-gradient(90deg, #047b85 0%, #3DD598 100%)',
+                  background: 'linear-gradient(90deg, #E85500 0%, #3DD598 100%)',
                   borderRadius: '12px 12px 0 0',
                 },
               }}
             >
-              <Typography variant="h5" fontWeight={700} color="#047b85" gutterBottom sx={{ mb: 3 }}>
+              <Typography variant="h5" fontWeight={700} color="#E85500" gutterBottom sx={{ mb: 3 }}>
                 Shipment Details
               </Typography>
 
@@ -334,7 +334,7 @@ export default function TrackingPage() {
                                   ? '#E74C3C'
                                   : index <= currentStage
                                   ? index === currentStage
-                                    ? '#047b85'
+                                    ? '#E85500'
                                     : '#3DD598'
                                   : '#E0E6ED',
                                 color: 'white',
@@ -359,7 +359,7 @@ export default function TrackingPage() {
                           variant="caption"
                           sx={{
                             fontWeight: index <= currentStage || isCancelled ? 700 : 500,
-                            color: index <= currentStage || isCancelled ? '#047b85' : '#4A5568',
+                            color: index <= currentStage || isCancelled ? '#E85500' : '#4A5568',
                             mt: 1,
                           }}
                         >
@@ -375,7 +375,7 @@ export default function TrackingPage() {
 
               {/* Tracking History Timeline */}
               <Box sx={{ mt: 5 }}>
-                <Typography variant="h6" fontWeight={700} color="#047b85" mb={3}>
+                <Typography variant="h6" fontWeight={700} color="#E85500" mb={3}>
                   Tracking History
                 </Typography>
                 {trackingData.history.map((h, idx) => (
@@ -391,7 +391,7 @@ export default function TrackingPage() {
                               ? '#E74C3C'
                               : h.status_code === 'DL'
                               ? '#3DD598'
-                              : '#047b85',
+                              : '#E85500',
                           mx: 'auto',
                           mb: 0.5,
                           boxShadow: '0 2px 6px rgba(51, 51, 105, 0.3)',
@@ -445,7 +445,7 @@ export default function TrackingPage() {
                         })}
                       </Typography>
                       {h.message && (
-                        <Typography variant="body2" fontWeight={600} color="#047b85">
+                        <Typography variant="body2" fontWeight={600} color="#E85500">
                           {h.message}
                         </Typography>
                       )}
@@ -480,8 +480,8 @@ export default function TrackingPage() {
       >
         <Box
           component="img"
-          src="/feather-global-mark.svg"
-          alt="Feather Global Logo"
+          src="/logo/despatch-logo.jpeg"
+          alt="Shiplifi Logo"
           sx={{ width: 72, height: 'auto', mb: 0.5, borderRadius: 1.5 }}
         />
         <Typography
@@ -489,12 +489,12 @@ export default function TrackingPage() {
           sx={{
             fontSize: 13,
             fontWeight: 700,
-            color: '#047b85',
+            color: '#E85500',
             textAlign: 'center',
             letterSpacing: 0.5,
           }}
         >
-          Powered by Feather Global
+          Powered by Shiplifi
         </Typography>
       </Box>
     </Box>

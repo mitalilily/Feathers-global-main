@@ -5,8 +5,8 @@ import PageHeading from '../../components/UI/heading/PageHeading'
 import CompanyDetails from './CompanyDetails'
 
 const PolicyPages = () => {
-  const BRAND_PRIMARY = '#047b85'
-  const BRAND_WINE = '#ff821c'
+  const BRAND_PRIMARY = '#E85500'
+  const BRAND_WINE = '#1A7500'
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -23,7 +23,7 @@ const PolicyPages = () => {
       >
         <PageHeading
           title="Legal & Policy Information"
-          subtitle="All policies, terms, privacy details, and company information for Feather Global in one clear, professional reference space."
+          subtitle="All policies, terms, privacy details, and company information for Shiplifi in one clear, professional reference space."
         />
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} mt={2}>
           {[
@@ -71,7 +71,7 @@ const PolicyPages = () => {
         </Box>
         <Typography paragraph>
           • You may cancel your account at any time by emailing us at{' '}
-          <Link href="mailto:support@featherglobal.in">support@featherglobal.in</Link>.
+          <Link href="mailto:info@shiplifi.com">info@shiplifi.com</Link>.
         </Typography>
         <Typography paragraph>
           • Once your account is cancelled, all of your data and content will be permanently deleted
@@ -83,11 +83,11 @@ const PolicyPages = () => {
           invoice via email. Once that invoice has been paid, no further charges will apply.
         </Typography>
         <Typography paragraph>
-          • Feather Global reserves the right to modify, suspend, or terminate the Service for any reason,
+          • Shiplifi reserves the right to modify, suspend, or terminate the Service for any reason,
           without prior notice at any time.
         </Typography>
         <Typography paragraph>
-          • Fraud Prevention: Without limiting any other remedies, Feather Global may suspend or terminate
+          • Fraud Prevention: Without limiting any other remedies, Shiplifi may suspend or terminate
           your account if we suspect that you (through conviction, settlement, investigation, or
           otherwise) have engaged in fraudulent or unlawful activity in connection with the
           Platform.
@@ -121,7 +121,7 @@ const PolicyPages = () => {
         </Box>
         <Typography paragraph>Last Updated: [Insert Date]</Typography>
         <Typography paragraph>
-          Feather Global ("we," "our," or "us") operates the services offered via our website and related
+          Shiplifi ("we," "our," or "us") operates the services offered via our website and related
           platforms (collectively, the “Platform”). Please read this Privacy Policy carefully before
           accessing or using our Platform, as continued use indicates your acceptance of this
           Policy.
@@ -222,7 +222,7 @@ const PolicyPages = () => {
           services).
           <br />
           To do so, please contact us at{' '}
-          <Link href="mailto:support@featherglobal.in">support@featherglobal.in</Link>.
+          <Link href="mailto:info@shiplifi.com">info@shiplifi.com</Link>.
         </Typography>
         <Typography paragraph>
           10. Third-Party Links

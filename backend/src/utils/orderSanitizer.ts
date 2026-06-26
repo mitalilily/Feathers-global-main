@@ -3,6 +3,7 @@ import {
   getMerchantSafeOperationalError,
   isInternalProviderBalanceIssue,
 } from './merchantErrorMessages'
+import { getOrderLabelReference, isExternalLabelReference } from './orderLabels'
 
 /**
  * Generates an accessible download URL for stored asset keys.
@@ -11,6 +12,10 @@ import {
 const ensureDownloadUrl = async (value?: string | null) => {
   if (!value || typeof value !== 'string' || !value.trim()) {
     return null
+  }
+
+  if (isExternalLabelReference(value)) {
+    return value
   }
 
   // If it's already a full URL from external source (not our R2), return as-is
@@ -51,6 +56,7 @@ export const sanitizeOrderForCustomer = async (order: any): Promise<any> => {
   if (!order) return order
 
   const sanitized = { ...order }
+  const labelReference = getOrderLabelReference(order)
   const manifestRetryCount = Number(order?.manifest_retry_count ?? 0)
   const manifestRetriesRemaining = Math.max(0, 3 - manifestRetryCount)
   const provider = String(order?.integration_type || '').trim().toLowerCase()
@@ -84,13 +90,13 @@ export const sanitizeOrderForCustomer = async (order: any): Promise<any> => {
     (!canRetryManifestFailure || !isInternalProviderBalanceIssue(order?.manifest_error))
 
   // Always expose stored document keys so clients can reliably use the same regenerated keys
-  if (order.label) sanitized.label_key = order.label
+  if (labelReference) sanitized.label_key = labelReference
   if (order.manifest) sanitized.manifest_key = order.manifest
   if (order.invoice_link) sanitized.invoice_key = order.invoice_link
 
   try {
     const [labelUrl, manifestUrl, invoiceUrl] = await Promise.all([
-      ensureDownloadUrl(order.label),
+      ensureDownloadUrl(labelReference),
       ensureDownloadUrl(order.manifest),
       ensureDownloadUrl(order.invoice_link),
     ])

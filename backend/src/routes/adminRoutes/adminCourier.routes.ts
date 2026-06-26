@@ -7,6 +7,7 @@ import {
   getAllCouriersController,
   getShippingRatesController,
   importShippingRatesController,
+  updateAmazonCredentialsController,
   updateDelhiveryCredentialsController,
   updateEkartCredentialsController,
   updateShadowfaxCredentialsController,
@@ -67,6 +68,12 @@ router.put(
   requireAuth,
   isAdminMiddleware,
   updateXpressbeesAwbRangeController,
+)
+router.put(
+  '/credentials/amazon',
+  requireAuth,
+  isAdminMiddleware,
+  updateAmazonCredentialsController,
 )
 router.delete(
   '/shipping-rates/:planId/:id',

@@ -11,6 +11,7 @@ type CapturedRequest = {
 
 const FORWARD_AWB = 'SFXFW1234567890'
 const WAREHOUSE_AWB = 'SFXWH1234567890'
+const FALLBACK_AWB = 'SFXFB1234567890'
 const REVERSE_REQUEST_ID = 'R-SFX1234567890'
 
 const readJsonBody = async (req: IncomingMessage) =>
@@ -88,6 +89,22 @@ const startMockShadowfaxServer = async () => {
           })
         }
 
+        if (service === 'warehouse_pickup' && pincodes === '560001') {
+          return sendJson(res, 200, {
+            data: {
+              pincodes: [{ code: '560001', services: ['surface', 'warehouse_pickup'] }],
+            },
+          })
+        }
+
+        if (service === 'warehouse_pickup' && pincodes === '560002') {
+          return sendJson(res, 200, {
+            data: {
+              pincodes: [{ code: '560002', available: true }],
+            },
+          })
+        }
+
         if (service === 'customer_delivery' && pincodes === '400001') {
           return sendJson(res, 200, [
             {
@@ -104,6 +121,31 @@ const startMockShadowfaxServer = async () => {
               services: ['Large', 'Regular'],
             },
           ])
+        }
+
+        if (service === 'customer_delivery' && pincodes === '600001') {
+          return sendJson(res, 200, [
+            {
+              code: '600001',
+              services: ['surface', 'Regular'],
+            },
+          ])
+        }
+
+        if (service === 'seller_pickup' && pincodes === '560002') {
+          return sendJson(res, 200, {
+            data: {
+              pincodes: [{ code: '560002', services: ['seller_pickup'] }],
+            },
+          })
+        }
+
+        if (service === 'customer_delivery' && pincodes === '560003') {
+          return sendJson(res, 200, {
+            data: {
+              pincodes: [{ code: '560003', available: true }],
+            },
+          })
         }
 
         if (service === 'customer_pickup' && pincodes === '400001') {
@@ -153,7 +195,36 @@ const startMockShadowfaxServer = async () => {
 
       if (req.method === 'POST' && parsed.pathname === '/v3/clients/orders/') {
         assert(['marketplace', 'warehouse'].includes(body?.order_type))
-        assert.equal(body?.order_details?.client_order_id, 'SFX_TEST_ORDER')
+        const clientOrderId = body?.order_details?.client_order_id
+        assert(['SFX_TEST_ORDER', 'SFX_SURFACE_RETRY_ORDER'].includes(clientOrderId))
+
+        if (clientOrderId === 'SFX_SURFACE_RETRY_ORDER') {
+          assert.equal(body?.order_type, 'warehouse')
+          assert.equal(body?.order_details?.payment_mode, 'Prepaid')
+          assert.equal(body?.customer_details?.pincode, 600001)
+          assert.equal(body?.pickup_details?.pincode, 560001)
+          assert.equal(body?.rto_details?.pincode, 560001)
+
+          if (body?.order_details?.order_service === 'surface') {
+            return sendJson(res, 200, {
+              message: 'Failure',
+              errors: 'Invalid Pickup Pincode. Pickup pincode 560001 is not serviceable',
+            })
+          }
+
+          assert.equal(body?.order_details?.order_service, 'regular')
+          return sendJson(res, 200, {
+            success: true,
+            data: {
+              id: 993,
+              client_order_id: 'SFX_SURFACE_RETRY_ORDER',
+              awb_number: FALLBACK_AWB,
+              status: 'created',
+              sort_code: 'BLR/REG',
+            },
+          })
+        }
+
         assert.equal(body?.order_details?.payment_mode, 'COD')
         assert.equal(body?.customer_details?.pincode, 400001)
         assert.equal(body?.pickup_details?.pincode, 122001)
@@ -270,13 +341,7 @@ const startMockShadowfaxServer = async () => {
 
       if (req.method === 'POST' && parsed.pathname === '/v3/clients/order_update/') {
         assert.equal(body?.awb_number, FORWARD_AWB)
-        if (body?.action === 'RE-ATTEMPT') {
-          assert.equal(body?.request_type, 're-attempt')
-          assert.equal(body?.next_attempt_date, '2026-05-18')
-        } else {
-          assert.equal(body?.delivery_details?.contact, '9876543210')
-          assert.equal(body?.delivery_details?.alternate_contact, '9876543210')
-        }
+        assert.equal(body?.action, 'RE-ATTEMPT')
         return sendJson(res, 200, {
           success: true,
           message: 'Order update accepted',
@@ -301,11 +366,10 @@ const startMockShadowfaxServer = async () => {
       }
 
       if (req.method === 'POST' && parsed.pathname === '/v3/clients/orders/cancel/') {
-        assert.equal(body?.request_id, FORWARD_AWB)
+        assert.equal(body?.awb_number, FORWARD_AWB)
         return sendJson(res, 200, {
           success: true,
           message: 'Order cancelled',
-          responseCode: 200,
         })
       }
 
@@ -314,7 +378,6 @@ const startMockShadowfaxServer = async () => {
         return sendJson(res, 200, {
           success: true,
           message: 'Request cancelled',
-          responseCode: 200,
         })
       }
 
@@ -324,8 +387,6 @@ const startMockShadowfaxServer = async () => {
         return sendJson(res, 200, {
           success: true,
           issue_id: 'SFX-ISSUE-1',
-          status: 'SUCCESS',
-          message: 'Issue received',
         })
       }
 
@@ -379,61 +440,73 @@ const assertJsonResponse = (label: string, value: any) => {
   )
 }
 
-const buildShipmentPayload = () => ({
-  order_number: 'SFX_TEST_ORDER',
-  payment_type: 'cod',
-  order_amount: 499,
-  package_weight: 500,
-  package_length: 10,
-  package_breadth: 10,
-  package_height: 10,
-  pickup_location_id: 'NCR-WH',
-  pickup: {
-    warehouse_name: 'NCR Warehouse',
-    name: 'Ops User',
-    address: 'MG Road',
-    address_2: '',
-    city: 'Gurgaon',
-    state: 'Haryana',
-    pincode: '122001',
-    phone: '9876543210',
-  },
-  rto: {
-    warehouse_name: 'NCR Warehouse',
-    name: 'Ops User',
-    address: 'MG Road',
-    address_2: '',
-    city: 'Gurgaon',
-    state: 'Haryana',
-    pincode: '122001',
-    phone: '9876543210',
-  },
-  consignee: {
-    name: 'Test Buyer',
-    address: 'Fort',
-    address_2: '',
-    city: 'Mumbai',
-    state: 'Maharashtra',
-    pincode: '400001',
-    phone: '9876543210',
-    email: 'buyer@example.com',
-  },
-  company: {
-    name: 'Shiplifi Test',
-    gst: '27ABCDE1234F1Z5',
-  },
-  order_items: [
-    {
-      name: 'Test Product',
-      sku: 'SKU-SFX-1',
-      qty: 1,
-      price: 499,
-      hsn: '1234',
-      tax_rate: 0,
+const buildShipmentPayload = (overrides: Record<string, any> = {}) => {
+  const base = {
+    order_number: 'SFX_TEST_ORDER',
+    payment_type: 'cod',
+    order_amount: 499,
+    package_weight: 500,
+    package_length: 10,
+    package_breadth: 10,
+    package_height: 10,
+    pickup_location_id: 'NCR-WH',
+    pickup: {
+      warehouse_name: 'NCR Warehouse',
+      name: 'Ops User',
+      address: 'MG Road',
+      address_2: '',
+      city: 'Gurgaon',
+      state: 'Haryana',
+      pincode: '122001',
+      phone: '9876543210',
     },
-  ],
-  invoice_number: 'INV-SFX-1',
-})
+    rto: {
+      warehouse_name: 'NCR Warehouse',
+      name: 'Ops User',
+      address: 'MG Road',
+      address_2: '',
+      city: 'Gurgaon',
+      state: 'Haryana',
+      pincode: '122001',
+      phone: '9876543210',
+    },
+    consignee: {
+      name: 'Test Buyer',
+      address: 'Fort',
+      address_2: '',
+      city: 'Mumbai',
+      state: 'Maharashtra',
+      pincode: '400001',
+      phone: '9876543210',
+      email: 'buyer@example.com',
+    },
+    company: {
+      name: 'Shiplifi Test',
+      gst: '27ABCDE1234F1Z5',
+    },
+    order_items: [
+      {
+        name: 'Test Product',
+        sku: 'SKU-SFX-1',
+        qty: 1,
+        price: 499,
+        hsn: '1234',
+        tax_rate: 0,
+      },
+    ],
+    invoice_number: 'INV-SFX-1',
+  }
+
+  return {
+    ...base,
+    ...overrides,
+    pickup: { ...base.pickup, ...(overrides.pickup || {}) },
+    rto: { ...base.rto, ...(overrides.rto || {}) },
+    consignee: { ...base.consignee, ...(overrides.consignee || {}) },
+    company: { ...base.company, ...(overrides.company || {}) },
+    order_items: overrides.order_items || base.order_items,
+  }
+}
 
 const main = async () => {
   const mock = await startMockShadowfaxServer()
@@ -487,6 +560,19 @@ const main = async () => {
       service: 'surface',
     })
     assert.equal(surfaceServiceability.serviceable, true)
+    assert.equal(surfaceServiceability.mode, 'warehouse')
+    assert.equal(surfaceServiceability.service, 'surface')
+
+    const relaxedServiceability = await shadowfax.checkForwardServiceability({
+      origin: '560002',
+      destination: '560003',
+      paymentType: 'prepaid',
+      mode: 'warehouse',
+      service: 'surface',
+    })
+    assert.equal(relaxedServiceability.serviceable, true)
+    assert.equal(relaxedServiceability.mode, 'warehouse')
+    assert.equal(relaxedServiceability.service, 'surface')
 
     const reverseServiceability = await shadowfax.checkReverseServiceability({
       origin: '400001',
@@ -516,6 +602,51 @@ const main = async () => {
     assertJsonResponse('createForwardShipment warehouse', warehouseShipment)
     assert.equal(warehouseShipment?.data?.awb_number, WAREHOUSE_AWB)
 
+    const fallbackShipment = await shadowfax.createForwardShipmentWithFallback(
+      buildShipmentPayload({
+        order_number: 'SFX_SURFACE_RETRY_ORDER',
+        payment_type: 'prepaid',
+        order_amount: 799,
+        pickup_location_id: 'BLR-WH',
+        pickup: {
+          warehouse_name: 'BLR Warehouse',
+          address: 'Indiranagar',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          pincode: '560001',
+        },
+        rto: {
+          warehouse_name: 'BLR Warehouse',
+          address: 'Indiranagar',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          pincode: '560001',
+        },
+        consignee: {
+          city: 'Chennai',
+          state: 'Tamil Nadu',
+          pincode: '600001',
+        },
+      }),
+      {
+        mode: 'warehouse',
+        service: 'surface',
+        origin: '560001',
+        destination: '600001',
+        paymentType: 'prepaid',
+      },
+    )
+    assertJsonResponse('createForwardShipmentWithFallback', fallbackShipment.shipment)
+    assert.equal(fallbackShipment.mode, 'warehouse')
+    assert.equal(fallbackShipment.service, 'regular')
+    assert.equal(fallbackShipment.shipment?.data?.awb_number, FALLBACK_AWB)
+    assert(
+      fallbackShipment.attempts.some((attempt) =>
+        String(attempt.error || '').includes('Invalid Pickup Pincode'),
+      ),
+      'expected provider pincode rejection to be captured before fallback',
+    )
+
     const reverseShipment = await shadowfax.createReverseShipment(buildShipmentPayload())
     assertJsonResponse('createReverseShipment', reverseShipment)
     assert.equal(reverseShipment?.client_request_id, REVERSE_REQUEST_ID)
@@ -524,19 +655,9 @@ const main = async () => {
     assertJsonResponse('trackShipment', tracking)
     assert.equal(tracking?.data?.awb_number, FORWARD_AWB)
 
-    const orderDetails = await shadowfax.getOrderDetails(FORWARD_AWB)
-    assertJsonResponse('getOrderDetails', orderDetails)
-    assert.equal(orderDetails?.awb_number || orderDetails?.data?.awb_number, FORWARD_AWB)
-    assert.equal(orderDetails?.status || orderDetails?.data?.status, 'in_transit')
-
     const bulkTracking = await shadowfax.bulkTrackShipments([FORWARD_AWB])
     assertJsonResponse('bulkTrackShipments', bulkTracking)
     assert.equal(bulkTracking?.data?.[0]?.awb_number, FORWARD_AWB)
-
-    const multipleOrderDetails = await shadowfax.getMultipleOrderDetails([FORWARD_AWB])
-    assertJsonResponse('getMultipleOrderDetails', multipleOrderDetails)
-    assert.equal(multipleOrderDetails?.data?.[0]?.awb_number, FORWARD_AWB)
-    assert.equal(multipleOrderDetails?.data?.[0]?.status, 'in_transit')
 
     const reverseTracking = await shadowfax.trackReverseShipment(REVERSE_REQUEST_ID)
     assertJsonResponse('trackReverseShipment', reverseTracking)
@@ -556,16 +677,6 @@ const main = async () => {
     assertJsonResponse('updateForwardOrder', forwardUpdate)
     assert.equal(forwardUpdate?.success, true)
 
-    const orderDataUpdate = await shadowfax.updateOrderData({
-      awb_number: FORWARD_AWB,
-      delivery_details: {
-        contact: '9876543210',
-        alternate_contact: '9876543210',
-      },
-    })
-    assertJsonResponse('updateOrderData', orderDataUpdate)
-    assert.equal(orderDataUpdate?.success, true)
-
     const reverseUpdate = await shadowfax.updateReverseOrder({
       request_id: REVERSE_REQUEST_ID,
       action: 'EDIT_DETAILS',
@@ -583,12 +694,10 @@ const main = async () => {
     const forwardCancel = await shadowfax.cancelShipment(FORWARD_AWB)
     assertJsonResponse('cancelShipment forward', forwardCancel)
     assert.equal(forwardCancel?.success, true)
-    assert.equal(forwardCancel?.responseCode, 200)
 
     const reverseCancel = await shadowfax.cancelShipment(REVERSE_REQUEST_ID)
     assertJsonResponse('cancelShipment reverse', reverseCancel)
     assert.equal(reverseCancel?.success, true)
-    assert.equal(reverseCancel?.responseCode, 200)
 
     const escalation = await shadowfax.createEscalation({
       awb_number: FORWARD_AWB,
@@ -596,7 +705,6 @@ const main = async () => {
     })
     assertJsonResponse('createEscalation', escalation)
     assert.equal(escalation?.issue_id, 'SFX-ISSUE-1')
-    assert.equal(escalation?.status, 'SUCCESS')
 
     const pod = await shadowfax.getPodDetails([FORWARD_AWB])
     assertJsonResponse('getPodDetails', pod)
@@ -637,6 +745,7 @@ const main = async () => {
       reverseServiceable: reverseServiceability.serviceable,
       forwardAwb: forwardShipment.data?.awb_number,
       warehouseAwb: warehouseShipment.data?.awb_number,
+      fallbackAwb: fallbackShipment.shipment?.data?.awb_number,
       reverseRequestId: reverseShipment.client_request_id,
     }
 

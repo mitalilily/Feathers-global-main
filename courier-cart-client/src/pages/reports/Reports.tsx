@@ -94,7 +94,7 @@ const getMonthStart = () => {
 }
 
 export default function Reports() {
-  const BRAND_PRIMARY = '#047b85'
+  const BRAND_PRIMARY = '#E85500'
   const BRAND_TEXT = '#17171A'
   const BRAND_MUTED = '#6E6763'
   const [fromDate, setFromDate] = useState<string>(getMonthStart())

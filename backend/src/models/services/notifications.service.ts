@@ -5,6 +5,7 @@ import { sendNotification } from '../../config/socketServer'
 import { db } from '../client'
 import { notifications } from '../schema/notifications'
 import { users } from '../schema/users'
+import { formatEmailFromHeader, getEmailFromAddress } from '../../utils/emailIdentity'
 
 export type NotificationType = 'ticket_update' | 'payment' | 'general'
 
@@ -134,7 +135,8 @@ const getSendGridApiKey = () =>
 async function sendEmailNotification(to: string, subject: string, message: string) {
   const sendGridApiKey = getSendGridApiKey()
 
-  if (!sendGridApiKey || !process.env.EMAIL_FROM) {
+  const emailFrom = getEmailFromAddress()
+  if (!sendGridApiKey || !emailFrom) {
     console.warn('Email notification skipped: missing SendGrid API key or EMAIL_FROM')
     return
   }
@@ -143,13 +145,13 @@ async function sendEmailNotification(to: string, subject: string, message: strin
 
   const msg = {
     to,
-    from: process.env.EMAIL_FROM!,
+    from: formatEmailFromHeader(),
     subject,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e0e0e0; border-radius: 8px;">
         <h2 style="color: #333;">${subject}</h2>
         <p style="font-size: 16px; color: #555;">${message}</p>
-        <p style="font-size: 14px; color: #888; margin-top: 32px;">— The Feather Global Team</p>
+        <p style="font-size: 14px; color: #888; margin-top: 32px;">— The Shiplifi Team</p>
       </div>
     `,
   }

@@ -50,6 +50,15 @@ const run = async () => {
     shippingRateSlabs: shippingRateSlabsTable,
   } = require('../models/schema/shippingRates')
   const { userPlans: userPlansTable } = require('../models/schema/userPlans')
+  const { locations: locationsTable } = require('../models/schema/locations')
+  const { zones: zonesTable } = require('../models/schema/zones')
+  const {
+    courierPriorityProfiles: courierPriorityProfilesTable,
+  } = require('../models/schema/courierPriority')
+  const {
+    courier_credentials: courierCredentialsTable,
+  } = require('../models/schema/courierCredentials')
+  const { ShadowfaxService } = require('../models/services/couriers/shadowfax.service')
 
   const originalFetchB2C = shiprocketService.fetchAvailableCouriersWithRates
   const originalFetchB2B = shiprocketService.fetchAvailableCouriersWithRatesB2B
@@ -180,6 +189,90 @@ const run = async () => {
         }
         return fallbackRateRows
       }
+      return []
+    }
+
+    db.select = (selection?: Record<string, unknown>) => {
+      const selectedKeys = selection ? Object.keys(selection) : []
+      const builder: any = {
+        table: null,
+        from(table: any) {
+          this.table = table
+          return this
+        },
+        where() {
+          return this
+        },
+        limit() {
+          return Promise.resolve(rowsForTable(this.table, selectedKeys))
+        },
+        orderBy() {
+          return Promise.resolve(rowsForTable(this.table, selectedKeys))
+        },
+        then(resolve: any, reject: any) {
+          return Promise.resolve(rowsForTable(this.table, selectedKeys)).then(resolve, reject)
+        },
+      }
+      return builder
+    }
+  }
+
+  const installShadowfaxLocalFallbackDbMock = () => {
+    const shadowfaxCourier = {
+      id: 3002,
+      name: 'Shadowfax Warehouse',
+      serviceProvider: 'shadowfax',
+      isEnabled: true,
+      businessType: ['b2c'],
+      createdAt: null,
+    }
+    const shadowfaxRateRows = [
+      {
+        id: 'rate-shadowfax-warehouse-forward',
+        plan_id: 'plan-shadowfax',
+        business_type: 'b2c',
+        courier_id: 3002,
+        courier_name: 'Shadowfax Warehouse',
+        service_provider: 'shadowfax',
+        zone_id: 'zone-roi',
+        type: 'forward',
+        mode: 'surface',
+        cod_charges: 0,
+        cod_percent: 0,
+        other_charges: 5,
+        min_weight: 0.5,
+        rate: 75,
+        last_updated: null,
+      },
+    ]
+    const shadowfaxSlabs = [
+      {
+        id: 'slab-shadowfax-warehouse-050',
+        shipping_rate_id: 'rate-shadowfax-warehouse-forward',
+        weight_from: 0,
+        weight_to: 0.5,
+        rate: 75,
+        extra_rate: null,
+        extra_weight_unit: null,
+      },
+    ]
+    const zoneRows = [{ id: 'zone-roi', code: 'ROI', name: 'Rest of India' }]
+
+    const rowsForTable = (table: any, selectedKeys: string[]) => {
+      if (table === userPlansTable) return [{ planId: 'plan-shadowfax' }]
+      if (table === plansTable) return [{ id: 'plan-shadowfax' }]
+      if (table === couriersTable) return [shadowfaxCourier]
+      if (table === locationsTable) return []
+      if (table === zonesTable) return zoneRows
+      if (table === shippingRateSlabsTable) return shadowfaxSlabs
+      if (table === shippingRatesTable) {
+        if (selectedKeys.length === 1 && selectedKeys[0] === 'planId') {
+          return [{ planId: 'plan-shadowfax' }]
+        }
+        return shadowfaxRateRows
+      }
+      if (table === courierPriorityProfilesTable) return []
+      if (table === courierCredentialsTable) return []
       return []
     }
 
@@ -728,6 +821,59 @@ const run = async () => {
         return [{ id: 1, name: 'Mock B2C', rate: 100, edd: '2 Days' }]
       }
       db.select = originalDbSelect
+    }
+
+    {
+      const originalShadowfaxCheck = ShadowfaxService.prototype.checkForwardServiceability
+      const activeB2CFetchMock = shiprocketService.fetchAvailableCouriersWithRates
+      installShadowfaxLocalFallbackDbMock()
+      shiprocketService.fetchAvailableCouriersWithRates = originalFetchB2C
+      ShadowfaxService.prototype.checkForwardServiceability = async () => ({
+        serviceable: true,
+        services: ['Regular', 'Surface'],
+        codAvailable: true,
+        prepaidAvailable: true,
+        tat: null,
+        mode: 'warehouse',
+        service: 'regular',
+        raw: { selected: 'warehouse', selectedService: 'regular' },
+      })
+
+      try {
+        const cards = await shiprocketService.fetchAvailableCouriersWithRates(
+          {
+            origin: 400001,
+            destination: 110001,
+            payment_type: 'prepaid',
+            order_amount: 500,
+            shipment_type: 'b2c',
+            weight: 500,
+            length: 10,
+            breadth: 10,
+            height: 10,
+            context: 'shipment_courier_selection',
+            shadowfax_forward_mode: 'warehouse',
+          },
+          'user-shadowfax',
+        )
+
+        assert.equal(cards.length, 1)
+        assert.equal(cards[0]?.id, 3002)
+        assert.equal(cards[0]?.integration_type, 'shadowfax')
+        assert.equal(cards[0]?.localRates?.forward?.rate, 75)
+        assert.equal(cards[0]?.localRates?.forward?.other_charges, 5)
+        assert.equal(cards[0]?.shipping_mode, 'surface')
+        assert.equal(cards[0]?.service_mode, 'regular')
+        assert.equal(cards[0]?.provider_serviceability?.mode, 'warehouse')
+        assert.equal(cards[0]?.provider_serviceability?.shipping_mode, 'surface')
+        assert.equal(cards[0]?.provider_serviceability?.service_mode, 'regular')
+        assert.equal(cards[0]?.booking_available, true)
+        assert.equal(cards[0]?.can_book, true)
+      } finally {
+        ShadowfaxService.prototype.checkForwardServiceability = originalShadowfaxCheck
+        shiprocketService.fetchAvailableCouriersWithRates = activeB2CFetchMock
+        db.select = originalDbSelect
+      }
     }
 
     {

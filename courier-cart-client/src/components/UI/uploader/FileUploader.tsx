@@ -20,7 +20,6 @@ import { useDropzone, type Accept } from 'react-dropzone'
 import { IoCloudUploadOutline } from 'react-icons/io5'
 import { MdClose, MdEdit } from 'react-icons/md' // ← new
 import axiosInstance from '../../../api/axiosInstance'
-import { uploadKycPdfToBackend } from '../../../api/upload.api'
 import { toast } from '../Toast'
 import styles from './uploader.module.css'
 
@@ -68,7 +67,7 @@ const GlassDropZone = styled(Paper, {
   shouldForwardProp: (prop) => prop !== 'active' && prop !== 'dragging',
 })<{ active: boolean; dragging: boolean }>(({ active, dragging }) => ({
   background: active || dragging ? 'rgba(217, 4, 22, 0.04)' : '#FFFFFF',
-  border: `1px dashed ${active || dragging ? '#047b85' : 'rgba(17, 24, 39, 0.18)'}`,
+  border: `1px dashed ${active || dragging ? '#E85500' : 'rgba(17, 24, 39, 0.18)'}`,
   borderRadius: 0,
   padding: '24px',
   width: '100%',
@@ -76,12 +75,12 @@ const GlassDropZone = styled(Paper, {
   cursor: 'pointer',
   transition: 'all .3s ease',
   '&:hover': {
-    borderColor: '#047b85',
+    borderColor: '#E85500',
     background: 'rgba(217, 4, 22, 0.03)',
   },
   ...(dragging && {
     background: 'rgba(217, 4, 22, 0.05)',
-    borderColor: '#047b85',
+    borderColor: '#E85500',
   }),
 }))
 
@@ -100,11 +99,11 @@ const GlassButton = styled(Button, {
   textTransform: 'none',
   fontWeight: 700,
   fontSize: '0.875rem',
-  color: error ? '#E74C3C' : '#047b85',
+  color: error ? '#E74C3C' : '#E85500',
   [theme.breakpoints.down('sm')]: { width: '100%' },
   '&:hover': {
     background: error ? 'rgba(231, 76, 60, 0.06)' : 'rgba(217, 4, 22, 0.04)',
-    borderColor: error ? '#E74C3C' : '#047b85',
+    borderColor: error ? '#E74C3C' : '#E85500',
   },
   transition: 'all 0.3s ease',
 }))
@@ -193,7 +192,6 @@ const FileUploader: React.FC<FileUploaderProps> = ({
     async (files: File[] | FileList) => {
       const uploaded: UploadedFileInfo[] = []
       const arr = Array.from(files)
-      const getContentType = (file: File) => file.type || 'application/octet-stream'
       for (const file of arr) {
         if (file.size / 1024 / 1024 > maxSizeMb) {
           alert(`${file.name} exceeds ${maxSizeMb} MB limit`)
@@ -205,59 +203,38 @@ const FileUploader: React.FC<FileUploaderProps> = ({
 
       try {
         for (const file of arr) {
-          const contentType = getContentType(file)
-          const fileName = String(file.name || '').toLowerCase()
-          const shouldStoreKycPdfLocally =
-            folderKey === 'kyc' &&
-            (contentType.toLowerCase().includes('pdf') || fileName.endsWith('.pdf'))
+          const { data } = await axiosInstance.post('/uploads/presign', {
+            contentType: file.type || 'application/octet-stream',
+            filename: file.name,
+            folder: folderKey,
+          })
 
-          if (shouldStoreKycPdfLocally) {
-            const stored = await uploadKycPdfToBackend(file, (progressValue) =>
-              setProgress(progressValue),
-            )
+          // Upload directly to R2 using presigned URL - no credentials needed
+          await axios.put(data.uploadUrl, file, {
+            withCredentials: false, // Don't send credentials for presigned URL uploads
+            headers: { 'Content-Type': file.type },
+            onUploadProgress: (e) => e.total && setProgress(Math.round((e.loaded * 100) / e.total)),
+          })
 
-            uploaded.push({
-              url: stored.url,
-              key: stored.key,
-              originalName: stored.originalName,
-              size: stored.size,
-              mime: stored.mime,
-            })
-          } else {
-            const { data } = await axiosInstance.post('/uploads/presign', {
-              contentType,
-              filename: file.name,
-              folder: folderKey,
-            })
+          uploaded.push({
+            url: data.publicUrl,
+            key: data.key,
+            originalName: file.name,
+            size: file.size,
+            mime: file.type,
+          })
 
-            // Upload directly to R2 using presigned URL - no credentials needed
-            await axios.put(data.uploadUrl, file, {
-              withCredentials: false, // Don't send credentials for presigned URL uploads
-              headers: { 'Content-Type': contentType },
-              onUploadProgress: (e) =>
-                e.total && setProgress(Math.round((e.loaded * 100) / e.total)),
-            })
-
-            uploaded.push({
-              url: data.publicUrl,
-              key: data.key,
-              originalName: file.name,
-              size: file.size,
-              mime: contentType,
-            })
-          }
-
-          if (contentType.startsWith('image/') || contentType.startsWith('video/')) {
+          if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
             setPreviewUrl(URL.createObjectURL(file)) // optional
             const preview = {
               url: URL.createObjectURL(file),
               name: file.name,
-              type: contentType,
+              type: file.type,
             }
             setFileMeta(preview)
             if (multiple) setPreviewFiles((prev) => [...prev, preview])
           } else {
-            setFileMeta({ type: contentType, name: file.name })
+            setFileMeta({ type: file.type, name: file.name })
           }
 
           // setShowPlaceholder(false);
@@ -344,7 +321,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({
               border: '1px solid rgba(17, 24, 39, 0.12)',
               ...(uploading && {
                 animation: `${pulse} 1.6s ease-in-out infinite`,
-                borderColor: '#047b85',
+                borderColor: '#E85500',
               }),
             }}
           >
@@ -422,7 +399,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({
               right: 27,
               transform: 'translate(50%, 50%)',
               zIndex: 2,
-              bgcolor: '#047b85',
+              bgcolor: '#E85500',
               color: '#FFFFFF',
               width: 28,
               height: 28,
@@ -475,7 +452,7 @@ const FileUploader: React.FC<FileUploaderProps> = ({
             </Stack>
           ) : (
             <Stack alignItems="center" spacing={2}>
-              <IoCloudUploadOutline size={46} color="#047b85" />
+              <IoCloudUploadOutline size={46} color="#E85500" />
               <Typography variant="subtitle1" fontWeight={600} color="#1A1A1A">
                 Drag files here or click to upload
               </Typography>{' '}

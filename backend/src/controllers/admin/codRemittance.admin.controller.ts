@@ -5,7 +5,39 @@ import { db } from '../../models/client'
 import { codRemittances } from '../../models/schema/codRemittance'
 import { users } from '../../models/schema/users'
 import { wallets } from '../../models/schema/wallet'
+import { getCodPayableReport } from '../../models/services/codPayableReport.service'
 import { markCodRemittanceSettled } from '../../models/services/codRemittance.service'
+
+const parseDateParam = (value?: string) => {
+  if (!value) return undefined
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+const endOfDay = (date?: Date) => {
+  if (!date) return undefined
+  const out = new Date(date)
+  out.setHours(23, 59, 59, 999)
+  return out
+}
+
+const parseCodPayableQuery = (query: any) => {
+  const rawStatus = String(query.status || 'pending')
+  const status: 'pending' | 'credited' | 'all' =
+    rawStatus === 'credited' || rawStatus === 'all' || rawStatus === 'pending'
+      ? rawStatus
+      : 'pending'
+
+  return {
+    status,
+    fromDate: parseDateParam(query.fromDate as string | undefined),
+    toDate: endOfDay(parseDateParam(query.toDate as string | undefined)),
+    search: (query.search as string) || undefined,
+    courierPartner: (query.courierPartner as string) || undefined,
+    customerId: (query.customerId as string) || undefined,
+    limit: query.limit ? Number(query.limit) : undefined,
+  }
+}
 
 /**
  * Admin: Get all COD remittances across all users
@@ -90,6 +122,22 @@ export const getAllCodRemittances = async (req: any, res: Response): Promise<any
   } catch (error) {
     console.error('[getAllCodRemittances] Error:', error)
     return res.status(500).json({ success: false, message: 'Failed to fetch remittances' })
+  }
+}
+
+/**
+ * Admin: COD payable/receivables report for delivered COD orders.
+ */
+export const getCodPayableReportController = async (req: any, res: Response): Promise<any> => {
+  try {
+    const data = await getCodPayableReport(parseCodPayableQuery(req.query))
+    return res.json({ success: true, data })
+  } catch (error: any) {
+    console.error('[getCodPayableReportController] Error:', error)
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to fetch COD payable report',
+    })
   }
 }
 

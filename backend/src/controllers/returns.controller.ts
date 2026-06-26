@@ -1,62 +1,69 @@
-import { Request, Response } from 'express'
+import { Response } from 'express'
 import { createB2CShipmentService } from '../models/services/shiprocket.service'
-import { quoteReverseForOrder } from '../models/services/reverse.service'
-import { db } from '../models/client'
-import { wallets } from '../models/schema/wallet'
-import { eq } from 'drizzle-orm'
-import { createWalletTransaction } from '../models/services/wallet.service'
+import {
+  appendReversePickupTags,
+  assertReversePickupAllowed,
+  quoteReverseForOrder,
+} from '../models/services/reverse.service'
+
+const getOriginalOrderId = (body: Record<string, any>) =>
+  String(body?.original_order_id || body?.order_id || body?.orderId || '').trim()
 
 export const createReversePickup = async (req: any, res: Response) => {
   try {
     const userId = req.user?.sub
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' })
+
     const body = req.body || {}
-    const providedChargeRaw = Number(body?.freight_charges ?? body?.shipping_charges ?? 0)
+    const originalOrderId = getOriginalOrderId(body)
+    if (!originalOrderId) {
+      return res.status(400).json({ success: false, message: 'Original order ID is required' })
+    }
+
+    await assertReversePickupAllowed(originalOrderId, userId)
+    const quote = await quoteReverseForOrder(originalOrderId, Number(body?.package_weight), userId)
+    const reverseCharge = Number(quote.rate || 0)
+    if (!Number.isFinite(reverseCharge) || reverseCharge <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No reverse pickup rate available for this order',
+      })
+    }
 
     const payload = {
       ...body,
+      original_order_id: originalOrderId,
       payment_type: 'reverse',
-    }
-    // Quote reverse charge and debit wallet. Manual reverse entries can fall back
-    // to an explicitly provided charge when there is no source order to quote.
-    let reverseCharge = Number.isFinite(providedChargeRaw) ? Math.max(0, providedChargeRaw) : 0
-    try {
-      const orderId = body?.original_order_id || body?.order_id || body?.orderId
-      if (orderId) {
-        const quote = await quoteReverseForOrder(orderId, Number(body?.package_weight))
-        const quotedCharge = Number(quote.rate || 0)
-        if (Number.isFinite(quotedCharge) && quotedCharge > 0) {
-          reverseCharge = Math.max(0, quotedCharge)
-        }
-        payload.selected_max_slab_weight = quote.max_slab_weight ?? undefined
-      }
-    } catch (e) {
-      // Optional: keep the manual charge fallback if the quote lookup fails.
-    }
-
-    payload.shipping_charges = reverseCharge
-    payload.freight_charges = reverseCharge
-
-    if (reverseCharge > 0) {
-      const [userWallet] = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1)
-      if (!userWallet) throw new Error('Wallet not found')
-      if (Number(userWallet.balance || 0) < reverseCharge) {
-        return res.status(400).json({ success: false, message: 'Insufficient wallet balance for reverse shipment' })
-      }
-      await createWalletTransaction({ walletId: userWallet.id, amount: reverseCharge, type: 'debit', reason: 'reverse_shipment', meta: { order_number: payload.order_number } })
+      package_weight: Number(quote.weightGrams || 0) / 1000,
+      shipping_charges: reverseCharge,
+      freight_charges: reverseCharge,
+      selected_max_slab_weight: quote.max_slab_weight ?? undefined,
+      courier_id: body.courier_id ?? quote.courierId,
+      tags: appendReversePickupTags(body.tags, originalOrderId),
     }
 
     const shipment = await createB2CShipmentService(payload, userId)
     res.status(200).json({ success: true, shipment })
   } catch (error: any) {
-    res.status(400).json({ success: false, message: error.message })
+    const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 400
+    res.status(statusCode).json({ success: false, message: error.message })
   }
 }
 
 export const quoteReverse = async (req: any, res: Response) => {
   try {
+    const userId = req.user?.sub
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' })
+
     const { orderId, weightGrams } = req.body
     if (!orderId) return res.status(400).json({ success: false, message: 'orderId required' })
-    const quote = await quoteReverseForOrder(orderId, weightGrams ? Number(weightGrams) : undefined)
+
+    await assertReversePickupAllowed(String(orderId), userId)
+    const quote = await quoteReverseForOrder(
+      String(orderId),
+      weightGrams ? Number(weightGrams) : undefined,
+      userId,
+    )
     return res.json({ success: true, quote })
   } catch (e: any) {
     return res.status(400).json({ success: false, message: e.message })

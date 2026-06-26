@@ -1,11 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_ROOT="/srv/shiplifi/current"
+export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
+BUILD_SWAP_FILE="${BUILD_SWAP_FILE:-/swapfile-shiplifi-build}"
+BUILD_SWAP_SIZE="${BUILD_SWAP_SIZE:-4G}"
+
+fresh_npm_ci() {
+  rm -rf node_modules
+  npm ci "$@"
+}
+
+ensure_build_swap() {
+  local swap_total_mb
+  swap_total_mb="$(awk '/^SwapTotal:/ { print int($2 / 1024) }' /proc/meminfo)"
+
+  if [ "$swap_total_mb" -ge 2048 ]; then
+    echo "Build swap available: ${swap_total_mb}MB"
+    return
+  fi
+
+  echo "Build swap is ${swap_total_mb}MB; ensuring ${BUILD_SWAP_SIZE} swap at ${BUILD_SWAP_FILE}."
+  if [ ! -f "$BUILD_SWAP_FILE" ]; then
+    sudo fallocate -l "$BUILD_SWAP_SIZE" "$BUILD_SWAP_FILE" || sudo dd if=/dev/zero of="$BUILD_SWAP_FILE" bs=1M count=4096
+    sudo chmod 600 "$BUILD_SWAP_FILE"
+    sudo mkswap "$BUILD_SWAP_FILE"
+  fi
+
+  if ! swapon --show=NAME --noheadings | grep -qx "$BUILD_SWAP_FILE"; then
+    sudo swapon "$BUILD_SWAP_FILE"
+  fi
+}
+
+ensure_build_swap
 
 cd "$APP_ROOT/backend"
-npm ci
+fresh_npm_ci
 NODE_ENV=production node <<'NODE'
 const fs = require('fs')
 const path = require('path')
@@ -66,17 +96,41 @@ NODE_ENV=production PORT=5003 pm2 startOrReload ecosystem.config.cjs
 pm2 save
 
 cd "$APP_ROOT/landing"
-npm ci
+fresh_npm_ci
 npm run build
 
 cd "$APP_ROOT/courier-cart-client"
-npm ci
+fresh_npm_ci
+node <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const packagePath = path.resolve(process.cwd(), 'node_modules/typescript/package.json')
+const es2023Path = path.resolve(process.cwd(), 'node_modules/typescript/lib/lib.es2023.d.ts')
+
+if (!fs.existsSync(packagePath)) {
+  throw new Error('courier-cart-client TypeScript package is missing after npm ci')
+}
+
+const typescriptPackage = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+if (!fs.existsSync(es2023Path)) {
+  throw new Error(
+    `courier-cart-client TypeScript ${typescriptPackage.version} is missing lib.es2023.d.ts after npm ci`,
+  )
+}
+
+console.log('courier-cart-client TypeScript install verified', {
+  version: typescriptPackage.version,
+  es2023Lib: true,
+})
+NODE
 npm run build
 
 cd "$APP_ROOT/admin-dashboard"
 if [ -f package-lock.json ]; then
   npm ci --legacy-peer-deps --force
 else
+  rm -rf node_modules
   npm install --legacy-peer-deps --force
 fi
 cat > .env.production <<'EOF'
@@ -85,6 +139,10 @@ REACT_APP_SOCKET_URL=https://api.shiplifi.com
 EOF
 cp .env.production .env
 cp .env.production .env.local
+if [ -z "${NODE_OPTIONS:-}" ]; then
+  export NODE_OPTIONS="--max-old-space-size=2048"
+fi
+echo "Admin build NODE_OPTIONS=${NODE_OPTIONS}"
 npm run build
 
 sudo nginx -t

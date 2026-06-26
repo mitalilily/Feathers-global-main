@@ -54,6 +54,14 @@ export const integrateShopifyStore = async (
   req: Request,
   res: Response
 ): Promise<any> => {
+  if (String(process.env.SHOPIFY_ALLOW_LEGACY_MANUAL_AUTH || '').toLowerCase() !== 'true') {
+    return res.status(410).json({
+      success: false,
+      error: 'Manual Shopify Admin API token connection is no longer supported. Connect Shopify through OAuth.',
+      migrationPath: '/api/integrations/shopify/oauth/start',
+    });
+  }
+
   const {
     storeUrl,
     domain,

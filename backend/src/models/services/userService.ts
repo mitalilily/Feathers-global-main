@@ -641,7 +641,7 @@ export async function createUserWithWallet(data: Partial<IUser>, txn: any = db) 
       printer_type: 'thermal',
       char_limit: 25,
       max_items: 3,
-      powered_by: 'Feather Global',
+      powered_by: 'Shiplifi',
       order_info: {
         orderId: true,
         invoiceNumber: true,
@@ -823,6 +823,20 @@ export async function getAllUsersWithRoleUser({
       domesticKyc: schema.userProfiles.domesticKyc,
       kycStatus: kycStatusExpr,
       kycUpdatedAt: schema.kyc.updatedAt,
+      kycStructure: schema.kyc.structure,
+      kycCompanyType: schema.kyc.companyType,
+      panNumber: schema.kyc.panNumber,
+      gstin: schema.kyc.gstin,
+      cin: schema.kyc.cin,
+      panCardUrl: schema.kyc.panCardUrl,
+      aadhaarUrl: schema.kyc.aadhaarUrl,
+      cancelledChequeUrl: schema.kyc.cancelledChequeUrl,
+      partnershipDeedUrl: schema.kyc.partnershipDeedUrl,
+      boardResolutionUrl: schema.kyc.boardResolutionUrl,
+      llpAgreementUrl: schema.kyc.llpAgreementUrl,
+      businessPanUrl: schema.kyc.businessPanUrl,
+      companyAddressProofUrl: schema.kyc.companyAddressProofUrl,
+      gstCertificateUrl: schema.kyc.gstCertificateUrl,
     })
     .from(users)
     .leftJoin(schema.userProfiles, eq(schema.userProfiles.userId, users.id))
@@ -849,11 +863,7 @@ export async function getAllUsersWithRoleUser({
 export const updateUserApprovalStatus = async (userId: string, approved: boolean) => {
   const [updated] = await db
     .update(schema.userProfiles)
-    .set({
-      approved,
-      approvedAt: approved ? new Date() : null,
-      ...(approved ? { profileComplete: true } : {}),
-    })
+    .set({ approved })
     .where(eq(schema.userProfiles.userId, userId))
     .returning()
 

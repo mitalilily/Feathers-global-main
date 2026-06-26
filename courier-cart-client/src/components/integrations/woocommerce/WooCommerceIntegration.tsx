@@ -54,6 +54,11 @@ export default function WooCommerceIntegration({
     consumerSecret: "",
     userId: user?.userId ?? "",
     status: "active",
+    settings: {
+      autoUpdateStatus: true,
+      autoUpdateShipmentStatus: true,
+      markCodPaid: false,
+    },
   });
 
   const [inputErrors, setInputErrors] = useState<Partial<WooCommerceForm>>({});

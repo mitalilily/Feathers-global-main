@@ -27,10 +27,12 @@ import {
   useDeveloperLiveLogs,
   useDeveloperLogs,
   useRetryDeveloperManifest,
+  useShopifyOAuthCredentials,
   useTriggerShadowfaxWebhookTest,
+  useUpdateShopifyOAuthCredentials,
   useUpdateDeveloperIssue,
 } from 'hooks/useDeveloperLogs'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   FiAlertCircle,
   FiArrowUpRight,
@@ -41,9 +43,11 @@ import {
   FiCopy,
   FiEye,
   FiExternalLink,
+  FiKey,
   FiPauseCircle,
   FiPlayCircle,
   FiRefreshCw,
+  FiSave,
   FiSend,
   FiTool,
   FiTruck,
@@ -145,6 +149,8 @@ export default function DeveloperLogs() {
 
   const { data, isLoading, isFetching, refetch } = useDeveloperLogs(page, perPage, filters)
   const liveLogsQuery = useDeveloperLiveLogs(liveLogsEnabled, 1000)
+  const shopifyOAuthCredentialsQuery = useShopifyOAuthCredentials()
+  const updateShopifyOAuthCredentialsMutation = useUpdateShopifyOAuthCredentials()
   const updateIssueMutation = useUpdateDeveloperIssue()
   const retryManifestMutation = useRetryDeveloperManifest()
   const triggerShadowfaxWebhookMutation = useTriggerShadowfaxWebhookTest()
@@ -162,6 +168,8 @@ export default function DeveloperLogs() {
   const alertItemBorder = useColorModeValue('red.100', 'rgba(248,113,113,0.3)')
   const logSurfaceBg = useColorModeValue('gray.900', 'gray.950')
   const logSurfaceColor = useColorModeValue('green.100', 'green.200')
+  const shopifyIconBg = useColorModeValue('green.50', 'rgba(20,83,45,0.24)')
+  const shopifyIconColor = useColorModeValue('green.600', 'green.200')
   const [shadowfaxTestForm, setShadowfaxTestForm] = useState({
     template: 'forward_in_transit',
     awb: '',
@@ -173,6 +181,20 @@ export default function DeveloperLogs() {
     volumetricWeight: '',
     rawPayload: '',
   })
+  const [shopifyOAuthForm, setShopifyOAuthForm] = useState({
+    clientId: '',
+    clientSecret: '',
+  })
+  const shopifyOAuthCredentials = shopifyOAuthCredentialsQuery.data?.data || {}
+
+  useEffect(() => {
+    if (shopifyOAuthCredentials.clientId) {
+      setShopifyOAuthForm((current) => ({
+        ...current,
+        clientId: shopifyOAuthCredentials.clientId,
+      }))
+    }
+  }, [shopifyOAuthCredentials.clientId])
 
   const liveLogData = liveLogsQuery.data?.data
   const liveLogText = useMemo(() => {
@@ -369,6 +391,30 @@ export default function DeveloperLogs() {
       ...current,
       [field]: value,
     }))
+  }
+
+  const handleShopifyOAuthChange = (field, value) => {
+    setShopifyOAuthForm((current) => ({
+      ...current,
+      [field]: value,
+    }))
+  }
+
+  const handleSaveShopifyOAuthCredentials = async () => {
+    try {
+      const payload = {
+        clientId: shopifyOAuthForm.clientId.trim(),
+      }
+      if (shopifyOAuthForm.clientSecret.trim()) {
+        payload.clientSecret = shopifyOAuthForm.clientSecret.trim()
+      }
+
+      await updateShopifyOAuthCredentialsMutation.mutateAsync(payload)
+      setShopifyOAuthForm((current) => ({ ...current, clientSecret: '' }))
+      notifySuccess('Shopify credentials saved', 'OAuth credentials are active on the backend.')
+    } catch (error) {
+      notifyError('Shopify credentials failed', error)
+    }
   }
 
   const handleTriggerShadowfaxWebhook = async () => {
@@ -817,6 +863,91 @@ export default function DeveloperLogs() {
               'Failed to load live logs.'
             : liveLogText || 'No log lines fetched yet.'}
         </Box>
+      </Card>
+
+      <Card mb={4} p={4}>
+        <Flex justify="space-between" align={{ base: 'start', md: 'center' }} gap={4} wrap="wrap" mb={4}>
+          <HStack spacing={3} align="start">
+            <Flex
+              align="center"
+              justify="center"
+              w={10}
+              h={10}
+              borderRadius="lg"
+              bg={shopifyIconBg}
+              color={shopifyIconColor}
+            >
+              <Icon as={FiKey} />
+            </Flex>
+            <Box>
+              <Heading size="sm" mb={1}>
+                Shopify OAuth Credentials
+              </Heading>
+              <HStack spacing={2} wrap="wrap">
+                <Badge
+                  colorScheme={shopifyOAuthCredentials.configured ? 'green' : 'orange'}
+                  borderRadius="md"
+                  px={2}
+                >
+                  {shopifyOAuthCredentials.configured ? 'Configured' : 'Missing'}
+                </Badge>
+                <Badge colorScheme="purple" borderRadius="md" px={2}>
+                  {shopifyOAuthCredentials.credentialsSource || 'env'}
+                </Badge>
+              </HStack>
+            </Box>
+          </HStack>
+          <Button
+            colorScheme="green"
+            leftIcon={<FiSave />}
+            onClick={handleSaveShopifyOAuthCredentials}
+            isLoading={updateShopifyOAuthCredentialsMutation.isPending}
+            isDisabled={shopifyOAuthCredentialsQuery.isLoading}
+          >
+            Save
+          </Button>
+        </Flex>
+
+        <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)' }} gap={4}>
+          <FormControl>
+            <FormLabel>SHOPIFY_CLIENT_ID</FormLabel>
+            <Input
+              placeholder="Client ID"
+              value={shopifyOAuthForm.clientId}
+              onChange={(e) => handleShopifyOAuthChange('clientId', e.target.value)}
+              autoComplete="off"
+            />
+          </FormControl>
+          <FormControl>
+            <FormLabel>SHOPIFY_CLIENT_SECRET</FormLabel>
+            <Input
+              type="password"
+              placeholder={
+                shopifyOAuthCredentials.hasClientSecret
+                  ? 'Leave blank to keep existing secret'
+                  : 'Client secret'
+              }
+              value={shopifyOAuthForm.clientSecret}
+              onChange={(e) => handleShopifyOAuthChange('clientSecret', e.target.value)}
+              autoComplete="new-password"
+            />
+          </FormControl>
+        </Grid>
+
+        <HStack spacing={3} mt={4} wrap="wrap">
+          <Badge colorScheme={shopifyOAuthCredentials.hasClientId ? 'blue' : 'gray'} borderRadius="md" px={2}>
+            ID: {shopifyOAuthCredentials.clientIdMasked || 'not set'}
+          </Badge>
+          <Badge colorScheme={shopifyOAuthCredentials.hasClientSecret ? 'blue' : 'gray'} borderRadius="md" px={2}>
+            Secret: {shopifyOAuthCredentials.clientSecretMasked || 'not set'}
+          </Badge>
+          <Badge colorScheme="gray" borderRadius="md" px={2}>
+            Env: {shopifyOAuthCredentials.envFileName || '-'}
+          </Badge>
+        </HStack>
+        <Text fontSize="xs" color="gray.500" mt={3}>
+          {shopifyOAuthCredentials.redirectUri || 'Redirect URI unavailable'}
+        </Text>
       </Card>
 
       <Card mb={4} p={4}>

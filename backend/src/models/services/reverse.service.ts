@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, or, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { couriers } from '../schema/couriers'
@@ -8,6 +8,113 @@ import { zones } from '../schema/zones'
 import { computeB2CRateCardCharge, fetchResolvedB2CRateCards } from './b2cRateCard.service'
 
 // Weight slab logic removed
+
+export const REVERSE_PICKUP_TAG = 'reverse_pickup'
+export const REVERSE_PICKUP_ORIGINAL_TAG_PREFIX = 'reverse_original_id='
+const REVERSE_PICKUP_SUPPORTED_PROVIDERS = new Set([
+  'delhivery',
+  'shadowfax',
+  'xpressbees',
+  'ekart',
+  'amazon',
+])
+
+const normalizeText = (value: unknown) => String(value ?? '').trim()
+const normalizeLower = (value: unknown) => normalizeText(value).toLowerCase()
+
+export const getReverseOriginalOrderTag = (orderId: string) =>
+  `${REVERSE_PICKUP_ORIGINAL_TAG_PREFIX}${normalizeText(orderId)}`
+
+export const appendReversePickupTags = (existingTags: unknown, originalOrderId: string) => {
+  const tagParts = String(existingTags || '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+
+  for (const tag of [REVERSE_PICKUP_TAG, getReverseOriginalOrderTag(originalOrderId)]) {
+    if (!tagParts.some((part) => part.toLowerCase() === tag.toLowerCase())) {
+      tagParts.push(tag)
+    }
+  }
+
+  return tagParts.join(',')
+}
+
+export async function findExistingReversePickup(
+  userId: string,
+  originalOrderId: string,
+  originalOrderNumber?: string | null,
+) {
+  const marker = `%${getReverseOriginalOrderTag(originalOrderId)}%`
+  const originalOrderNumberPattern = normalizeText(originalOrderNumber)
+    ? `${normalizeText(originalOrderNumber)}-R%`
+    : ''
+  const [existing] = await db
+    .select({
+      id: b2c_orders.id,
+      order_number: b2c_orders.order_number,
+      order_status: b2c_orders.order_status,
+    })
+    .from(b2c_orders)
+    .where(
+      and(
+        eq(b2c_orders.user_id, userId),
+        eq(b2c_orders.order_type, 'reverse'),
+        or(
+          sql`COALESCE(${b2c_orders.tags}, '') ILIKE ${marker}`,
+          originalOrderNumberPattern
+            ? sql`${b2c_orders.order_number} ILIKE ${originalOrderNumberPattern}`
+            : sql`false`,
+        ),
+        sql`lower(COALESCE(${b2c_orders.order_status}, '')) NOT IN ('cancelled', 'cancellation_requested')`,
+      ),
+    )
+    .limit(1)
+
+  return existing ?? null
+}
+
+export async function getOriginalOrderForReversePickup(orderId: string, userId?: string) {
+  const conditions = [eq(b2c_orders.id, orderId)]
+  if (userId) conditions.push(eq(b2c_orders.user_id, userId))
+
+  const [order] = await db
+    .select()
+    .from(b2c_orders)
+    .where(and(...conditions))
+    .limit(1)
+
+  return order ?? null
+}
+
+export async function assertReversePickupAllowed(orderId: string, userId: string) {
+  const order = await getOriginalOrderForReversePickup(orderId, userId)
+  if (!order) {
+    throw new Error('Original order not found')
+  }
+
+  if (normalizeLower(order.order_type) === 'reverse') {
+    throw new Error('Reverse pickup cannot be created from another reverse pickup order')
+  }
+
+  if (normalizeLower(order.order_status) !== 'delivered') {
+    throw new Error('Reverse pickup can be created only for delivered B2C orders')
+  }
+
+  const provider = normalizeLower(order.integration_type)
+  if (!REVERSE_PICKUP_SUPPORTED_PROVIDERS.has(provider)) {
+    throw new Error(
+      `Reverse pickup is not supported for ${normalizeText(order.integration_type) || 'this courier'}`,
+    )
+  }
+
+  const existing = await findExistingReversePickup(userId, orderId, order.order_number)
+  if (existing) {
+    throw new Error(`Reverse pickup already exists for this order (${existing.order_number})`)
+  }
+
+  return order
+}
 
 type LocRow = {
   id: string
@@ -148,19 +255,23 @@ async function fetchZoneIdByKey(key: string): Promise<{ id: string; code: string
   throw new Error('Zone lookup failed: ROI zone missing')
 }
 
-const convertKgToGrams = (value: unknown, fallback = 500) => {
+const normalizeOrderWeightToGrams = (value: unknown, fallback = 500) => {
   const numericValue = Number(value ?? 0)
   if (!Number.isFinite(numericValue) || numericValue <= 0) return fallback
-  return Math.max(1, Math.round(numericValue * 1000))
+  return Math.max(1, numericValue > 50 ? Math.round(numericValue) : Math.round(numericValue * 1000))
 }
 
-export async function quoteReverseForOrder(orderId: string, _overrideWeightGrams?: number) {
+export async function quoteReverseForOrder(
+  orderId: string,
+  _overrideWeightGrams?: number,
+  userId?: string,
+) {
   // 1) Fetch order and resolve courier
-  const [order] = await db.select().from(b2c_orders).where(eq(b2c_orders.id, orderId)).limit(1)
+  const order = await getOriginalOrderForReversePickup(orderId, userId)
   if (!order) throw new Error('Order not found')
 
   // Always trust server-stored order weight; ignore any client override
-  const weightGrams = convertKgToGrams(order.weight)
+  const weightGrams = normalizeOrderWeightToGrams(order.weight)
   const reverseDestPincode = order?.pickup_details?.pincode || order.pincode
 
   let resolvedCourierId = order.courier_id ? Number(order.courier_id) : undefined

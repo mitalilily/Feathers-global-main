@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { sendWebhookEvent } from '../../services/webhookDelivery.service'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
-import { cancelAmazonShipment } from './amazonShipping.service'
+import { cancelAmazonShipment, getAmazonShippingTracking } from './amazonShipping.service'
 import {
   applyAmazonShippingCredentialsToEnv,
   getStoredAmazonShippingCredentials,
@@ -94,6 +94,126 @@ const getCancellationDeliveryMessage = (result: any) =>
     100,
   )
 
+const isShadowfaxCancellationProcessingError = (error: any) => {
+  const responseText = cancellationResponseText({
+    message: error?.message,
+    response: error?.response?.data,
+    status: error?.statusCode || error?.response?.status,
+  })
+
+  return (
+    responseText.includes('order is being processed') ||
+    responseText.includes('try cancelling after sometime')
+  )
+}
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const isAmazonCancellationPropagationError = (error: any) => {
+  const responseText = cancellationResponseText({
+    message: error?.message,
+    response: error?.response?.data,
+    status: error?.statusCode || error?.response?.status,
+  })
+
+  return (
+    responseText.includes('ineligible state') ||
+    responseText.includes('trackingid not found') ||
+    responseText.includes('tracking id not found')
+  )
+}
+
+const amazonTrackingConfirmsCancellation = async ({
+  order,
+  credentials,
+}: {
+  order: any
+  credentials: any
+}) => {
+  const trackingId = String(
+    order?.awb_number ||
+      order?.provider_meta?.amazon_tracking_id ||
+      order?.provider_meta?.trackingId ||
+      order?.provider_meta?.tracking_id ||
+      '',
+  ).trim()
+
+  if (!trackingId) return false
+
+  const carrierId = String(
+    order?.provider_meta?.amazon_carrier_id ||
+      order?.provider_meta?.carrierId ||
+      order?.provider_service ||
+      'ATS',
+  ).trim()
+
+  try {
+    const tracking = await getAmazonShippingTracking({ trackingId, carrierId }, credentials)
+    const trackingText = cancellationResponseText(tracking)
+    return (
+      trackingText.includes('pickupcancelled') ||
+      trackingText.includes('pickup cancelled') ||
+      trackingText.includes('cancelled') ||
+      trackingText.includes('canceled')
+    )
+  } catch {
+    return false
+  }
+}
+
+const cancelAmazonShipmentWithRetry = async ({
+  shipmentId,
+  order,
+  credentials,
+}: {
+  shipmentId: string
+  order: any
+  credentials: any
+}) => {
+  const retryDelaysMs = [5000, 15000, 30000]
+  let lastError: any = null
+
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    try {
+      return await cancelAmazonShipment({ shipmentId }, credentials)
+    } catch (error: any) {
+      lastError = error
+      if (!isAmazonCancellationPropagationError(error)) {
+        throw error
+      }
+
+      if (await amazonTrackingConfirmsCancellation({ order, credentials })) {
+        return {
+          success: true,
+          message: 'Amazon tracking confirms cancellation',
+          provider_response: error?.response?.data || null,
+        }
+      }
+
+      const delayMs = retryDelaysMs[attempt]
+      if (!delayMs) break
+      console.warn('Amazon cancellation is still propagating; retrying', {
+        orderId: order?.id,
+        shipmentId,
+        attempt: attempt + 1,
+        delayMs,
+        message: error?.message || error,
+      })
+      await delay(delayMs)
+    }
+  }
+
+  if (await amazonTrackingConfirmsCancellation({ order, credentials })) {
+    return {
+      success: true,
+      message: 'Amazon tracking confirms cancellation',
+      provider_response: lastError?.response?.data || null,
+    }
+  }
+
+  throw lastError
+}
+
 const resolveCancellationProvider = (order: any) => {
   const providerText = `${order?.integration_type || ''} ${order?.courier_partner || ''}`
     .trim()
@@ -106,6 +226,36 @@ const resolveCancellationProvider = (order: any) => {
   if (providerText.includes('shadowfax')) return 'shadowfax'
   if (providerText.includes('amazon')) return 'amazon'
   return providerText
+}
+
+const isSalesChannelSourceOrder = (order: any) => {
+  const localOrderId = String(order?.order_id || '').trim()
+  return localOrderId.startsWith('shopify_') || localOrderId.startsWith('woo_')
+}
+
+const syncSalesChannelStatusForOrder = async (orderId: string, source: string) => {
+  const [updatedOrder] = await db
+    .select()
+    .from(b2c_orders)
+    .where(eq(b2c_orders.id, orderId))
+    .limit(1)
+
+  if (!updatedOrder) return
+
+  const localOrderId = String(updatedOrder.order_id || '').trim()
+  if (localOrderId.startsWith('shopify_')) {
+    const { syncShopifyStatusForLocalOrder } = await import('./shopify.service')
+    await syncShopifyStatusForLocalOrder(updatedOrder, db, { source }).catch((err: any) => {
+      console.warn(`Shopify status sync skipped after ${source}:`, err?.message || err)
+    })
+  }
+
+  if (localOrderId.startsWith('woo_')) {
+    const { syncWooCommerceStatusForLocalOrder } = await import('./woocommerce.service')
+    await syncWooCommerceStatusForLocalOrder(updatedOrder, db, { source }).catch((err: any) => {
+      console.warn(`WooCommerce status sync skipped after ${source}:`, err?.message || err)
+    })
+  }
 }
 
 export async function cancelOrderShipment(orderId: string) {
@@ -132,6 +282,7 @@ export async function cancelOrderShipment(orderId: string) {
   })
 
   if (currentStatus === 'cancelled') {
+    await syncSalesChannelStatusForOrder(orderId, 'already-cancelled order check')
     return {
       success: true,
       alreadyCancelled: true,
@@ -143,7 +294,7 @@ export async function cancelOrderShipment(orderId: string) {
     throw new Error(`Order is already ${currentStatus} and cannot be cancelled`)
   }
 
-  if (!SUPPORTED_CANCELLATION_PROVIDERS.has(integration)) {
+  if (!SUPPORTED_CANCELLATION_PROVIDERS.has(integration) && !(isSalesChannelSourceOrder(order) && !awbNumber)) {
     console.error('Unsupported integration type:', { orderId, integration })
     throw new Error('Only Delhivery, Ekart, Xpressbees, Shadowfax and Amazon are supported for cancellation')
   }
@@ -168,6 +319,11 @@ export async function cancelOrderShipment(orderId: string) {
     })
     throw new Error('Amazon cancellation requires a shipment id')
   }
+
+  const providerMeta: Record<string, unknown> =
+    order.provider_meta && typeof order.provider_meta === 'object' && !Array.isArray(order.provider_meta)
+      ? (order.provider_meta as Record<string, unknown>)
+      : {}
 
   console.log('Attempting courier cancellation:', {
     orderId,
@@ -206,16 +362,86 @@ export async function cancelOrderShipment(orderId: string) {
       cancelReference: shadowfaxCancelRef,
       orderStatus: order.order_status,
     })
-    cancellationResult = await svc.cancelShipment(shadowfaxCancelRef)
+    try {
+      cancellationResult = await svc.cancelShipment(shadowfaxCancelRef)
+    } catch (error: any) {
+      if (!isShadowfaxCancellationProcessingError(error)) {
+        throw error
+      }
+
+      const requestedAt = new Date()
+      const pendingResult = {
+        success: true,
+        pending: true,
+        provider: 'shadowfax',
+        message:
+          'Shadowfax is still processing this new order. Cancellation has been requested and will finalize after provider confirmation.',
+        provider_response: error?.response?.data || null,
+      }
+
+      console.warn('Shadowfax cancellation is processing; marking local order as cancellation_requested', {
+        orderId,
+        awbNumber,
+        cancelReference: shadowfaxCancelRef,
+        providerResponse: error?.response?.data || null,
+      })
+
+      await db
+        .update(b2c_orders)
+        .set({
+          order_status: 'cancellation_requested',
+          pickup_status: 'cancellation_requested',
+          provider_last_status: 'cancellation_requested',
+          delivery_message: 'Cancellation requested with Shadowfax',
+          provider_meta: {
+            ...providerMeta,
+            cancellation: {
+              provider: integration,
+              requested_at: requestedAt.toISOString(),
+              awb_number: awbNumber || null,
+              pending: true,
+              result: pendingResult,
+            },
+          },
+          updated_at: requestedAt,
+        })
+        .where(eq(b2c_orders.id, orderId))
+
+      await logTrackingEvent({
+        orderId: order.id,
+        userId: order.user_id,
+        awbNumber: awbNumber || null,
+        courier: order.courier_partner || integration,
+        statusCode: 'cancellation_requested',
+        statusText: 'Cancellation requested',
+        raw: pendingResult,
+      }).catch((err) => {
+        console.warn('Failed to log Shadowfax cancellation-requested event:', err)
+      })
+
+      await sendWebhookEvent(order.user_id, 'tracking.updated', {
+        awb_number: awbNumber || order.awb_number,
+        order_id: order.id,
+        order_number: order.order_number,
+        status: 'cancellation_requested',
+        raw_status: 'cancellation_requested',
+        courier_partner: order.courier_partner,
+      }).catch((err) => {
+        console.warn('Failed to send Shadowfax cancellation-requested webhook:', err)
+      })
+
+      await syncSalesChannelStatusForOrder(orderId, 'cancellation request')
+
+      return pendingResult
+    }
   } else if (integration === 'amazon') {
     const amazonCredentials = await getStoredAmazonShippingCredentials()
     applyAmazonShippingCredentialsToEnv(amazonCredentials)
-    cancellationResult = await cancelAmazonShipment(
-      {
-        shipmentId: amazonShipmentId,
-      },
-      amazonCredentials,
-    )
+    cancellationResult = await cancelAmazonShipmentWithRetry({
+      shipmentId: amazonShipmentId,
+      order,
+      credentials: amazonCredentials,
+    })
   } else {
     const svc = new XpressbeesService()
     cancellationResult = await svc.cancelShipment(awbNumber)
@@ -250,10 +476,6 @@ export async function cancelOrderShipment(orderId: string) {
   const finalStatus = 'cancelled'
   console.log(`Updating order status to ${finalStatus}:`, { orderId, integration })
   const cancelledAt = new Date()
-  const providerMeta: Record<string, unknown> =
-    order.provider_meta && typeof order.provider_meta === 'object' && !Array.isArray(order.provider_meta)
-      ? (order.provider_meta as Record<string, unknown>)
-      : {}
 
   await db.transaction(async (tx) => {
     await tx
@@ -278,6 +500,8 @@ export async function cancelOrderShipment(orderId: string) {
 
     await applyCancellationRefundOnce(tx, order, 'pickup_cancel_api')
   })
+
+  await syncSalesChannelStatusForOrder(orderId, 'order cancellation')
 
   await logTrackingEvent({
     orderId: order.id,

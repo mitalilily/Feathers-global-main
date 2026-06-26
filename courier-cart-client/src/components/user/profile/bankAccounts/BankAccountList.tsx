@@ -38,7 +38,7 @@ const GradientBg = styled('div')(() => ({
   left: 0,
   right: 0,
   height: 3,
-  background: '#ff821c',
+  background: '#1A7500',
   zIndex: 2,
 }))
 
@@ -89,7 +89,7 @@ export const BankAccountsList: React.FC<{
               content: '""',
               width: 4,
               height: 24,
-              bgcolor: '#ff821c',
+              bgcolor: '#1A7500',
             },
           }}
         >

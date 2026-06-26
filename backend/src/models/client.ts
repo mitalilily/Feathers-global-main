@@ -8,7 +8,6 @@ import * as schema from '../schema/schema'
 const env = process.env.NODE_ENV || 'development'
 console.log('ENVIRONMENT', env)
 const envFilePath = path.resolve(__dirname, `../../.env.${env}`)
-const useSsl = env === 'production' || /render\.com/i.test(process.env.DATABASE_URL || '')
 
 console.log(`🔍 Loading env file: ${envFilePath}`)
 dotenv.config({ path: envFilePath })
@@ -19,7 +18,7 @@ if (!process.env.DATABASE_URL) {
 
 const poolConfig = {
   connectionString: process.env.DATABASE_URL,
-  ssl: useSsl ? { rejectUnauthorized: false } : false,
+  ssl: env === 'production' ? { rejectUnauthorized: false } : false,
   max: Number(process.env.PG_POOL_MAX || 10),
   idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30000),
   connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS || 10000),
@@ -29,7 +28,7 @@ const poolConfig = {
   idle_in_transaction_session_timeout: Number(
     process.env.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS || 15000,
   ),
-  application_name: process.env.PG_APP_NAME || `feather-global-${env}`,
+  application_name: process.env.PG_APP_NAME || `shiplifi-${env}`,
 }
 
 export const pool = new Pool({

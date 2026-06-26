@@ -32,7 +32,6 @@ import {
 import { RiSettings2Line } from 'react-icons/ri'
 import { TbInvoice, TbReportAnalytics, TbTicket, TbTransactionRupee } from 'react-icons/tb'
 import { NavLink, useLocation } from 'react-router-dom'
-import { BRAND } from '../../config/brand'
 import { isActive } from '../../utils/functions'
 
 export type Role = 'customer' | 'admin'
@@ -67,12 +66,11 @@ const ICON_SIZE_BI = 20 // Bootstrap Icons
 const ICON_SIZE_CG = 20 // css.gg
 const ICON_SIZE_HI = 20 // Heroicons
 const ICON_SIZE_RI = 18 // Remix Icon
-const BRAND_ORANGE = BRAND.colors.teal
-const BRAND_ACCENT = BRAND.colors.orange
-const BRAND_SURFACE = BRAND.colors.paper
-const BRAND_INK = BRAND.colors.ink
-const BRAND_BORDER = BRAND.colors.border
-const LOGO_SRC = BRAND.mark
+const BRAND_ORANGE = '#E85500'
+const BRAND_SURFACE = '#FFFFFF'
+const BRAND_INK = '#141414'
+const BRAND_BORDER = '#E9DEDA'
+const LOGO_SRC = '/logo/shiplifi-logo.png'
 
 const navItems: NavItem[] = [
   {
@@ -246,7 +244,7 @@ const navItems: NavItem[] = [
         icon: <TbTicket size={ICON_SIZE_TB} />,
       },
       {
-        text: `About ${BRAND.name}`,
+        text: 'About Shiplifi',
         path: '/support/about_us',
         icon: <BiInfoCircle size={ICON_SIZE_BI} />,
       },
@@ -304,8 +302,8 @@ export default function Sidebar({
         flexDirection: 'column',
         background: BRAND_SURFACE,
         color: BRAND_INK,
-        borderRight: `1px solid ${BRAND_BORDER}`,
-        boxShadow: '10px 0 30px rgba(4, 62, 69, 0.06)',
+        borderRight: `2px solid ${BRAND_BORDER}`,
+        boxShadow: '2px 0 8px rgba(0, 0, 0, 0.06)',
         zIndex: 1200,
         overflowY: 'auto',
         overflowX: 'hidden',
@@ -338,14 +336,14 @@ export default function Sidebar({
           <Box
             component="img"
             src={LOGO_SRC}
-            alt={BRAND.name}
+            alt="Shiplifi"
             sx={{ width: '90%', height: '90%', objectFit: 'contain' }}
           />
         </Box>
         {shouldShowExpanded && (
           <Box sx={{ flex: 1, minWidth: 0, ml: 1 }}>
             <Typography sx={{ fontSize: '0.9rem', fontWeight: 700, color: BRAND_INK }}>
-              {BRAND.name}
+              Shiplifi
             </Typography>
           </Box>
         )}
@@ -413,7 +411,7 @@ export default function Sidebar({
                       position: 'absolute',
                       inset: 0,
                       background: isActive_
-                        ? `linear-gradient(135deg, ${alpha(BRAND_ORANGE, 0.08)} 0%, ${alpha(BRAND_ACCENT, 0.04)} 100%)`
+                        ? `linear-gradient(135deg, ${alpha(BRAND_ORANGE, 0.05)} 0%, transparent 100%)`
                         : 'transparent',
                       opacity: 0,
                       transition: 'opacity 200ms ease',

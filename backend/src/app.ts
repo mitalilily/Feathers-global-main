@@ -16,11 +16,13 @@ import {
   amazonShippingTrackingWebhookHandler,
 } from './controllers/webhooks/amazonShipping.webhook'
 import { AMAZON_SHIPPING_WEBHOOK_PATH } from './config/amazonShippingWebhook'
-import { EKART_WEBHOOK_LEGACY_PATH, EKART_WEBHOOK_PATH } from './config/ekartWebhook'
 import { ekartWebhookHandler } from './controllers/webhooks/ekart.webhook'
 import { shadowfaxWebhookHandler } from './controllers/webhooks/shadowfax.webhook'
 import { xpressbeesWebhookHandler } from './controllers/webhooks/xpressbees.webhook'
-import { shopifyOrderWebhookController } from './controllers/shopify.controller'
+import {
+  shopifyComplianceWebhookController,
+  shopifyOrderWebhookController,
+} from './controllers/shopify.controller'
 import { wooCommerceOrderWebhookController } from './controllers/woocommerce.controller'
 import adminCourierRoutes from './routes/adminRoutes/adminCourier.routes'
 import adminSupportRoutes from './routes/adminRoutes/adminSupport.routes'
@@ -111,23 +113,11 @@ app.use(cookieParser())
 
 const normalizeOrigin = (origin: string) => origin.trim().replace(/\/+$/, '').toLowerCase()
 
-const parseOriginList = (...values: Array<string | undefined>) =>
-  values
-    .flatMap((value) => (value || '').split(','))
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-    .map(normalizeOrigin)
-
-const configuredAllowedOrigins = parseOriginList(
-  process.env.CORS_ALLOWED_ORIGINS,
-  process.env.CORS_ORIGIN,
-  process.env.CLIENT_URL,
-  process.env.FRONTEND_URL,
-  process.env.CLIENT_ORIGIN,
-  process.env.FRONTEND_ORIGIN,
-  process.env.APP_URL,
-  process.env.WEB_URL,
-)
+const configuredAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+  .map(normalizeOrigin)
 
 const allowedOrigins = new Set([
   'http://localhost:3000',
@@ -135,13 +125,9 @@ const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:5176',
-  'https://feathers-global-admin.onrender.com',
-  'https://feathers-global-main.onrender.com',
-  'https://featherglobal.in',
-  'https://www.featherglobal.in',
-  'https://app.featherglobal.in',
-  'https://rad-creponne-abf33d.netlify.app',
-  'https://splendid-sunshine-78d470.netlify.app',
+  'https://shiplifi.com',
+  'https://www.shiplifi.com',
+  'https://app.shiplifi.com',
   ...configuredAllowedOrigins,
 ])
 
@@ -153,11 +139,7 @@ const isAllowedOrigin = (origin: string) => {
   }
 
   // Allow first-party HTTPS subdomains like preview or alternate app hosts.
-  return (
-    /^https:\/\/([a-z0-9-]+\.)*featherglobal\.in$/.test(normalizedOrigin) ||
-    /^https:\/\/[a-z0-9-]+\.netlify\.app$/.test(normalizedOrigin) ||
-    /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/.test(normalizedOrigin)
-  )
+  return /^https:\/\/([a-z0-9-]+\.)*shiplifi\.com$/.test(normalizedOrigin)
 }
 
 app.use(
@@ -175,7 +157,9 @@ app.use(
 
 // Shopify webhooks require raw body for HMAC verification
 app.post('/api/webhooks/shopify/order-created', express.raw({ type: 'application/json' }), shopifyOrderWebhookController)
+app.post('/api/webhooks/shopify/compliance', express.raw({ type: 'application/json' }), shopifyComplianceWebhookController)
 app.post('/api/webhook/shopify/orders', express.raw({ type: 'application/json' }), shopifyOrderWebhookController)
+app.post('/api/webhook/shopify/compliance', express.raw({ type: 'application/json' }), shopifyComplianceWebhookController)
 app.post('/api/webhook/woocommerce/orders', express.raw({ type: 'application/json' }), wooCommerceOrderWebhookController)
 
 app.use(
@@ -186,19 +170,6 @@ app.use(
   }),
 )
 app.use(express.urlencoded({ extended: true }))
-
-const healthHandler = (_req: express.Request, res: express.Response) => {
-  res.status(200).json({
-    status: 'ok',
-    service: 'feather-global-api',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  })
-}
-
-app.get('/', healthHandler)
-app.get('/health', healthHandler)
-app.get('/api/health', healthHandler)
 
 app.use('/api/user', userRoutes)
 app.use('/api/profile', profileRoutes)
@@ -249,18 +220,13 @@ app.use('/api', ndrRoutes)
 app.use('/api', rtoRoutes)
 app.use('/api/v1', externalApiRoutes)
 // Amazon Shipping tracking webhook. The public production URL is:
-// https://api.featherglobal.in/webhooks/amazon-shipping/tracking
+// https://api.shiplifi.com/webhooks/amazon-shipping/tracking
 app.get(AMAZON_SHIPPING_WEBHOOK_PATH, amazonShippingTrackingWebhookHealthHandler)
 app.post(AMAZON_SHIPPING_WEBHOOK_PATH, express.json(), amazonShippingTrackingWebhookHandler)
 app.post('/api/webhook/amazon-shipping/tracking', express.json(), amazonShippingTrackingWebhookHandler)
 // Ekart webhook
-const ekartWebhookJson = express.json({
-  verify: (req: any, _res, buf) => {
-    req.rawBody = buf.toString('utf8')
-  },
-})
-app.post(EKART_WEBHOOK_LEGACY_PATH, ekartWebhookJson, ekartWebhookHandler)
-app.post(EKART_WEBHOOK_PATH, ekartWebhookJson, ekartWebhookHandler)
+app.post('/api/webhook/ekart', express.json(), ekartWebhookHandler)
+app.post('/api/webhook/ekart/track', express.json(), ekartWebhookHandler)
 app.post(
   '/api/webhook/xpressbees',
   express.json({

@@ -19,14 +19,6 @@ export const normalizePincode = (value: unknown) =>
     .replace(/\D/g, '')
     .slice(0, 6)
 
-const PINCODE_DIRECTORY_BASE_URL = 'https://aniket-thapa.github.io/india-pincode-api/pincodes'
-
-const toDisplayName = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/\b[a-z]/g, (char) => char.toUpperCase())
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const fetchLocations = async (params: any) => {
   const res = await axiosInstance.get(`/serviceability/locations`, { params })
@@ -37,7 +29,7 @@ const findExactLocation = (rows: ServiceabilityLocation[], pincode: string) =>
   rows.find((row) => String(row?.pincode || '') === pincode) ?? rows[0]
 
 const lookupViaServiceability = async (pincode: string): Promise<PincodeLocation | null> => {
-  const result = await fetchLocations({ pincode, limit: 1, fallbackToPostalApi: true })
+  const result = await fetchLocations({ pincode, limit: 1 })
   const rows: ServiceabilityLocation[] = Array.isArray(result?.data) ? result.data : []
   const location = findExactLocation(rows, pincode)
 
@@ -51,23 +43,21 @@ const lookupViaServiceability = async (pincode: string): Promise<PincodeLocation
   }
 }
 
-const lookupViaPincodeDirectory = async (pincode: string): Promise<PincodeLocation | null> => {
-  try {
-    const res = await fetch(`${PINCODE_DIRECTORY_BASE_URL}/${pincode}.json`)
-    if (!res.ok) return null
+const lookupViaPostalApi = async (pincode: string): Promise<PincodeLocation | null> => {
+  const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`)
+  if (!res.ok) return null
 
-    const data = await res.json()
+  const data = await res.json()
+  const loc = data?.[0]?.PostOffice?.[0]
+  const status = data?.[0]?.Status
 
-    if (!data?.district || !data?.state) return null
+  if (status !== 'Success' || !loc) return null
 
-    return {
-      pincode,
-      city: toDisplayName(data.district),
-      state: toDisplayName(data.state),
-      country: 'India',
-    }
-  } catch {
-    return null
+  return {
+    pincode,
+    city: loc?.District || '',
+    state: loc?.State || '',
+    country: 'India',
   }
 }
 
@@ -86,5 +76,5 @@ export const lookupPincodeLocation = async (
   }
 
   if (options.fallbackToPostalApi === false) return null
-  return lookupViaPincodeDirectory(pincode)
+  return lookupViaPostalApi(pincode)
 }

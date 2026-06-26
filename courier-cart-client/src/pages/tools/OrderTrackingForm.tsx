@@ -34,7 +34,6 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import type { TrackingHistory } from '../../api/tracking.service'
 import AWBLink from '../../components/UI/AWBLink'
 import CustomInput from '../../components/UI/inputs/CustomInput'
-import { DelhiveryLifecycleAdapter } from '../../components/tracking/DelhiveryLifecycleAdapter'
 import { SmartTabs } from '../../components/UI/tab/Tabs'
 import { useTracking } from '../../hooks/Orders/useTracking'
 import {
@@ -61,8 +60,8 @@ const formatTrackingEventTime = (value: string) =>
   })
 
 export default function OrderTrackingForm() {
-  const BRAND_PRIMARY = '#047b85'
-  const BRAND_ACCENT = '#ff821c'
+  const BRAND_PRIMARY = '#E85500'
+  const BRAND_ACCENT = '#1A7500'
   const shellCardStyles = {
     borderRadius: 2.5,
     border: `1px solid ${alpha(BRAND_PRIMARY, 0.12)}`,
@@ -231,7 +230,7 @@ export default function OrderTrackingForm() {
           Shipment tracking
         </Typography>
         <Typography sx={{ mt: 0.5, maxWidth: 760, color: '#6E6763', fontSize: '0.88rem' }}>
-          Track every Feather Global shipment from a single clean workspace using either AWB details or
+          Track every Shiplifi shipment from a single clean workspace using either AWB details or
           your order reference with customer contact.
         </Typography>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} mt={1.1}>
@@ -499,11 +498,6 @@ export default function OrderTrackingForm() {
             </CardContent>
           </Card>
 
-          <DelhiveryLifecycleAdapter
-            courierName={tracking.courier_name}
-            integrationType={tracking.integration_type}
-          />
-
           <Card sx={shellCardStyles}>
             <CardContent>
               <Stack
@@ -539,7 +533,7 @@ export default function OrderTrackingForm() {
                       <ListItem alignItems="flex-start" sx={{ px: 0 }}>
                         <ListItemIcon sx={{ minWidth: 36 }}>
                           {idx === 0 ? (
-                            <FaBoxOpen color="#047b85" size={20} />
+                            <FaBoxOpen color="#E85500" size={20} />
                           ) : (
                             <MdLocationOn color="#6B7280" size={20} />
                           )}

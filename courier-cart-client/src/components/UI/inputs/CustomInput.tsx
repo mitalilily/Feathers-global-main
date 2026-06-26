@@ -107,7 +107,7 @@ const CustomInput = forwardRef<HTMLInputElement, CustomInputProps>(
                 borderColor: 'rgba(17, 24, 39, 0.2)',
               },
               '&.Mui-focused fieldset': {
-                borderColor: '#047b85',
+                borderColor: '#E85500',
               },
             },
             '& .MuiOutlinedInput-input': {

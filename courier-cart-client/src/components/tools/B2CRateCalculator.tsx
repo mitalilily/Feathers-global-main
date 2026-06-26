@@ -3,14 +3,11 @@ import { useMemo } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
 import { FiInfo } from 'react-icons/fi'
 import { TbRulerMeasure, TbScale } from 'react-icons/tb'
-import { BRAND } from '../../config/brand'
 import {
   B2C_MIN_CHARGEABLE_WEIGHT_GRAMS,
   B2C_MIN_CHARGEABLE_WEIGHT_KG,
 } from '../../utils/constants'
 import CustomInput from '../UI/inputs/CustomInput'
-
-const { teal, orange, tealSoft, border, muted } = BRAND.colors
 
 export default function B2CRateCalculator() {
   const {
@@ -45,7 +42,7 @@ export default function B2CRateCalculator() {
   return (
     <Grid container spacing={2}>
       {/* Actual Weight (in Kg for input) */}
-      <Grid size={{ xs: 12, md: 6 }}>
+      <Grid size={6}>
         <CustomInput
           label="Actual Weight *"
           type="number"
@@ -61,18 +58,8 @@ export default function B2CRateCalculator() {
       </Grid>
 
       {/* Clear Note */}
-      <Grid mt={{ xs: 0, md: 4 }} size={{ xs: 12, md: 6 }} display="flex" alignItems="center">
-        <Alert
-          icon={<FiInfo size={18} />}
-          severity="info"
-          sx={{
-            width: '100%',
-            border: `1px solid ${border}`,
-            bgcolor: tealSoft,
-            color: muted,
-            '& .MuiAlert-icon': { color: teal },
-          }}
-        >
+      <Grid mt={4} size={6} display="flex" alignItems="center">
+        <Alert icon={<FiInfo size={18} />} severity="info" sx={{ width: '100%' }}>
           Minimum chargeable weight is{' '}
           <b>
             {B2C_MIN_CHARGEABLE_WEIGHT_GRAMS} g ({B2C_MIN_CHARGEABLE_WEIGHT_KG.toFixed(2)} Kg)
@@ -80,7 +67,7 @@ export default function B2CRateCalculator() {
         </Alert>
       </Grid>
 
-      <Grid size={{ xs: 12, md: 4 }}>
+      <Grid size={4}>
         <CustomInput
           label="Length (cm)"
           type="number"
@@ -93,7 +80,7 @@ export default function B2CRateCalculator() {
           fullWidth
         />
       </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
+      <Grid size={4}>
         <CustomInput
           label="Breadth (cm)"
           type="number"
@@ -106,7 +93,7 @@ export default function B2CRateCalculator() {
           fullWidth
         />
       </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
+      <Grid size={4}>
         <CustomInput
           label="Height (cm)"
           type="number"
@@ -121,18 +108,18 @@ export default function B2CRateCalculator() {
       </Grid>
 
       {/* Calculations */}
-      <Grid size={{ xs: 12, md: 6 }}>
+      <Grid size={6}>
         <Box
           sx={{
             p: 2,
-            border: `1px solid ${border}`,
+            border: '1px solid #ddd',
             borderRadius: 2,
             display: 'flex',
             alignItems: 'center',
             gap: 1,
           }}
         >
-          <TbRulerMeasure size={24} color={teal} />
+          <TbRulerMeasure size={24} color="#1976d2" />
           <Box>
             <Typography variant="subtitle2">Volumetric Weight</Typography>
             <Typography variant="h6">
@@ -142,18 +129,18 @@ export default function B2CRateCalculator() {
         </Box>
       </Grid>
 
-      <Grid size={{ xs: 12, md: 6 }}>
+      <Grid size={6}>
         <Box
           sx={{
             p: 2,
-            border: `1px solid ${border}`,
+            border: '1px solid #ddd',
             borderRadius: 2,
             display: 'flex',
             alignItems: 'center',
             gap: 1,
           }}
         >
-          <TbScale size={24} color={orange} />
+          <TbScale size={24} color="#2e7d32" />
           <Box>
             <Typography variant="subtitle2">Applicable Weight</Typography>
             <Typography

@@ -65,7 +65,6 @@ export const kyc = pgTable("kyc", {
   companyAddressProofStatus: kycDocStatusEnum("companyAddressProofStatus")
     .default("pending")
     .notNull(),
-  companyAddressProofRejectionReason: text("companyAddressProofRejectionReason"),
   cancelledChequeRejectionReason: text("cancelledChequeRejectionReason")
     .default("pending")
     .notNull(),
@@ -106,6 +105,7 @@ export const kyc = pgTable("kyc", {
 
   businessPanMime: varchar("businessPanMime", { length: 100 }),
   gstCertificateMime: varchar("gstCertificateMime", { length: 100 }),
+
   businessPanStatus: kycDocStatusEnum("businessPanStatus")
     .default("pending")
     .notNull(),

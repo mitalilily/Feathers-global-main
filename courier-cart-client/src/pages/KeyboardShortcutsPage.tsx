@@ -22,7 +22,7 @@ import {
 } from 'react-icons/fi'
 import PageHeading from '../components/UI/heading/PageHeading'
 
-const BRAND_PRIMARY = '#047b85'
+const BRAND_PRIMARY = '#E85500'
 
 const Kbd = styled(Box)(({ theme }) => ({
   fontFamily: '"SF Mono", "Monaco", "Cascadia Code", "Roboto Mono", monospace',

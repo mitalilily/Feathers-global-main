@@ -7,78 +7,12 @@ import { findUserByEmail, findUserById, saveRefreshToken } from "./userService";
 
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const BOOTSTRAP_ADMIN_EMAILS = [
-  'admin@feathergsglobal.com',
-  'admin@feathersglobal.com',
-  'admin@shiplifi.com',
-  'admin@shiplifi.local',
-]
-const BOOTSTRAP_ADMIN_PHONE = '+916283315911'
-
-async function findAdminLoginCandidate(email: string) {
-  const normalizedEmail = email.trim().toLowerCase()
-
-  const exactMatch = await findUserByEmail(normalizedEmail)
-  if (exactMatch) return exactMatch
-
-  if (!BOOTSTRAP_ADMIN_EMAILS.includes(normalizedEmail)) {
-    return null
-  }
-
-  return db.query.users.findFirst({
-    where: (user, { eq, inArray, or }) =>
-      or(
-        inArray(user.email, BOOTSTRAP_ADMIN_EMAILS),
-        eq(user.phone, BOOTSTRAP_ADMIN_PHONE),
-      ),
-  })
-}
 
 export const loginAdmin = async (email: string, password: string) => {
-  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : email;
-  const user = await findAdminLoginCandidate(normalizedEmail);
+  const user = await findUserByEmail(email);
 
   if (!user || user.role !== "admin") {
-    if (!user) {
-      throw new Error("Unauthorized");
-    }
-
-    const passwordLooksValid = user.passwordHash && (await bcrypt.compare(password, user.passwordHash))
-    const matchesBootstrapIdentity =
-      BOOTSTRAP_ADMIN_EMAILS.includes((user.email || '').trim().toLowerCase()) ||
-      (user.phone || '').trim() === BOOTSTRAP_ADMIN_PHONE
-
-    if (!passwordLooksValid || !matchesBootstrapIdentity) {
-      throw new Error("Unauthorized");
-    }
-
-    await db
-      .update(users)
-      .set({
-        role: 'admin',
-        emailVerified: true,
-        phoneVerified: true,
-        accountVerified: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, user.id))
-
-    const elevatedUser = (await findUserByEmail(normalizedEmail)) ?? user
-    const accessToken = signAccessToken(elevatedUser.id, "admin");
-    const { token: refreshToken } = signRefreshToken(elevatedUser.id, "admin");
-
-    await saveRefreshToken(elevatedUser.id, refreshToken, ONE_WEEK_MS);
-
-    return {
-     token: accessToken,
-      refreshToken:refreshToken,
-      user: {
-        id: elevatedUser.id,
-        email: elevatedUser.email,
-        role: 'admin',
-        emailVerified: true,
-      },
-    };
+    throw new Error("Unauthorized");
   }
 
   const isMatch = await bcrypt.compare(password, user.passwordHash!);

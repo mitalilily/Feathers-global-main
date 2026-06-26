@@ -59,7 +59,7 @@ export default function ManifestPickupScheduleDialog({
         <Stack gap={2} mt={1}>
           <Typography variant="body2" color="text.secondary">
             {description ||
-              'Confirm a valid future pickup slot before generating the Delhivery manifest and pickup request.'}
+              'Confirm a valid future pickup slot before generating the Delhivery manifest.'}
           </Typography>
           <CustomInput
             label="Pickup Date"
@@ -84,7 +84,7 @@ export default function ManifestPickupScheduleDialog({
             helperText="Must exactly match the registered Delhivery warehouse name."
           />
           <CustomInput
-            label="Number of Shipments"
+            label="Expected Package Count"
             type="number"
             value={expectedPackageCount}
             onChange={(e) =>
@@ -93,9 +93,6 @@ export default function ManifestPickupScheduleDialog({
             inputProps={{ min: 1, step: 1 }}
             error={Boolean(validationMessage) && Boolean(expectedPackageCount)}
           />
-          <Typography variant="caption" color="text.secondary">
-            This will generate the manifest and submit the pickup request together for Delhivery.
-          </Typography>
           {validationMessage ? (
             <Typography variant="caption" color="error">
               {validationMessage}

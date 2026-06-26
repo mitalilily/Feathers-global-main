@@ -25,7 +25,7 @@ const CompanyDetails = () => {
       <PageHeading
         title="Contact Us"
         subtitle="  We’re here to help! Whether you have questions about our services, need support with your
-        account, or want to know more about how Feather Global can assist your business, feel free to
+        account, or want to know more about how Shiplifi can assist your business, feel free to
         reach out to us."
       />
 
@@ -51,7 +51,7 @@ const CompanyDetails = () => {
           }}
         >
           <Typography variant="h6" fontWeight="bold" color="secondary" gutterBottom>
-            Feather Global
+            Shiplifi
           </Typography>
 
           {/* Address */}
@@ -68,8 +68,8 @@ const CompanyDetails = () => {
             <Chip
               clickable
               component={Link}
-              href="mailto:support@featherglobal.in"
-              label="support@featherglobal.in"
+              href="mailto:info@shiplifi.com"
+              label="info@shiplifi.com"
               color="primary"
               variant="filled"
               icon={<FiMail size={16} />}
@@ -82,10 +82,10 @@ const CompanyDetails = () => {
             <Chip
               clickable
               component={Link}
-              href="https://www.featherglobal.in"
+              href="https://www.shiplifi.com"
               target="_blank"
               rel="noreferrer"
-              label="www.featherglobal.in"
+              label="www.shiplifi.com"
               color="secondary"
               variant="filled"
               icon={<FiGlobe size={16} />}
@@ -119,7 +119,7 @@ const CompanyDetails = () => {
             width="100%"
             draggable={false}
             zoom={16}
-            popupText="Feather Global"
+            popupText="Shiplifi"
             currentLocation={false}
           />
         </Paper>

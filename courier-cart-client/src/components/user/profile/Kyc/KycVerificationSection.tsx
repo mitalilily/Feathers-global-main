@@ -2,7 +2,6 @@ import { Box, Button, Container, Grid, Paper, Step, StepLabel, Stepper } from '@
 import { useQueryClient } from '@tanstack/react-query'
 import React, { useEffect, useRef, useState } from 'react'
 import { IoChevronBack, IoChevronForward } from 'react-icons/io5'
-import { BRAND } from '../../../../config/brand'
 import { useSubmitKyc } from '../../../../hooks/User/Kyc/UseKyc'
 import type { BusinessStructure, CompanyType } from '../../../../types/generic.types'
 import type { KycDetails } from '../../../../types/user.types'
@@ -11,7 +10,6 @@ import AdditionalDetailsStep, { type AdditionalKYCForm } from './AdditionalInfoS
 import { BusinessStructureStep } from './BusinessStructureStep'
 
 const steps = ['Business Structure', 'Additional Details']
-const { teal, tealDark, orange, ink, muted } = BRAND.colors
 
 const KYCVerificationStep: React.FC<{
   editing?: boolean
@@ -28,9 +26,11 @@ const KYCVerificationStep: React.FC<{
   const [isStepValid, setIsStepValid] = useState(false)
 
   const updateKycData = (newData: Partial<KycDetails>) => {
-    const updated = { ...kycDataRef.current, ...newData }
-    kycDataRef.current = updated
-    setKycData(updated)
+    setKycData((prev) => {
+      const updated = { ...prev, ...newData }
+      kycDataRef.current = updated
+      return updated
+    })
   }
 
   // Prefill when editing mode is on
@@ -42,13 +42,6 @@ const KYCVerificationStep: React.FC<{
       if (existingKyc.structure) setIsStepValid(true)
     }
   }, [editing, existingKyc])
-
-  useEffect(() => {
-    if (activeStep === 0 && !kycDataRef.current.structure) {
-      updateKycData({ structure: 'individual' })
-      setIsStepValid(true)
-    }
-  }, [activeStep])
 
   const handleBusinessStructureChange = (value: BusinessStructure | CompanyType, key: string) => {
     updateKycData({
@@ -66,23 +59,16 @@ const KYCVerificationStep: React.FC<{
     })
   }
 
-  const submitKycDetails = async (
-    data: Partial<KycDetails>,
-    options: { draft?: boolean; successMessage?: string } = {},
-  ) => {
+  const submitKycDetails = async (data: Partial<KycDetails>) => {
     try {
       toast.open({ message: 'Submitting KYC details...', severity: 'info' })
 
       const result = await mutateAsync({
         details: data,
-        draft: options.draft ?? false,
       })
 
       toast.open({
-        message:
-          options.successMessage ??
-          result?.message ??
-          'KYC details submitted successfully!',
+        message: result?.message ?? 'KYC details submitted successfully!',
         severity: 'success',
       })
 
@@ -91,13 +77,12 @@ const KYCVerificationStep: React.FC<{
       queryClient.invalidateQueries({ queryKey: ['userKyc'] })
       queryClient.invalidateQueries({ queryKey: ['userProfile'] })
 
-      if (onComplete && !options.draft) {
+      if (onComplete) {
         // After a successful submission (new or edit), let the parent decide what to show next.
         onComplete()
-      } else if (!options.draft) {
+      } else {
         setActiveStep((prev) => Math.min(prev + 1, steps.length - 1))
       }
-      return true
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.open({
@@ -106,18 +91,12 @@ const KYCVerificationStep: React.FC<{
       })
 
       setIsStepValid(false)
-      return false
     }
   }
 
-  const handleAdditionalInfoSubmit = async (data: AdditionalKYCForm) => {
+  const handleFinalSubmit = async (data: AdditionalKYCForm) => {
     await handleAdditionalInfoChange(data)
-    await submitKycDetails(
-      { ...kycDataRef.current, ...data },
-      {
-        successMessage: 'KYC details submitted successfully!',
-      },
-    )
+    await submitKycDetails({ ...kycDataRef.current, ...data })
   }
 
   const handleNext = async () => {
@@ -154,18 +133,15 @@ const KYCVerificationStep: React.FC<{
             onChange={handleBusinessStructureChange}
           />
         )
-      case 1:
+      default:
         return (
           <AdditionalDetailsStep
             structure={kycData?.structure}
             companyType={kycData?.companyType}
             defaultValue={kycData}
-            submitLabel="Submit KYC"
-            onComplete={(data) => handleAdditionalInfoSubmit(data ?? {})}
+            onComplete={(data) => handleFinalSubmit(data ?? {})}
           />
         )
-      default:
-        return null
     }
   }
 
@@ -177,10 +153,10 @@ const KYCVerificationStep: React.FC<{
             elevation={0}
             sx={{
               p: { xs: 2, md: 3 },
-              borderRadius: 2,
+              borderRadius: 0,
               bgcolor: '#FFFFFF',
-              border: '1px solid rgba(4, 123, 133, 0.14)',
-              boxShadow: '0 18px 42px rgba(7, 25, 35, 0.06)',
+              border: '1px solid rgba(15, 23, 42, 0.08)',
+              boxShadow: 'none',
               position: 'relative',
               '&::before': {
                 content: '""',
@@ -189,7 +165,7 @@ const KYCVerificationStep: React.FC<{
                 left: 0,
                 right: 0,
                 height: '3px',
-                background: `linear-gradient(90deg, ${teal}, ${orange})`,
+                background: '#1A7500',
               },
             }}
           >
@@ -200,12 +176,12 @@ const KYCVerificationStep: React.FC<{
                 startIcon={<IoChevronBack />}
                 disabled={activeStep === 0}
                 sx={{
-                  borderColor: 'rgba(4, 123, 133, 0.2)',
-                  color: ink,
+                  borderColor: 'rgba(15, 23, 42, 0.12)',
+                  color: '#111827',
                   fontWeight: 600,
                   '&:hover': {
-                    bgcolor: 'rgba(4, 123, 133, 0.06)',
-                    borderColor: 'rgba(4, 123, 133, 0.28)',
+                    bgcolor: '#F8FAFC',
+                    borderColor: 'rgba(15, 23, 42, 0.18)',
                   },
                 }}
               >
@@ -231,7 +207,7 @@ const KYCVerificationStep: React.FC<{
                   </Button>
                 )}
 
-                {activeStep === 0 ? (
+                {activeStep !== steps.length - 1 ? (
                   <Button
                     variant="contained"
                     onClick={handleNext}
@@ -239,10 +215,10 @@ const KYCVerificationStep: React.FC<{
                     endIcon={<IoChevronForward />}
                     sx={{
                       fontWeight: 600,
-                      backgroundColor: teal,
+                      backgroundColor: '#16181D',
                       boxShadow: 'none',
                       '&:hover': {
-                        backgroundColor: tealDark,
+                        backgroundColor: '#111827',
                       },
                     }}
                   >
@@ -260,10 +236,10 @@ const KYCVerificationStep: React.FC<{
             elevation={0}
             sx={{
               p: { xs: 2, md: 3 },
-              borderRadius: 2,
+              borderRadius: 0,
               bgcolor: '#FFFFFF',
-              border: '1px solid rgba(4, 123, 133, 0.14)',
-              boxShadow: '0 18px 42px rgba(7, 25, 35, 0.06)',
+              border: '1px solid rgba(15, 23, 42, 0.08)',
+              boxShadow: 'none',
               position: 'sticky',
               top: 24,
             }}
@@ -273,24 +249,24 @@ const KYCVerificationStep: React.FC<{
               orientation="vertical"
               sx={{
                 '& .MuiStepLabel-label': {
-                  color: muted,
+                  color: '#4A5568',
                   fontWeight: 500,
                   '&.Mui-active': {
-                    color: ink,
+                    color: '#111827',
                     fontWeight: 700,
                   },
                   '&.Mui-completed': {
-                    color: ink,
+                    color: '#111827',
                     fontWeight: 600,
                   },
                 },
                 '& .MuiStepIcon-root': {
                   color: '#E0E6ED',
                   '&.Mui-active': {
-                    color: teal,
+                    color: '#1A7500',
                   },
                   '&.Mui-completed': {
-                    color: orange,
+                    color: '#16181D',
                   },
                 },
               }}

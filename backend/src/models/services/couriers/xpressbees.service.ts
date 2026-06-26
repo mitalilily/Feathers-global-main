@@ -1888,7 +1888,10 @@ export class XpressbeesService {
     return contact
   }
 
-  private buildPreShipManifestPayload(order: any): Record<string, any> {
+  private buildPreShipManifestPayload(
+    order: any,
+    options: { serviceTypeOverride?: string } = {},
+  ): Record<string, any> {
     const pickupDetails = this.normalizeManifestDetails(order?.pickup_details || order?.pickup)
     const rtoDetails = this.normalizeManifestDetails(order?.rto_details || order?.rto)
     const products = Array.isArray(order?.products)
@@ -1979,6 +1982,7 @@ export class XpressbeesService {
       PickupType: this.manifestString(order?.pickup_type, pickupDetails.pickupType, this.manifestPickupType, 'Vendor'),
       Quantity: this.manifestQuantity(products),
       ServiceType: this.normalizeManifestServiceType(
+        options.serviceTypeOverride,
         order?.provider_service,
         order?.service_type,
         order?.shipping_mode,
@@ -2080,6 +2084,70 @@ export class XpressbeesService {
     return payload
   }
 
+  private getManifestResponseCode(response: any): string {
+    return String(response?.ReturnCode ?? response?.returnCode ?? response?.code ?? '').trim()
+  }
+
+  private getManifestResponseMessage(response: any): string {
+    return String(
+      response?.ReturnMessage ??
+        response?.returnMessage ??
+        response?.message ??
+        response?.Message ??
+        response?.error ??
+        '',
+    ).trim()
+  }
+
+  private isPreShipManifestAccepted(response: any): boolean {
+    const code = this.getManifestResponseCode(response)
+    const message = this.getManifestResponseMessage(response).toLowerCase()
+    return (
+      code === '100' ||
+      response?.status === true ||
+      response?.success === true ||
+      message === 'successful' ||
+      message === 'successfull' ||
+      message === 'success'
+    )
+  }
+
+  private isPreShipManifestServiceabilityRejection(response: any): boolean {
+    const message = this.getManifestResponseMessage(response).toLowerCase()
+    if (!message) return false
+    return (
+      message.includes('drop pincode not serviceable') ||
+      message.includes('destination pincode') ||
+      message.includes('not serviceable')
+    )
+  }
+
+  private getPreShipManifestFallbackServiceType(primaryServiceType: string): string {
+    const configuredFallback = this.normalizeManifestServiceType(this.manifestServiceType, 'SD')
+    return configuredFallback && configuredFallback !== primaryServiceType ? configuredFallback : ''
+  }
+
+  private withManifestFallbackMeta(
+    response: any,
+    details: {
+      primaryServiceType: string
+      fallbackServiceType: string
+      firstResponse: any
+    },
+  ) {
+    if (!response || typeof response !== 'object' || Array.isArray(response)) return response
+    return {
+      ...response,
+      shiplifi_manifest_retry: {
+        reason: 'service_type_not_serviceable',
+        original_service_type: details.primaryServiceType,
+        fallback_service_type: details.fallbackServiceType,
+        original_return_code: this.getManifestResponseCode(details.firstResponse),
+        original_return_message: this.getManifestResponseMessage(details.firstResponse),
+      },
+    }
+  }
+
   async generateManifest(awbs: any[]) {
     const items = Array.isArray(awbs) ? awbs : []
     const hasOrderPayloads = items.some((item) => item && typeof item === 'object')
@@ -2101,14 +2169,50 @@ export class XpressbeesService {
         const results = []
         for (const item of items) {
           const payload = this.buildPreShipManifestPayload(item)
-          results.push(
-            await this.requestWithFallback<any>({
+          const primaryResponse = await this.requestWithFallback<any>({
+            method: 'post',
+            pathCandidates: preShipCandidates,
+            data: payload,
+            headers: this.buildVersionHeaders(this.trackingVersion),
+          })
+          const primaryServiceType = String(payload.ServiceType || '').trim()
+          const fallbackServiceType =
+            this.getPreShipManifestFallbackServiceType(primaryServiceType)
+
+          if (
+            fallbackServiceType &&
+            !this.isPreShipManifestAccepted(primaryResponse) &&
+            this.isPreShipManifestServiceabilityRejection(primaryResponse)
+          ) {
+            const fallbackPayload = this.buildPreShipManifestPayload(item, {
+              serviceTypeOverride: fallbackServiceType,
+            })
+
+            this.log('Retrying pre-ship manifestation with configured service type', {
+              awb: payload.AirWayBillNO,
+              order_number: payload.OrderNo,
+              primaryServiceType,
+              fallbackServiceType,
+              firstResponse: this.sanitizeForLogs(primaryResponse),
+            })
+
+            const fallbackResponse = await this.requestWithFallback<any>({
               method: 'post',
               pathCandidates: preShipCandidates,
-              data: payload,
+              data: fallbackPayload,
               headers: this.buildVersionHeaders(this.trackingVersion),
-            }),
-          )
+            })
+            results.push(
+              this.withManifestFallbackMeta(fallbackResponse, {
+                primaryServiceType,
+                fallbackServiceType,
+                firstResponse: primaryResponse,
+              }),
+            )
+            continue
+          }
+
+          results.push(primaryResponse)
         }
         return results.length === 1 ? results[0] : results
       }
@@ -2180,6 +2284,24 @@ export class XpressbeesService {
     )
   }
 
+  private isXpressbeesCancellationMissingShipment(response: any): boolean {
+    const message = String(
+      response?.ReturnMessage ??
+        response?.returnMessage ??
+        response?.message ??
+        response?.Message ??
+        '',
+    )
+      .trim()
+      .toLowerCase()
+
+    return (
+      message.includes('shipment not exist') ||
+      message.includes('shipment does not exist') ||
+      message.includes('shipment not found')
+    )
+  }
+
   async cancelShipment(awb: string) {
     const normalizedAwb = String(awb || '').trim()
     if (!normalizedAwb) {
@@ -2205,6 +2327,16 @@ export class XpressbeesService {
           pathCandidates: forwardCancellationCandidates,
           data: this.buildXpressbeesForwardCancellationPayload(normalizedAwb),
         })
+        if (this.isXpressbeesCancellationMissingShipment(forwardResponse)) {
+          return {
+            success: true,
+            localOnly: true,
+            provider: 'xpressbees',
+            awb: normalizedAwb,
+            message: 'Shipment does not exist on Xpressbees; cancelled locally.',
+            provider_response: forwardResponse,
+          }
+        }
         if (this.isXpressbeesCancellationAccepted(forwardResponse) || !legacyCandidates.length) {
           return forwardResponse
         }

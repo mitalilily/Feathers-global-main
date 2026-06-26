@@ -94,7 +94,7 @@ export default function B2BInvoicesForm() {
               elevation={0}
             >
               <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h6" fontWeight={600} color="#047b85">
+                <Typography variant="h6" fontWeight={600} color="#E85500">
                   Invoice {index + 1}
                 </Typography>
                 {invoiceFields.length > 1 && (
@@ -495,7 +495,7 @@ export default function B2BInvoicesForm() {
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: 0.5,
-                                color: '#047b85',
+                                color: '#E85500',
                                 textDecoration: 'none',
                                 fontSize: '0.875rem',
                                 '&:hover': {
@@ -548,7 +548,7 @@ export default function B2BInvoicesForm() {
               <Typography variant="body2" fontWeight={600} color="#4A5568">
                 Total Invoice Value:
               </Typography>
-              <Typography variant="h6" fontWeight={700} color="#047b85">
+              <Typography variant="h6" fontWeight={700} color="#E85500">
                 ₹{totalInvoiceValue.toFixed(2)}
               </Typography>
             </Stack>

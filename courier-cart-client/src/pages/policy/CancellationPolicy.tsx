@@ -12,7 +12,7 @@ const CancellationPolicy = () => {
             primary={
               <>
                 You may cancel your account at any time by emailing us at{' '}
-                <Link href="mailto:support@featherglobal.in">support@featherglobal.in</Link>.
+                <Link href="mailto:info@shiplifi.com">info@shiplifi.com</Link>.
               </>
             }
           />
@@ -27,11 +27,11 @@ const CancellationPolicy = () => {
         </ListItem>
 
         <ListItem sx={{ display: 'list-item' }}>
-          <ListItemText primary="Feather Global reserves the right to modify, suspend, or terminate the Service for any reason, without prior notice at any time." />
+          <ListItemText primary="Shiplifi reserves the right to modify, suspend, or terminate the Service for any reason, without prior notice at any time." />
         </ListItem>
 
         <ListItem sx={{ display: 'list-item' }}>
-          <ListItemText primary="Fraud Prevention: Without limiting any other remedies, Feather Global may suspend or terminate your account if we suspect that you have engaged in fraudulent or unlawful activity in connection with the Platform." />
+          <ListItemText primary="Fraud Prevention: Without limiting any other remedies, Shiplifi may suspend or terminate your account if we suspect that you have engaged in fraudulent or unlawful activity in connection with the Platform." />
         </ListItem>
 
         <ListItem sx={{ display: 'list-item' }}>

@@ -7,7 +7,6 @@ import { addresses, pickupAddresses } from '../schema/pickupAddresses'
 import { createAmazonShippingWarehouse } from './amazonShipping.service'
 import { DelhiveryService } from './couriers/delhivery.service'
 import { EkartService } from './couriers/ekart.service'
-import { findUserById } from './userService'
 
 function parseCoordinate(value: string | null | undefined) {
   if (value === null || value === undefined) return undefined
@@ -29,31 +28,9 @@ function buildGeo(latitude: string | null | undefined, longitude: string | null 
   return { lat, lon }
 }
 
-function formatWarehouseAddress(parts: Array<string | null | undefined>) {
-  return parts
-    .map((part) => String(part || '').trim())
-    .filter(Boolean)
-    .join(', ')
-}
-
-function resolveRegisteredName(user: any, pickupAddr: any) {
-  return (
-    String(
-      user?.companyInfo?.businessName ||
-        user?.companyInfo?.brandName ||
-        user?.companyName ||
-        user?.brandName ||
-        pickupAddr?.addressNickname ||
-        pickupAddr?.contactName ||
-        'Feather Global',
-    )
-      .trim() || 'Feather Global'
-  )
-}
-
 const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => ({
   alias: pickupAddr.addressNickname || pickupAddr.contactName || `warehouse-${pickupAddr.id}`,
-  contactName: pickupAddr.contactName || 'Feather Global',
+  contactName: pickupAddr.contactName || 'Shiplifi',
   contactPhone: pickupAddr.contactPhone || '',
   contactEmail: pickupAddr.contactEmail || '',
   addressLine1: pickupAddr.addressLine1,
@@ -65,14 +42,14 @@ const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => (
   pincode: pickupAddr.pincode,
   latitude: pickupAddr.latitude,
   longitude: pickupAddr.longitude,
-  companyName: pickupAddr.addressNickname || pickupAddr.contactName || 'Feather Global',
+  companyName: pickupAddr.addressNickname || pickupAddr.contactName || 'Shiplifi',
   returnAddress: rtoAddressData
     ? {
         alias:
           rtoAddressData.addressNickname ||
           rtoAddressData.contactName ||
           `${pickupAddr.addressNickname || pickupAddr.contactName || 'warehouse'}-rto`,
-        contactName: rtoAddressData.contactName || pickupAddr.contactName || 'Feather Global',
+        contactName: rtoAddressData.contactName || pickupAddr.contactName || 'Shiplifi',
         contactPhone: rtoAddressData.contactPhone || pickupAddr.contactPhone || '',
         contactEmail: rtoAddressData.contactEmail || pickupAddr.contactEmail || '',
         addressLine1: rtoAddressData.addressLine1 || pickupAddr.addressLine1,
@@ -84,7 +61,7 @@ const buildAmazonWarehousePayload = (pickupAddr: any, rtoAddressData?: any) => (
         pincode: rtoAddressData.pincode || pickupAddr.pincode,
         latitude: rtoAddressData.latitude || pickupAddr.latitude,
         longitude: rtoAddressData.longitude || pickupAddr.longitude,
-        companyName: rtoAddressData.addressNickname || rtoAddressData.contactName || 'Feather Global',
+        companyName: rtoAddressData.addressNickname || rtoAddressData.contactName || 'Shiplifi',
       }
     : undefined,
 })
@@ -242,34 +219,34 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
 
     // 🚚 Register pickup in Delhivery
     try {
-      const user = await findUserById(userId)
       const delhivery = new DelhiveryService()
-      const pickupAddressLine = formatWarehouseAddress([
+      const pickupAddressLine = [
         pickupAddr.addressLine1,
         pickupAddr.addressLine2,
         pickupAddr.landmark,
-        pickupAddr.city,
-        pickupAddr.state,
-        pickupAddr.pincode,
-      ])
-      const returnAddressLine = formatWarehouseAddress([
-        rtoAddressData.addressLine1,
-        rtoAddressData.addressLine2,
-        rtoAddressData.landmark,
-        rtoAddressData.city,
-        rtoAddressData.state,
-        rtoAddressData.pincode,
-      ])
+      ]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join(', ')
+      const returnAddressLine = [
+        rtoAddressData.addressLine1 ?? pickupAddr.addressLine1,
+        rtoAddressData.addressLine2 ?? pickupAddr.addressLine2,
+        rtoAddressData.landmark ?? pickupAddr.landmark,
+      ]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join(', ')
       const delhiveryResp = await delhivery.createWarehouse({
         name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? 'Default Warehouse',
-        registered_name: resolveRegisteredName(user, pickupAddr),
+        registered_name: 'Shiplifi',
         phone: pickupAddr.contactPhone,
-        email: pickupAddr.contactEmail ?? '',
+        email: pickupAddr.contactEmail?.trim() || undefined,
         address: pickupAddressLine || pickupAddr.addressLine1,
         city: pickupAddr.city,
         pin: pickupAddr.pincode.toString(),
         country: pickupAddr.country ?? 'India',
-        return_address: returnAddressLine || rtoAddressData.addressLine1 || pickupAddr.addressLine1,
+        return_address:
+          returnAddressLine || rtoAddressData.addressLine1 || pickupAddr.addressLine1,
         return_city: rtoAddressData.city ?? pickupAddr.city,
         return_pin: rtoAddressData.pincode?.toString() ?? pickupAddr.pincode?.toString(),
         return_state: rtoAddressData.state ?? pickupAddr.state,
@@ -277,13 +254,14 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
       })
 
       if (!delhiveryResp || delhiveryResp.success === false) {
-        console.error('❌ Delhivery warehouse creation failed:', delhiveryResp)
-        const errorToThrow: any = new Error('Delhivery warehouse registration failed')
-        errorToThrow.code = 'DELHIVERY_WAREHOUSE_GENERAL_ERROR'
-        throw errorToThrow
+        console.warn('⚠️ Delhivery warehouse creation returned a non-success response; keeping pickup creation non-blocking.', {
+          pickupId: pickupAddr.id,
+          alias: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
+          response: delhiveryResp,
+        })
+      } else {
+        console.log(`✅ Delhivery warehouse registered: ${pickupAddr.addressNickname}`)
       }
-
-      console.log(`✅ Delhivery warehouse registered: ${pickupAddr.addressNickname}`)
     } catch (err: any) {
       const rawError = err?.response?.data ?? err
       console.error('❌ Error registering Delhivery warehouse:', rawError)
@@ -296,14 +274,20 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
         warehouseAlias: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
         requestPayload: {
           warehouse_name: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
+          address_line_1: pickupAddr.addressLine1,
+          address_line_2: pickupAddr.addressLine2 ?? null,
+          landmark: pickupAddr.landmark ?? null,
           city: pickupAddr.city,
           state: pickupAddr.state,
           pincode: pickupAddr.pincode,
+          country: pickupAddr.country ?? 'India',
+          latitude: pickupAddr.latitude ?? null,
+          longitude: pickupAddr.longitude ?? null,
         },
         error: err,
       })
 
-      // Detect duplicate-warehouse error from Delhivery and throw a typed error
+      // Keep pickup creation alive even if Delhivery rejects the warehouse payload.
       const delhiveryErrorText: string | undefined =
         rawError?.error?.[0] || rawError?.message || rawError?.data?.message
 
@@ -312,29 +296,23 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
           delhiveryErrorText.includes('client-warehouse of client') &&
           delhiveryErrorText.toLowerCase().includes('already exists')
         ) {
-          const duplicateErr: any = new Error(
-            'A pickup location with this nickname already exists. Please choose a different nickname.',
-          )
-          duplicateErr.code = 'DELHIVERY_WAREHOUSE_NAME_EXISTS'
-          duplicateErr.field = 'pickup.addressNickname'
-          throw duplicateErr
-        }
-
-        if (delhiveryErrorText.toLowerCase().includes('serviceability')) {
-          const serviceabilityErr: any = new Error(
-            'This pickup pincode is not serviceable for pickups. Please use a different pincode.',
-          )
-          serviceabilityErr.code = 'PICKUP_PIN_NOT_SERVICEABLE'
-          serviceabilityErr.field = 'pickup.pincode'
-          throw serviceabilityErr
+          console.warn('⚠️ Delhivery duplicate warehouse detected; local pickup creation will continue.', {
+            pickupId: pickupAddr.id,
+            alias: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
+          })
+        } else if (delhiveryErrorText.toLowerCase().includes('serviceability')) {
+          console.warn('⚠️ Delhivery reported pickup pincode serviceability issue; local pickup creation will continue.', {
+            pickupId: pickupAddr.id,
+            pincode: pickupAddr.pincode,
+          })
+        } else {
+          console.warn('⚠️ Delhivery warehouse sync failed; local pickup creation will continue.', {
+            pickupId: pickupAddr.id,
+            alias: pickupAddr.addressNickname ?? pickupAddr.contactName ?? null,
+            message: delhiveryErrorText,
+          })
         }
       }
-
-      const genericErr: any = new Error(
-        'Pickup location could not be verified. Please check the address details and try again.',
-      )
-      genericErr.code = 'DELHIVERY_WAREHOUSE_GENERAL_ERROR'
-      throw genericErr
     }
 
     // 🔹 Register pickup in Ekart (mirror our warehouse)
@@ -346,7 +324,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
       const geo = buildGeo(pickupAddr.latitude, pickupAddr.longitude)
       const payload = {
         alias,
-        contactName: pickupAddr.contactName || 'Feather Global',
+        contactName: pickupAddr.contactName || 'Shiplifi',
         phone: Number(phoneDigits) || 0,
         email: pickupAddr.contactEmail || '',
         addressLine1: pickupAddr.addressLine1,
@@ -357,7 +335,7 @@ export async function createPickupAddressService(data: CreatePickupDto, userId: 
         country: pickupAddr.country || 'India',
         ...(geo ? { geo } : {}),
         returnAddress: {
-          contactName: pickupAddr.contactName || 'Feather Global',
+          contactName: pickupAddr.contactName || 'Shiplifi',
           phone: Number(phoneDigits) || 0,
           addressLine1: pickupAddr.addressLine1,
           addressLine2: pickupAddr.addressLine2 || '',
@@ -528,18 +506,10 @@ export async function updatePickupAddressService(
       try {
         if (updatedPickup) {
           const delhivery = new DelhiveryService()
-          const updatedPickupAddressLine = formatWarehouseAddress([
-            updatedPickup?.addressLine1,
-            updatedPickup?.addressLine2,
-            updatedPickup?.landmark,
-            updatedPickup?.city,
-            updatedPickup?.state,
-            updatedPickup?.pincode,
-          ])
           const delhiveryResp = await delhivery.updateWarehouse({
             name:
               updatedPickup?.addressNickname ?? updatedPickup?.contactName ?? 'Default Warehouse',
-            address: updatedPickupAddressLine || updatedPickup?.addressLine1,
+            address: updatedPickup?.addressLine1,
             pin: updatedPickup?.pincode?.toString(),
             phone: updatedPickup?.contactPhone,
           })

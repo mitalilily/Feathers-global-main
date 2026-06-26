@@ -19,81 +19,27 @@ ALTER TABLE shiplifi_b2b_additional_charges
 
 -- Step 2: Migrate existing data (if any)
 -- Migrate demurrage_charges to demurrage_per_awb_day if demurrage_method was 'per_awb_day'
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('demurrage_charges', 'demurrage_method')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET demurrage_per_awb_day = COALESCE(demurrage_charges, '0')
-      WHERE demurrage_method = 'per_awb_day' OR demurrage_method IS NULL
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET demurrage_per_awb_day = COALESCE(demurrage_charges, '0')
+WHERE demurrage_method = 'per_awb_day' OR demurrage_method IS NULL;
 
 -- Migrate time_specific_delivery_charge to time_specific_per_kg
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'time_specific_delivery_charge'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET time_specific_per_kg = COALESCE(time_specific_delivery_charge, '0'),
-          time_specific_per_awb = '500'
-      WHERE time_specific_delivery_charge IS NOT NULL
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET time_specific_per_kg = COALESCE(time_specific_delivery_charge, '0'),
+    time_specific_per_awb = '500'
+WHERE time_specific_delivery_charge IS NOT NULL;
 
 -- Migrate mall_delivery_charge to mall_delivery_per_kg
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'mall_delivery_charge'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET mall_delivery_per_kg = COALESCE(mall_delivery_charge, '0'),
-          mall_delivery_per_awb = '500'
-      WHERE mall_delivery_charge IS NOT NULL
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET mall_delivery_per_kg = COALESCE(mall_delivery_charge, '0'),
+    mall_delivery_per_awb = '500'
+WHERE mall_delivery_charge IS NOT NULL;
 
 -- Migrate delivery_reattempt_charge to delivery_reattempt_per_kg
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'delivery_reattempt_charge'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET delivery_reattempt_per_kg = COALESCE(delivery_reattempt_charge, '0'),
-          delivery_reattempt_per_awb = '500'
-      WHERE delivery_reattempt_charge IS NOT NULL
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET delivery_reattempt_per_kg = COALESCE(delivery_reattempt_charge, '0'),
+    delivery_reattempt_per_awb = '500'
+WHERE delivery_reattempt_charge IS NOT NULL;
 
 -- Step 3: Drop old columns (ONLY after verifying data migration worked correctly)
 -- WARNING: Backup your database before running these!

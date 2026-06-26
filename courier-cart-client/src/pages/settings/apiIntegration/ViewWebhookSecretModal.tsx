@@ -29,12 +29,12 @@ export const ViewWebhookSecretModal = ({
     if (!webhook) return
 
     const timestamp = new Date().toISOString()
-    const fileName = `feather-global-webhook-secret-${(webhook.name || 'webhook').replace(
+    const fileName = `despatch-webhook-secret-${(webhook.name || 'webhook').replace(
       /\s/g,
       '-',
     )}-${timestamp.split('T')[0]}.txt`
     const fileContent = `
-Feather Global Webhook Secret
+Shiplifi Webhook Secret
 Generated: ${timestamp}
 Webhook Name: ${webhook.name || 'Unnamed'}
 Webhook URL: ${webhook.url}
@@ -67,10 +67,10 @@ This file contains sensitive credentials. Store it securely and never commit it 
             startIcon={<MdDownload />}
             fullWidth
             sx={{
-              borderColor: '#047b85',
-              color: '#047b85',
+              borderColor: '#E85500',
+              color: '#E85500',
               '&:hover': {
-                borderColor: '#047b85',
+                borderColor: '#E85500',
                 bgcolor: 'rgba(51, 51, 105, 0.08)',
               },
             }}
@@ -105,7 +105,7 @@ This file contains sensitive credentials. Store it securely and never commit it 
           <Typography
             sx={{
               fontSize: '13px',
-              color: '#047b85',
+              color: '#E85500',
               fontWeight: 500,
               mb: 0.5,
             }}
@@ -121,7 +121,7 @@ This file contains sensitive credentials. Store it securely and never commit it 
                 onClick={() => onCopy(webhook.secret, 'secret')}
                 size="small"
                 sx={{
-                  color: copiedSecret === 'secret' ? '#4CAF50' : '#047b85',
+                  color: copiedSecret === 'secret' ? '#4CAF50' : '#E85500',
                   '&:hover': { bgcolor: 'rgba(51, 51, 105, 0.08)' },
                 }}
               >
@@ -134,7 +134,7 @@ This file contains sensitive credentials. Store it securely and never commit it 
           <Typography
             sx={{
               fontSize: '13px',
-              color: '#047b85',
+              color: '#E85500',
               fontWeight: 500,
               mb: 0.5,
             }}

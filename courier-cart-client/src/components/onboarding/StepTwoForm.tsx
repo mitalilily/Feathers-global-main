@@ -26,7 +26,7 @@ interface StepTwoFormProps {
   errors: FormErrors
 }
 
-const BRAND_ORANGE = '#047b85'
+const BRAND_ORANGE = '#E85500'
 const BRAND_INK = '#141414'
 
 const BUSINESS_OPTIONS = [

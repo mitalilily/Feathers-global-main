@@ -50,9 +50,9 @@ export const storeKycDetails = async (
   const userId = req.user.sub;
 
   try {
-    const { draft = false, ...form } = req.body;
+    const form = req.body;
 
-    const added = await UpdateKYCDetails(userId, form, { draft });
+    const added = await UpdateKYCDetails(userId, form);
 
     return res.json({
       message: "KYC details saved successfully",

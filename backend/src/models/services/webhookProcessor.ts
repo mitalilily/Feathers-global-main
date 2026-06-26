@@ -55,12 +55,18 @@ const hasNdrSignal = (...parts: unknown[]) => {
   const ndrMarkers = [
     'ndr',
     'undelivered',
+    'unsuccessful delivery',
     'not delivered',
     'delivery attempted',
     'attempted',
     'attempt failed',
+    'reattempt',
+    're-attempt',
     'customer not available',
+    'customer unavailable',
     'consignee not available',
+    'consignee unavailable',
+    'consignee refused',
     'future delivery request',
     'future delivery requested',
     'door locked',
@@ -71,9 +77,6 @@ const hasNdrSignal = (...parts: unknown[]) => {
     'refused',
     'otp not shared',
     'otp failed',
-    'qc failed',
-    'qc fail',
-    'quality check failed',
   ]
 
   return ndrMarkers.some((marker) => text.includes(marker))
@@ -90,6 +93,30 @@ const pickWebhookText = (...values: unknown[]) => {
   }
   return ''
 }
+
+const DELHIVERY_NDR_STATUS_CODES = new Set([
+  'EOD-3',
+  'EOD-6',
+  'EOD-11',
+  'EOD-15',
+  'EOD-16',
+  'EOD-43',
+  'EOD-69',
+  'EOD-74',
+  'EOD-86',
+  'EOD-104',
+  'ST-108',
+])
+
+const normalizeDelhiveryStatusCode = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+const hasDelhiveryNdrStatusCode = (...parts: unknown[]) =>
+  parts.some((part) => DELHIVERY_NDR_STATUS_CODES.has(normalizeDelhiveryStatusCode(part)))
 
 const normalizeWebhookWeightGrams = (value: unknown) => {
   const numericValue = Number(value ?? 0)
@@ -169,6 +196,16 @@ const captureNdrEventFromWebhook = async (params: {
   } = params
 
   const finalStatus = resolveNdrStatus(status, reason, remarks, ...signalParts)
+  const currentOrderStatus = normalizeComparableText(order.order_status)
+  if (['ndr', 'undelivered', 'lost'].includes(currentOrderStatus)) {
+    console.log(`ℹ️ Skipping repeated NDR event for ${courierLabel}`, {
+      order_number: order.order_number,
+      awb_number: awbNumber || order.awb_number || null,
+      status: finalStatus,
+      current_status: currentOrderStatus,
+    })
+    return { skipped: true, status: finalStatus }
+  }
   const duplicate = await shouldSkipDuplicateNdrEvent({
     orderId: order.id,
     status: finalStatus,
@@ -777,6 +814,20 @@ export async function processDelhiveryWebhook(payload: any, tx = db) {
     payload?.remarks,
     payload?.message,
   )
+  const statusCode = pickWebhookText(
+    statusInfo?.StatusCode,
+    statusInfo?.status_code,
+    statusInfo?.NSLCode,
+    statusInfo?.nsl_code,
+    shipment?.StatusCode,
+    shipment?.status_code,
+    shipment?.NSLCode,
+    shipment?.nsl_code,
+    payload?.StatusCode,
+    payload?.status_code,
+    payload?.NSLCode,
+    payload?.nsl_code,
+  )
 
   if (!waybill) return { success: false, reason: 'missing_awb' }
 
@@ -797,11 +848,32 @@ export async function processDelhiveryWebhook(payload: any, tx = db) {
   // Forward Shipment: UD (Manifested, Not Picked, In Transit, Pending, Dispatched) → DL (Delivered)
   // Return Shipment: RT (In Transit, Pending, Dispatched) → DL (RTO)
   // Reverse Shipment: PP (Open, Scheduled, Dispatched) → PU (In Transit, Pending, Dispatched) → DL (DTO)
-  const mapStatus = (type?: string, s?: string, instructionText?: string): string => {
+  const mapStatus = (
+    type?: string,
+    s?: string,
+    instructionText?: string,
+    statusCodeText?: string,
+  ): string => {
     const t = type?.toUpperCase()
     const st = s?.toLowerCase() || ''
     const instruction = instructionText?.toLowerCase() || ''
     const combined = `${st} ${instruction}`.trim()
+    const hasNdrStatusSignal =
+      hasNdrSignal(st, t, instruction, statusCodeText) ||
+      hasDelhiveryNdrStatusCode(statusCodeText)
+
+    // Delhivery sometimes reports refusal / reattempt cases as text that still
+    // contains "order cancelled". Those are delivery exceptions, not terminal
+    // shipment cancellations, so let the NDR classifier win first.
+    if (
+      hasNdrStatusSignal &&
+      !instruction.includes('seller cancelled') &&
+      !instruction.includes('seller canceled') &&
+      !instruction.includes('shipment has been cancelled') &&
+      !instruction.includes('shipment has been canceled')
+    ) {
+      return 'ndr'
+    }
 
     if (
       combined.includes('cancelled') ||
@@ -881,14 +953,18 @@ export async function processDelhiveryWebhook(payload: any, tx = db) {
     return 'in_transit' // Default fallback
   }
 
-  let internalStatus = mapStatus(status_type, status, instructions)
+  let internalStatus = mapStatus(status_type, status, instructions, statusCode)
 
   // Map any pending_pickup status to pickup_initiated
   if (internalStatus === 'pending_pickup') {
     internalStatus = 'pickup_initiated'
   }
 
-  console.log(`📦 Delhivery Webhook: ${waybill} → ${status} (${status_type}) → ${internalStatus}`)
+  console.log(
+    `📦 Delhivery Webhook: ${waybill} → ${status} (${status_type}${
+      statusCode ? `/${statusCode}` : ''
+    }) → ${internalStatus}`,
+  )
 
   const currentStatus = (order.order_status || '').toLowerCase()
   const currentManifestError = String(order.manifest_error || '').trim()
@@ -1087,19 +1163,28 @@ export async function processDelhiveryWebhook(payload: any, tx = db) {
     const statusLower = (internalStatus || '').toLowerCase()
     const isNdr =
       ['ndr', 'undelivered'].includes(statusLower) ||
-      hasNdrSignal(statusLower, status, status_type, instructions)
+      hasNdrSignal(statusLower, status, status_type, instructions, statusCode) ||
+      hasDelhiveryNdrStatusCode(statusCode)
     if (isNdr) {
       try {
         await captureNdrEventFromWebhook({
           order,
           awbNumber: order.awb_number || undefined,
           status: statusLower,
-          reason: shipment?.Status?.Instructions || null,
-          remarks: shipment?.Status?.Status || null,
-          attemptNo: shipment?.AttemptedCount?.toString?.() || null,
+          reason: pickWebhookText(statusInfo?.Instructions, instructions, statusCode) || null,
+          remarks: pickWebhookText(statusInfo?.Status, status, statusCode) || null,
+          attemptNo:
+            pickWebhookText(
+              shipment?.AttemptedCount,
+              shipment?.attempted_count,
+              statusInfo?.AttemptedCount,
+              statusInfo?.attempted_count,
+              payload?.AttemptedCount,
+              payload?.attempted_count,
+            ) || null,
           payload,
           courierLabel: 'Delhivery',
-          signalParts: [status, status_type, instructions],
+          signalParts: [status, status_type, instructions, statusCode],
         })
       } catch (e) {
         console.error('❌ Failed to record NDR event (Delhivery):', e)
@@ -1524,14 +1609,76 @@ const mapXpressbeesStatus = (status: string): string => {
   if (s.includes('ndr') || s.includes('undelivered') || s.includes('attempt')) return 'ndr'
   if (s.includes('rto') && s.includes('deliver')) return 'rto_delivered'
   if (s.includes('rto')) return 'rto_in_transit'
-  if (s.includes('deliver')) return 'delivered'
   if (s.includes('out for delivery') || s.includes('ofd')) return 'out_for_delivery'
-  if (s.includes('pickup scheduled') || s.includes('pickup requested')) return 'pickup_initiated'
-  if (s.includes('pickup') || s.includes('manifest') || s.includes('booked') || s.includes('created')) {
-    return 'booked'
-  }
+  if (s.includes('deliver')) return 'delivered'
+  if (
+    s.includes('pickup scheduled') ||
+    s.includes('pickup requested') ||
+    s.includes('pickup assigned') ||
+    s.includes('assigned for pickup') ||
+    s.includes('out for pickup') ||
+    s.includes('pickup booked') ||
+    s.includes('manifest') ||
+    s.includes('picked') ||
+    ['drc', 'pnd', 'pck', 'pku', 'pkd', 'pickup', 'manifested'].includes(s)
+  ) return 'pickup_initiated'
+  if (s.includes('booked') || s.includes('created') || s.includes('order placed')) return 'booked'
   if (s.includes('transit') || s.includes('dispatched')) return 'in_transit'
   return 'in_transit'
+}
+
+const isXpressbeesPickupProgressStatus = (status: string) =>
+  [
+    'pickup_initiated',
+    'in_transit',
+    'out_for_delivery',
+    'delivered',
+    'ndr',
+    'rto',
+    'rto_in_transit',
+    'rto_delivered',
+  ].includes(String(status || '').trim().toLowerCase())
+
+const preserveXpressbeesStatusTransition = (currentStatus: unknown, mappedStatus: string) => {
+  const current = normalizeComparableText(currentStatus).replace(/\s+/g, '_')
+  const mapped = normalizeComparableText(mappedStatus).replace(/\s+/g, '_')
+  if (!mapped) return current || 'in_transit'
+
+  if (
+    ['cancelled', 'delivered', 'rto_delivered'].includes(current) &&
+    !['cancelled', 'delivered', 'rto_delivered'].includes(mapped)
+  ) {
+    return current
+  }
+
+  if (current.startsWith('rto') && !mapped.startsWith('rto') && mapped !== 'cancelled') {
+    return current
+  }
+
+  const rank: Record<string, number> = {
+    pending: 0,
+    booked: 1,
+    shipment_created: 2,
+    pickup_initiated: 3,
+    in_transit: 4,
+    out_for_delivery: 5,
+    delivered: 6,
+  }
+
+  if (rank[current] !== undefined && rank[mapped] !== undefined && rank[mapped] < rank[current]) {
+    return current
+  }
+
+  return mapped
+}
+
+const xpressbeesWebhookEventForStatus = (status: string) => {
+  if (status === 'delivered') return 'order.delivered'
+  if (status === 'cancelled') return 'order.cancelled'
+  if (['ndr', 'undelivered', 'lost'].includes(status)) return 'order.failed'
+  if (status.startsWith('rto')) return 'order.rto'
+  if (['pickup_initiated', 'in_transit', 'out_for_delivery'].includes(status)) return 'order.shipped'
+  return 'order.updated'
 }
 
 export async function processEkartWebhook(payload: any, tx = db) {
@@ -1900,43 +2047,62 @@ export async function processEkartWebhook(payload: any, tx = db) {
 
 export async function processXpressbeesWebhook(payload: any, tx = db) {
   const event = unwrapXpressbeesPayload(payload)
-  const awb =
+  const awb = pickWebhookText(
     event?.awb_number ||
     event?.awb ||
     event?.waybill ||
     event?.tracking_id ||
     event?.trackingId ||
+    event?.AWBNumber ||
+    event?.AWBNo ||
+    event?.AirWayBillNO ||
+    event?.AirWayBillNo ||
+    event?.ShippingID ||
     event?.shipment?.awb_number ||
-    event?.shipment?.awb ||
-    null
-  const orderRef =
+    event?.shipment?.awb,
+  )
+  const orderRef = pickWebhookText(
     event?.order_number ||
     event?.order_id ||
     event?.reference_number ||
     event?.shipment_id ||
-    null
-  const statusRaw =
+    event?.OrderNo ||
+    event?.SubOrderNo ||
+    event?.client_order_id ||
+    event?.shipment?.order_number ||
+    event?.shipment?.order_id,
+  )
+  const statusRaw = pickWebhookText(
     event?.current_status ||
     event?.shipment_status ||
     event?.status ||
     event?.event ||
     event?.event_name ||
     event?.scan_status ||
-    ''
-  const remarks =
+    event?.ShipmentStatus ||
+    event?.CurrentStatus ||
+    event?.Status ||
+    event?.status_code ||
+    event?.Process,
+  )
+  const remarks = pickWebhookText(
     event?.courier_remarks ||
     event?.remarks ||
     event?.remark ||
     event?.message ||
     event?.description ||
-    ''
-  const location =
+    event?.Description ||
+    event?.ReturnMessage,
+  )
+  const location = pickWebhookText(
     event?.current_location ||
     event?.location ||
     event?.scan_location ||
     event?.hub_name ||
+    event?.HubLocation ||
     event?.city ||
-    null
+    event?.City,
+  ) || null
 
   if (!awb && !orderRef) return { success: false, reason: 'missing_awb' }
 
@@ -1953,21 +2119,53 @@ export async function processXpressbeesWebhook(payload: any, tx = db) {
   if (!order && orderRef) {
     ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.order_id, String(orderRef)))
   }
+  if (!order && awb) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.shipment_id, String(awb)))
+  }
+  if (!order && awb) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.provider_reference, String(awb)))
+  }
+  if (!order && awb) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.provider_request_id, String(awb)))
+  }
+  if (!order && orderRef) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.shipment_id, String(orderRef)))
+  }
+  if (!order && orderRef) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.provider_reference, String(orderRef)))
+  }
+  if (!order && orderRef) {
+    ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.provider_request_id, String(orderRef)))
+  }
 
   if (!order) {
     console.warn(`⚠️ No local order found for Xpressbees AWB ${awb || 'N/A'} ref ${orderRef || 'N/A'}`)
     return { success: false, reason: 'order_not_found' }
   }
 
-  const internalStatus = mapXpressbeesStatus(statusRaw)
+  const mappedStatus = mapXpressbeesStatus(statusRaw || remarks)
+  const internalStatus = preserveXpressbeesStatusTransition(order.order_status, mappedStatus)
+  const previousStatus = normalizeComparableText(order.order_status).replace(/\s+/g, '_')
   const statusLower = internalStatus.toLowerCase()
-  const statusText = statusRaw || internalStatus
+  const statusText = statusRaw || remarks || internalStatus
 
   const updateData: any = {
     order_status: internalStatus,
     delivery_location: location,
     delivery_message: remarks || null,
+    provider_last_status: String(statusRaw || remarks || internalStatus || '').slice(0, 80),
     updated_at: new Date(),
+  }
+
+  if (isXpressbeesPickupProgressStatus(internalStatus)) {
+    updateData.pickup_status = 'pickup_initiated'
+    updateData.pickup_error = null
+    updateData.manifest_error = null
+  }
+
+  if (internalStatus === 'cancelled') {
+    updateData.pickup_status = 'cancelled'
+    updateData.pickup_error = null
   }
 
   if (event?.courier_cost !== undefined) updateData.courier_cost = Number(event.courier_cost)
@@ -2048,6 +2246,41 @@ export async function processXpressbeesWebhook(payload: any, tx = db) {
       }
     }
   })
+
+  await sendWebhookEvent(order.user_id, 'tracking.updated', {
+    awb_number: order.awb_number || awb,
+    order_id: order.id,
+    order_number: order.order_number,
+    status: internalStatus,
+    raw_status: statusRaw,
+    courier_partner: order.courier_partner || 'Xpressbees',
+    provider_reference: order.provider_reference || awb || null,
+    provider_request_id: order.provider_request_id || awb || null,
+    location,
+    remarks: remarks || statusText || null,
+    source: 'xpressbees_webhook',
+  }).catch((err) => {
+    console.error('Failed to send Xpressbees tracking.updated webhook:', err)
+  })
+
+  if (internalStatus !== previousStatus) {
+    await sendWebhookEvent(order.user_id, xpressbeesWebhookEventForStatus(internalStatus) as any, {
+      order_id: order.id,
+      order_number: order.order_number,
+      awb_number: order.awb_number || awb,
+      status: internalStatus,
+      raw_status: statusRaw,
+      courier_partner: order.courier_partner || 'Xpressbees',
+      provider_reference: order.provider_reference || awb || null,
+      provider_request_id: order.provider_request_id || awb || null,
+      location,
+      remarks: remarks || statusText || null,
+      order_type: 'b2c',
+      source: 'xpressbees_webhook',
+    }).catch((err) => {
+      console.error('Failed to send Xpressbees status webhook:', err)
+    })
+  }
 
   if (
     ['ndr', 'undelivered'].includes(statusLower) ||
@@ -2628,43 +2861,21 @@ export async function processAmazonShippingTrackingWebhook(payload: any, tx = db
   return { success: true, orderType }
 }
 
-const mapShadowfaxWebhookStatus = (
-  statusRaw: unknown,
-  requestId?: string | null,
-  orderType?: unknown,
-) => {
-  const normalized = String(statusRaw || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-  const normalizedType = String(orderType || '').trim().toUpperCase()
-  const normalizedRequestId = String(requestId || '').trim().toLowerCase()
-  const reverseLike =
-    normalizedType === 'REV' ||
-    normalizedType === 'R' ||
-    normalizedRequestId.startsWith('r') ||
-    normalizedRequestId.includes('rev') ||
-    normalizedRequestId.includes('return') ||
-    normalizedRequestId.includes('rto')
+const mapShadowfaxWebhookStatus = (statusRaw: unknown, requestId?: string | null) => {
+  const normalized = String(statusRaw || '').trim().toLowerCase()
+  const reverseLike = String(requestId || '').toUpperCase().startsWith('R')
 
   const mapping: Record<string, string> = {
     new: 'booked',
-    assigned: 'pickup_initiated',
     assigned_for_seller_pickup: 'pickup_initiated',
     assigned_for_pickup: 'pickup_initiated',
-    out_for_pickup: 'pickup_initiated',
     ofp: 'pickup_initiated',
     picked: 'pickup_initiated',
     received_from_client_warehouse: 'pickup_initiated',
-    item_added_to_bag: 'in_transit',
     recd_at_rev_hub: 'in_transit',
     item_manifested: 'in_transit',
     recd_at_fwd_dc: 'in_transit',
     recd_at_fwd_hub: 'in_transit',
-    bag_in_transit: 'in_transit',
-    bag_received: 'in_transit',
-    bag_received_at_via: 'in_transit',
     assigned_for_delivery: 'out_for_delivery',
     ofd: 'out_for_delivery',
     delivered: 'delivered',
@@ -2676,79 +2887,23 @@ const mapShadowfaxWebhookStatus = (
     on_hold: 'ndr',
     pickup_on_hold: 'ndr',
     pickup_not_attempted: 'ndr',
-    not_contactable: 'ndr',
-    not_attempted: 'ndr',
-    qc_failed: 'ndr',
     cancelled_by_customer: 'cancelled',
     cancelled_by_seller: 'cancelled',
     rts: reverseLike ? 'in_transit' : 'rto',
     rto: 'rto',
-    rto_in_process: 'rto_in_transit',
     rts_in_process: 'rto_in_transit',
     rts_ofd: 'rto_in_transit',
     in_transit_return: 'rto_in_transit',
     rts_d: 'rto_delivered',
     rto_d: 'rto_delivered',
     rts_nd: 'rto',
-    rto_nd: 'ndr',
     lost: 'lost',
     item_misrouted: 'in_transit',
     pincode_updated: 'in_transit',
     returned_to_client: 'rto_delivered',
-    returned_to_origin: 'rto_delivered',
-    received: reverseLike ? 'pickup_initiated' : 'pickup_initiated',
-    received_at_hub: 'in_transit',
-    received_at_return_dc: 'in_transit',
-    received_at_rts_dc: 'in_transit',
-    reopen_ndr: 'ndr',
   }
 
-  if (mapping[normalized]) return mapping[normalized]
-
-  if (normalized.includes('assigned for pickup') || normalized.includes('assigned for customer pickup')) {
-    return 'pickup_initiated'
-  }
-  if (normalized.includes('out for pickup')) return 'pickup_initiated'
-  if (normalized.includes('item added to bag')) return 'in_transit'
-  if (normalized.includes('bag in transit')) return 'in_transit'
-  if (normalized.includes('bag received')) return 'in_transit'
-  if (normalized.includes('received at hub')) return 'in_transit'
-  if (normalized.includes('received at return dc')) return 'in_transit'
-  if (normalized.includes('received at rts dc')) return 'in_transit'
-  if (normalized.includes('delivered') || normalized.includes('returned to client')) return 'delivered'
-  if (normalized.includes('out for delivery') || normalized.includes('assigned for delivery')) return 'out_for_delivery'
-  if (normalized.includes('cancel')) return 'cancelled'
-  if (
-    normalized.includes('not contactable') ||
-    normalized.includes('not attempted') ||
-    normalized.includes('undelivered') ||
-    normalized.includes('ndr') ||
-    normalized.includes('on hold') ||
-    normalized.includes('pickup not attempted')
-  ) {
-    return 'ndr'
-  }
-  if (
-    normalized.includes('rto') ||
-    normalized.includes('rts') ||
-    normalized.includes('return to origin') ||
-    normalized.includes('return to seller')
-  ) {
-    if (normalized.includes('in process') || normalized.includes('in transit')) return 'rto_in_transit'
-    if (normalized.includes('delivered')) return 'rto_delivered'
-    if (normalized.includes('undelivered') || normalized.includes('not delivered')) return 'ndr'
-    return reverseLike ? 'in_transit' : 'rto'
-  }
-  if (
-    normalized.includes('picked') ||
-    normalized.includes('pickup') ||
-    normalized.includes('received from client warehouse') ||
-    normalized.includes('new')
-  ) {
-    return 'pickup_initiated'
-  }
-
-  return 'in_transit'
+  return mapping[normalized] || (reverseLike ? 'in_transit' : 'in_transit')
 }
 
 const shadowfaxWebhookEventForStatus = (status: string) => {
@@ -2846,91 +3001,6 @@ const extractShadowfaxWeightSnapshot = (payload: any) => {
   }
 }
 
-const normalizeShadowfaxQcStatus = (value: unknown) =>
-  normalizeComparableText(value).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-
-const extractShadowfaxQcSnapshot = (payload: any) => {
-  const rawStatus = pickWebhookText(
-    payload?.qc_status,
-    payload?.QCStatus,
-    payload?.qc?.status,
-    payload?.qc?.qc_status,
-    payload?.qc_details?.qc_status,
-    payload?.qc_details?.status,
-    ...collectShadowfaxValuesByKeys(payload, new Set(['qc_status', 'qcstatus'])),
-  )
-  const rawRemarks = pickWebhookText(
-    payload?.qc_remarks,
-    payload?.QCRemarks,
-    payload?.qc?.remarks,
-    payload?.qc?.qc_remarks,
-    payload?.qc_details?.qc_remarks,
-    payload?.qc_details?.remarks,
-    ...collectShadowfaxValuesByKeys(payload, new Set(['qc_remarks', 'qcremarks'])),
-  )
-  const rawPicked = pickWebhookText(
-    payload?.picked,
-    payload?.qc?.picked,
-    payload?.qc_details?.picked,
-    ...collectShadowfaxValuesByKeys(payload, new Set(['picked'])),
-  )
-  const qcImages =
-    payload?.qc_images ||
-    payload?.QCImages ||
-    payload?.qc?.images ||
-    payload?.qc?.qc_images ||
-    payload?.qc_details?.qc_images ||
-    payload?.qc_details?.images ||
-    null
-  const recipientInfo =
-    payload?.recepient_info ||
-    payload?.recipient_info ||
-    payload?.qc?.recipient_info ||
-    payload?.qc_details?.recipient_info ||
-    null
-  const otpVerified = pickWebhookText(
-    payload?.otp_verifed,
-    payload?.otp_verified,
-    payload?.qc?.otp_verifed,
-    payload?.qc?.otp_verified,
-  )
-  const riderName = pickWebhookText(
-    payload?.rider_name,
-    payload?.qc?.rider_name,
-    payload?.qc_details?.rider_name,
-  )
-  const riderContact = pickWebhookText(
-    payload?.rider_contact,
-    payload?.qc?.rider_contact,
-    payload?.qc_details?.rider_contact,
-  )
-
-  const normalizedStatus = normalizeShadowfaxQcStatus(rawStatus)
-  const normalizedPicked = normalizeShadowfaxQcStatus(rawPicked)
-  const normalizedRemarks = String(rawRemarks || '').trim()
-  const failed =
-    ['fail', 'failed', 'fail_hub', 'qc_failed', 'qcfail', 'qc_failed_hub'].includes(
-      normalizedStatus,
-    ) ||
-    normalizedRemarks.toLowerCase().includes('qc fail') ||
-    normalizedRemarks.toLowerCase().includes('failed qc') ||
-    normalizedRemarks.toLowerCase().includes('qc failed')
-
-  return {
-    status: rawStatus || null,
-    statusNormalized: normalizedStatus || null,
-    remarks: normalizedRemarks || null,
-    picked: rawPicked || null,
-    pickedNormalized: normalizedPicked || null,
-    images: qcImages || null,
-    recipientInfo: recipientInfo || null,
-    otpVerified: otpVerified || null,
-    riderName: riderName || null,
-    riderContact: riderContact || null,
-    failed,
-  }
-}
-
 export async function processShadowfaxWebhook(payload: any, tx = db) {
   const event = payload || {}
   const awb =
@@ -2943,14 +3013,6 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
   const statusRaw = event?.event || event?.status || event?.current_status || ''
   const location = event?.current_location || event?.location || null
   const remarks = event?.comments || event?.message || null
-  const shadowfaxQc = extractShadowfaxQcSnapshot(event)
-  const shadowfaxPayload =
-    shadowfaxQc.status || shadowfaxQc.remarks || shadowfaxQc.images
-      ? {
-          ...event,
-          shadowfax_qc: shadowfaxQc,
-        }
-      : event
 
   console.log('🔄 processShadowfaxWebhook:start', {
     awb: awb || null,
@@ -3031,18 +3093,15 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     return { success: false, reason: 'order_not_found' }
   }
 
-  let internalStatus = mapShadowfaxWebhookStatus(statusRaw, awb, event?.type)
-  if (shadowfaxQc.failed && !['cancelled', 'delivered', 'rto_delivered'].includes(internalStatus)) {
-    internalStatus = 'ndr'
-  }
+  const internalStatus = mapShadowfaxWebhookStatus(statusRaw, awb)
   const shadowfaxWeight = extractShadowfaxWeightSnapshot(payload)
   const shadowfaxProof = extractWeightProofFromWebhook(payload, 'shadowfax')
   const updateData: any = {
     order_status: internalStatus,
     delivery_location: location,
-    delivery_message: shadowfaxQc.remarks || remarks || null,
+    delivery_message: remarks || null,
     provider_last_status: String(statusRaw || internalStatus || '').trim() || null,
-    provider_meta: shadowfaxPayload,
+    provider_meta: payload,
     updated_at: new Date(),
   }
 
@@ -3154,9 +3213,9 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
           awbNumber: order.awb_number || String(awb || ''),
           courier: 'Shadowfax',
           statusCode: String(statusRaw || internalStatus),
-          statusText: String(shadowfaxQc.status || event?.status || statusRaw || internalStatus),
+          statusText: String(event?.status || statusRaw || internalStatus),
           location,
-          raw: shadowfaxPayload,
+          raw: payload,
         })
       } catch (err: any) {
         console.error('❌ Failed to log Shadowfax tracking event:', err)
@@ -3174,7 +3233,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     provider_reference: order.provider_reference || awb || null,
     provider_request_id: order.provider_request_id || awb || null,
     location,
-    remarks: shadowfaxQc.remarks || remarks,
+    remarks,
   }).catch((err) => {
     console.error('❌ Failed to send Shadowfax tracking.updated webhook:', err)
   })
@@ -3194,7 +3253,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
       provider_reference: order.provider_reference || awb || null,
       provider_request_id: order.provider_request_id || awb || null,
       location,
-      remarks: shadowfaxQc.remarks || remarks,
+      remarks,
       order_type: orderType,
     }).catch((err) => {
       console.error('❌ Failed to send Shadowfax status webhook:', err)
@@ -3204,17 +3263,16 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
   if (orderType === 'b2c') {
     if (
       ['ndr', 'undelivered'].includes(internalStatus) ||
-      shadowfaxQc.failed ||
-      hasNdrSignal(statusRaw, remarks, event?.status, location, shadowfaxQc.status, shadowfaxQc.remarks)
+      hasNdrSignal(statusRaw, remarks, event?.status, location)
     ) {
       try {
         await captureNdrEventFromWebhook({
           order,
           awbNumber: order.awb_number || String(awb || ''),
           status: internalStatus,
-          reason: shadowfaxQc.remarks || remarks || null,
-          remarks: String(shadowfaxQc.status || event?.status || statusRaw || internalStatus),
-          payload: shadowfaxPayload,
+          reason: remarks || null,
+          remarks: String(event?.status || statusRaw || internalStatus),
+          payload,
           courierLabel: 'Shadowfax',
           signalParts: [statusRaw, remarks, event?.status, location],
         })
@@ -3231,10 +3289,10 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
           userId: order.user_id,
           awbNumber: order.awb_number || String(awb || ''),
           status: internalStatus,
-          reason: shadowfaxQc.remarks || remarks || null,
-          remarks: String(shadowfaxQc.status || event?.status || statusRaw || internalStatus),
+          reason: remarks || null,
+          remarks: String(event?.status || statusRaw || internalStatus),
           rtoCharges: rtoCharge,
-          payload: shadowfaxPayload,
+          payload,
         })
         await createNotificationService({
           targetRole: 'user',

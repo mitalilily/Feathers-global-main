@@ -3,7 +3,6 @@ import { lazy, Suspense } from 'react'
 import { Box } from '@mui/material'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import RequireAuth from '../components/auth/wrapper/RequireAuth'
-import RequireMerchantReady from '../components/auth/wrapper/RequireMerchantReady'
 import RequireOnboard from '../components/auth/wrapper/RequireOnboard'
 import Layout from '../components/UI/Layout'
 import CreateOrderWrapper from '../components/orders/CreateOrderWrapper'
@@ -150,14 +149,7 @@ export default function AppRoutes() {
             <Route path="/billing/wallet_transactions" element={<WalletTransactions />} />
             <Route path="/billing/invoice_management" element={<Invoices />} />
             <Route path="/orders/list" element={<Orders />} />
-            <Route
-              path="/orders/create"
-              element={
-                <RequireMerchantReady>
-                  <CreateOrderWrapper />
-                </RequireMerchantReady>
-              }
-            />
+            <Route path="/orders/create" element={<CreateOrderWrapper />} />
             <Route path="/orders/b2c/list" element={<B2COrdersList />} />
             <Route path="/support/about_us" element={<AboutUs />} />
             <Route path="/orders/b2b/list" element={<B2bOrders />} />

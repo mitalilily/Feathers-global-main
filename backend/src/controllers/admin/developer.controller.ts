@@ -5,6 +5,10 @@ import {
   updateDeveloperIssueStateService,
 } from '../../models/services/adminDeveloper.service'
 import { getDeveloperLiveLogsService } from '../../models/services/adminLiveLogs.service'
+import {
+  getShopifyOAuthCredentialsStatusService,
+  updateShopifyOAuthCredentialsService,
+} from '../../models/services/shopifyOAuthCredentials.service'
 import { processShadowfaxWebhook } from '../../models/services/webhookProcessor'
 
 export const getDeveloperErrorLogsController = async (req: any, res: Response) => {
@@ -108,6 +112,44 @@ export const getDeveloperLiveLogsController = async (req: any, res: Response) =>
     return res.status(500).json({
       success: false,
       message: error?.message || 'Failed to fetch live developer logs',
+    })
+  }
+}
+
+export const getShopifyOAuthCredentialsController = async (_req: any, res: Response) => {
+  try {
+    const result = await getShopifyOAuthCredentialsStatusService()
+    return res.status(200).json({
+      success: true,
+      data: result,
+    })
+  } catch (error: any) {
+    console.error('Error fetching Shopify OAuth credentials status:', error?.message || error)
+    return res.status(typeof error?.statusCode === 'number' ? error.statusCode : 500).json({
+      success: false,
+      message: error?.message || 'Failed to fetch Shopify OAuth credentials status',
+    })
+  }
+}
+
+export const updateShopifyOAuthCredentialsController = async (req: any, res: Response) => {
+  try {
+    const result = await updateShopifyOAuthCredentialsService({
+      clientId: req.body?.clientId ?? req.body?.SHOPIFY_CLIENT_ID,
+      clientSecret: req.body?.clientSecret ?? req.body?.SHOPIFY_CLIENT_SECRET,
+      adminUserId: req.user?.sub,
+    })
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shopify OAuth credentials updated successfully',
+      data: result,
+    })
+  } catch (error: any) {
+    console.error('Error updating Shopify OAuth credentials:', error?.message || error)
+    return res.status(typeof error?.statusCode === 'number' ? error.statusCode : 500).json({
+      success: false,
+      message: error?.message || 'Failed to update Shopify OAuth credentials',
     })
   }
 }
@@ -228,6 +270,14 @@ export const triggerShadowfaxWebhookTestController = async (req: any, res: Respo
           ? JSON.parse(payload)
           : payload
     } else {
+      const hasLookupReference = [awb, orderRef].some((value) => String(value || '').trim())
+      if (!hasLookupReference) {
+        return res.status(400).json({
+          success: false,
+          message: 'Provide a real Shadowfax AWB/request ID or order reference to test.',
+        })
+      }
+
       resolvedPayload = buildShadowfaxWebhookTemplate({
         template,
         awb,
@@ -258,6 +308,32 @@ export const triggerShadowfaxWebhookTestController = async (req: any, res: Respo
     })
 
     const result = await processShadowfaxWebhook(resolvedPayload)
+
+    if (!result?.success) {
+      const reason = result?.reason || 'unknown'
+      const statusCode =
+        reason === 'order_not_found'
+          ? 404
+          : reason === 'missing_awb'
+            ? 400
+            : 422
+      const message =
+        reason === 'order_not_found'
+          ? 'No local Shadowfax order was found for the supplied AWB/request ID or order reference.'
+          : reason === 'missing_awb'
+            ? 'The Shadowfax test payload is missing an AWB/request identifier.'
+            : 'Shadowfax webhook test was not applied.'
+
+      return res.status(statusCode).json({
+        success: false,
+        message,
+        data: {
+          template: template || 'custom',
+          payload: resolvedPayload,
+          result,
+        },
+      })
+    }
 
     return res.status(200).json({
       success: true,

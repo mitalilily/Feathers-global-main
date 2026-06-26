@@ -3,8 +3,10 @@ import { FormProvider, useForm } from 'react-hook-form'
 import { useEffect } from 'react'
 import { fetchAvailableCouriers } from '../../api/courier'
 import { useBookExistingB2COrderCourier } from '../../hooks/Orders/useOrders'
+import { getDefaultPickupSlot } from '../../utils/pickupSchedule'
 import { toast } from '../UI/Toast'
 import CustomDrawer from '../UI/drawer/CustomDrawer'
+import DeliveryDetailsForm from './DeliveryDetailsForm'
 import PickupLocationForm from './PickupLocationForm'
 import { SelectCourierForm } from './SelectCourierForm'
 import type { B2CFormData, Product } from './b2c/B2COrderForm'
@@ -58,6 +60,7 @@ const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
   const products = normalizeProducts(order?.products)
   const subtotal = getProductsSubtotal(products, order?.order_amount)
   const orderType = String(order?.order_type || '').toLowerCase() === 'cod' ? 'cod' : 'prepaid'
+  const defaultPickupSlot = getDefaultPickupSlot()
 
   return {
     buyerName: order?.buyer_name || '',
@@ -90,8 +93,8 @@ const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
     courierCost: null,
     isRtoSame: true,
     orderAmount: subtotal,
-    pickupDate: new Date().toISOString().slice(0, 10),
-    pickupTime: '10:00',
+    pickupDate: defaultPickupSlot.pickupDate,
+    pickupTime: defaultPickupSlot.pickupTime,
     selectedMaxSlabWeight: null,
     amazonRequestToken: null,
     amazonRateId: null,
@@ -225,6 +228,15 @@ export default function SourceOrderCourierDrawer({
         amazon_carrier_id: amazonCarrierId,
         shadowfax_forward_mode: data.shadowfaxForwardMode,
         shadowfax_service_mode: data.shadowfaxServiceMode,
+        consignee: {
+          name: data.buyerName,
+          phone: data.buyerPhone,
+          email: data.buyerEmail,
+          address: data.address,
+          city: data.city,
+          state: data.state,
+          pincode: data.pincode,
+        },
         selected_max_slab_weight:
           data.selectedMaxSlabWeight !== undefined && data.selectedMaxSlabWeight !== null
             ? Number(data.selectedMaxSlabWeight)
@@ -273,6 +285,8 @@ export default function SourceOrderCourierDrawer({
       <FormProvider {...methods}>
         <Box component="form" onSubmit={handleSubmit(onSubmit)}>
           <Stack spacing={2}>
+            <DeliveryDetailsForm />
+            <Divider />
             <PickupLocationForm compact />
             <Divider />
             <PackageDimensionsForm />

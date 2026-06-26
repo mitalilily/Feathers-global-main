@@ -31,9 +31,8 @@ import { RiRefreshLine } from 'react-icons/ri'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useMerchantDashboardStats } from '../../hooks/useDashboard'
-import OpsAnalyticsSection from '../../components/dashboard/OpsAnalyticsSection'
 
-const BRAND_PRIMARY = '#047b85'
+const BRAND_PRIMARY = '#E85500'
 const BRAND_TEXT = '#111827'
 const TEXT_MUTED = '#6B7280'
 
@@ -412,29 +411,6 @@ const Home = () => {
           )
         })}
       </Grid>
-
-      <Box
-        sx={{
-          ...CARD_STYLE,
-          p: { xs: 2, md: 2.5 },
-          background:
-            'linear-gradient(180deg, rgba(4, 123, 133, 0.04) 0%, rgba(255,255,255,0.98) 100%)',
-        }}
-      >
-        <Stack spacing={0.8} sx={{ mb: 2 }}>
-          <Typography sx={{ fontSize: '0.78rem', fontWeight: 800, color: BRAND_PRIMARY, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            Seller analytics
-          </Typography>
-          <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: BRAND_TEXT }}>
-            Ops cards for zone, courier, pincode and dispatch decisions
-          </Typography>
-          <Typography sx={{ fontSize: '0.84rem', color: TEXT_MUTED, maxWidth: 900 }}>
-            These analytics are visible on the seller panel and can be customized from the dashboard as well.
-          </Typography>
-        </Stack>
-
-        <OpsAnalyticsSection />
-      </Box>
 
       <Box>
         <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: BRAND_TEXT, mb: 1.6 }}>

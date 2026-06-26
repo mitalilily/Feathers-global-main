@@ -2,6 +2,12 @@ import * as dotenv from 'dotenv'
 import { eq, sql } from 'drizzle-orm'
 import nodemailer from 'nodemailer'
 import path from 'path'
+import {
+  formatEmailFromHeader,
+  getEmailAuthPassword,
+  getEmailAuthUser,
+  getEmailEnvelopeFromAddress,
+} from '../../utils/emailIdentity'
 import { weight_discrepancies } from '../../schema/schema'
 import { db } from '../client'
 import { wallets } from '../schema/wallet'
@@ -10,9 +16,9 @@ import { createWalletTransaction } from './wallet.service'
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, '../../.env.${env}') })
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@featherglobal.in'
-const GOOGLE_SMTP_USER = process.env.GOOGLE_SMTP_USER || EMAIL_FROM
-const GOOGLE_SMTP_PASSWORD = process.env.GOOGLE_SMTP_PASSWORD!
+const EMAIL_FROM = formatEmailFromHeader()
+const GOOGLE_SMTP_USER = getEmailAuthUser()
+const GOOGLE_SMTP_PASSWORD = getEmailAuthPassword()
 const SMTP_HOST = process.env.SMTP_HOST
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587)
 const SMTP_SECURE = process.env.SMTP_SECURE === 'true'
@@ -45,7 +51,11 @@ async function sendEmail(opts: { to: string; subject: string; html: string }) {
       })
 
   const mailOptions = {
-    from: `"Feather Global" <${EMAIL_FROM}>`,
+    from: EMAIL_FROM,
+    envelope: {
+      from: getEmailEnvelopeFromAddress(),
+      to: opts.to,
+    },
     to: opts.to,
     subject: opts.subject,
     html: opts.html,

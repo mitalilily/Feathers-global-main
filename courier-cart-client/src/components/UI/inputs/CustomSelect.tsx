@@ -171,7 +171,7 @@ export default function CustomSelect({
             }}
           >
             {label}
-            {required && <span style={{ color: '#047b85' }}>*</span>}
+            {required && <span style={{ color: '#E85500' }}>*</span>}
           </Typography>
         )}
         <div ref={anchorRef}>
@@ -196,7 +196,7 @@ export default function CustomSelect({
                 backgroundColor: 'rgba(17, 24, 39, 0.01)',
               },
               '&:focus-within': {
-                borderColor: '#047b85',
+                borderColor: '#E85500',
                 boxShadow: '0 0 0 3px rgba(217, 4, 22, 0.1)',
               },
             }}
@@ -318,32 +318,32 @@ export default function CustomSelect({
                               alignItems: 'center',
                               borderLeft: `3px solid ${
                                 value === item.key
-                                  ? '#047b85'
+                                  ? '#E85500'
                                   : highlightedIndex === index
-                                    ? alpha('#047b85', 0.42)
+                                    ? alpha('#E85500', 0.42)
                                     : 'transparent'
                               }`,
                               bgcolor:
                                 value === item.key
-                                  ? alpha('#047b85', 0.08)
+                                  ? alpha('#E85500', 0.08)
                                   : highlightedIndex === index
                                     ? '#F8FAFC'
                                     : 'transparent',
                               '&:hover': {
                                 bgcolor: '#F8FAFC',
-                                borderLeftColor: '#047b85',
+                                borderLeftColor: '#E85500',
                               },
                               '&.Mui-selected': {
-                                bgcolor: alpha('#047b85', 0.08),
-                                borderLeft: '3px solid #047b85',
+                                bgcolor: alpha('#E85500', 0.08),
+                                borderLeft: '3px solid #E85500',
                                 '&:hover': {
-                                  bgcolor: alpha('#047b85', 0.12),
+                                  bgcolor: alpha('#E85500', 0.12),
                                 },
                                 '& .MuiListItemIcon-root': {
-                                  color: '#047b85',
+                                  color: '#E85500',
                                 },
                                 '& .MuiListItemText-primary': {
-                                  color: '#047b85',
+                                  color: '#E85500',
                                   fontWeight: 600,
                                 },
                               },
@@ -352,7 +352,7 @@ export default function CustomSelect({
                             {item.icon && (
                               <ListItemIcon
                                 sx={{
-                                  color: value === item.key ? '#047b85' : '#4B5563',
+                                  color: value === item.key ? '#E85500' : '#4B5563',
                                   minWidth: 36,
                                 }}
                               >
@@ -391,7 +391,7 @@ export default function CustomSelect({
                             {value === item.key ? (
                               <Box
                                 sx={{
-                                  color: '#047b85',
+                                  color: '#E85500',
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   pl: 1,

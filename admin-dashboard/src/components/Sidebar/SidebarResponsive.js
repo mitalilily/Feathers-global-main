@@ -17,8 +17,6 @@ import {
 import IconBox from 'components/Icons/IconBox'
 import React from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { BRAND } from '../../constants/brand'
-import BrandMark from '../Brand/BrandMark'
 
 function SidebarResponsive(props) {
   const location = useLocation()
@@ -26,16 +24,13 @@ function SidebarResponsive(props) {
 
   const activeRoute = (routeName) => (location.pathname === routeName ? 'active' : '')
 
-  const drawerBg = useColorModeValue(
-    `linear-gradient(180deg, ${BRAND.colors.paper} 0%, ${BRAND.colors.surface} 100%)`,
-    '#111113',
-  )
-  const activeBg = useColorModeValue('rgba(4,123,133,0.12)', 'rgba(217, 4, 22, 0.16)')
-  const hoverBg = useColorModeValue('rgba(4,123,133,0.06)', 'rgba(148, 163, 184, 0.14)')
-  const textColor = useColorModeValue(BRAND.colors.text, 'gray.100')
-  const iconColor = useColorModeValue(BRAND.colors.muted, 'gray.300')
+  const drawerBg = useColorModeValue('#111113', '#111113')
+  const activeBg = useColorModeValue('rgba(217, 4, 22, 0.16)', 'rgba(217, 4, 22, 0.16)')
+  const hoverBg = useColorModeValue('rgba(255, 255, 255, 0.06)', 'rgba(148, 163, 184, 0.14)')
+  const textColor = useColorModeValue('gray.700', 'gray.100')
+  const iconColor = useColorModeValue('gray.500', 'gray.300')
   const activeTextColor = '#FFFFFF'
-  const dividerColor = useColorModeValue(BRAND.colors.border, 'rgba(148, 163, 184, 0.24)')
+  const dividerColor = useColorModeValue('rgba(148, 163, 184, 0.28)', 'rgba(148, 163, 184, 0.24)')
 
   const createLinks = (routes) => {
     return routes
@@ -69,7 +64,7 @@ function SidebarResponsive(props) {
               borderRadius="10px"
               w="100%"
               border="1px solid"
-              borderColor={isActive ? 'rgba(4,123,133,0.18)' : 'transparent'}
+              borderColor={isActive ? 'rgba(217, 4, 22, 0.26)' : 'transparent'}
               _hover={{ bg: hoverBg, transform: 'translateX(2px)' }}
               _active={{ bg: 'inherit', transform: 'none' }}
               _focus={{ boxShadow: 'none' }}
@@ -77,7 +72,7 @@ function SidebarResponsive(props) {
             >
               <Flex align="center">
                 <IconBox
-                  bg={isActive ? 'rgba(4,123,133,0.16)' : 'rgba(255,255,255,0.06)'}
+                  bg={isActive ? 'rgba(217, 4, 22, 0.18)' : 'rgba(255,255,255,0.06)'}
                   color={isActive ? activeTextColor : iconColor}
                   h="30px"
                   w="30px"
@@ -102,7 +97,7 @@ function SidebarResponsive(props) {
   const brand = (
     <Box pt="24px" mb="10px">
       <Flex align="center" justify="center" gap="10px" mb="16px" fontWeight="bold">
-        <BrandMark markOnly size={32} />
+        <Box as="img" src="/logo/shiplifi-logo.png" alt="Shiplifi" h="32px" w="32px" objectFit="contain" borderRadius="10px" />
         <Text fontSize="sm" color={textColor} fontWeight="700">
           {logoText}
         </Text>

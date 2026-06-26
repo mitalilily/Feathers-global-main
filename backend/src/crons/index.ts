@@ -8,6 +8,7 @@ import {
   sendWeeklyWeightReconciliationEmails,
 } from './weightReconciliationEmails'
 import { pollCourierTracking } from './courierTracking'
+import { retryPendingSalesChannelStatusSync } from '../models/services/salesChannelSync.service'
 
 const parseTrackingProviders = () =>
   String(process.env.COURIER_TRACKING_POLL_PROVIDERS || '')
@@ -42,6 +43,17 @@ cron.schedule('*/20 * * * *', async () => {
 
 cron.schedule('*/1 * * * *', () => {
   processPendingWebhooks().catch((err) => console.error('Error in cron webhook processor', err))
+})
+
+cron.schedule(process.env.SALES_CHANNEL_SYNC_RETRY_CRON || '*/10 * * * *', async () => {
+  try {
+    const result = await retryPendingSalesChannelStatusSync()
+    if (result.attempted > 0 || result.failed > 0) {
+      console.log('[Cron] Sales channel status sync retry complete', result)
+    }
+  } catch (err) {
+    console.error('[Cron] Sales channel status sync retry failed:', err)
+  }
 })
 
 cron.schedule('0 2 * * *', () => generateAutoBillingInvoices())

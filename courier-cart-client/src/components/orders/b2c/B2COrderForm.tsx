@@ -1,4 +1,14 @@
-import { Alert, Box, Button, Grid, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  Grid,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+  alpha,
+} from '@mui/material'
 import { useEffect, useState } from 'react'
 import { Controller, FormProvider, useFieldArray, useForm } from 'react-hook-form'
 import { BiRupee } from 'react-icons/bi'
@@ -9,6 +19,7 @@ import { fetchLocations } from '../../../api/locations'
 import type { CreateShipmentParams } from '../../../api/order.service'
 import { useCreateShipment } from '../../../hooks/Orders/useOrders'
 import { usePaymentOptions } from '../../../hooks/usePaymentOptions'
+import { getDefaultPickupSlot } from '../../../utils/pickupSchedule'
 import { toast } from '../../UI/Toast'
 import FormSectionAccordion from '../../UI/accordion/FormSectionAccordion'
 import DeliveryDetailsForm from '../DeliveryDetailsForm'
@@ -18,7 +29,7 @@ import { SelectCourierForm } from '../SelectCourierForm'
 import PackageDetailsForm from './PackageDetailsForm'
 import PackageDimensionsForm from './PackageDimensionsForm'
 
-const ACCENT = '#047b85'
+const ACCENT = '#E85500'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_MUTED = '#496189'
 
@@ -104,7 +115,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
   const steps = ['Order & Delivery', 'Courier Selection']
   const { data: paymentOptions } = usePaymentOptions()
 
-  const defaultPickupDate = new Date().toISOString().split('T')[0]
+  const defaultPickupSlot = getDefaultPickupSlot()
 
   // Determine default order type based on enabled payment options
   const getDefaultOrderType = (): 'prepaid' | 'cod' => {
@@ -126,8 +137,8 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
       amazonRateId: null,
       amazonServiceId: null,
       amazonCarrierId: null,
-      pickupDate: defaultPickupDate,
-      pickupTime: '',
+      pickupDate: defaultPickupSlot.pickupDate,
+      pickupTime: defaultPickupSlot.pickupTime,
       orderType: getDefaultOrderType(),
       selectedMaxSlabWeight: null,
     },
@@ -182,6 +193,29 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
   const totalOrderValue = subtotal + shippingCharges + transactionFee + giftWrap - discount
   const totalCollectable = totalOrderValue - prepaidAmount
 
+  useEffect(() => {
+    setValue('courierPartner', '')
+    setValue('courierPartnerId', '')
+    setValue('courierOptionKey', '')
+    setValue('amazonRequestToken', null)
+    setValue('amazonRateId', null)
+    setValue('amazonServiceId', null)
+    setValue('amazonCarrierId', null)
+    setValue('selectedMaxSlabWeight', null)
+    setValue('courierCod', 0)
+    setValue('forwardCharges', 0)
+    setValue('otherCharges', 0)
+    setValue('courierCost', null)
+    setValue('integrationType', undefined)
+    setValue('shadowfaxForwardMode', undefined)
+    setValue('shadowfaxServiceMode', undefined)
+    setValue('zone', '')
+    setValue('zoneId', '')
+    setValue('chargeableWeight', null)
+    setValue('volumetricWeight', null)
+    setValue('slabs', null)
+  }, [setValue])
+
   const onSubmit = async (data: B2CFormData) => {
     try {
       const normalizedOrderId = data.orderId.trim()
@@ -206,6 +240,8 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
       let amazonRateId = data.amazonRateId ?? undefined
       let amazonServiceId = data.amazonServiceId ?? undefined
       let amazonCarrierId = data.amazonCarrierId ?? undefined
+      const shipmentPaymentType = data.orderType
+      const packageWeightForBooking = data.weight
 
       if (data.integrationType === 'amazon' && (!amazonRequestToken || !amazonRateId)) {
         try {
@@ -214,6 +250,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
             destination: data.pincode,
             pickupId: data.pickupLocationId,
             pickupName: data.pickupLocationName,
+            pickupPhone: data.pickupLocationPOCPhone,
             pickupAddress: data.pickupAddress,
             pickupCity: data.pickupCity,
             pickupState: data.pickupState,
@@ -222,9 +259,9 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
             deliveryAddress: data.address,
             deliveryCity: data.city,
             deliveryState: data.state,
-            payment_type: data.orderType,
+            payment_type: shipmentPaymentType,
             order_amount: subtotal,
-            cod: data.orderType === 'cod' ? 1 : 0,
+            cod: shipmentPaymentType === 'cod' ? 1 : 0,
             weight: data.weight,
             length: data.length,
             breadth: data.breadth,
@@ -267,26 +304,25 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         }
 
         if (!amazonRequestToken || !amazonRateId) {
-          methods.setError('courierPartnerId', {
-            type: 'manual',
-            message: 'Amazon live rate is not available right now. Refresh courier rates and try again.',
-          })
+          console.warn(
+            'Amazon booking is continuing without a freshly refreshed live token pair; backend recovery will be used if available.',
+          )
           toast.open({
-            message: 'Amazon live rate is not available right now. Refresh courier rates and try again.',
-            severity: 'error',
+            message:
+              'Amazon live rate could not be refreshed right now. Continuing with the selected courier.',
+            severity: 'warning',
           })
-          return
         }
       }
 
       const payload: CreateShipmentParams = {
         order_number: normalizedOrderId,
-        payment_type: data.orderType,
+        payment_type: shipmentPaymentType,
         order_amount: subtotal,
         order_date: data?.orderDate,
-        package_weight: data.weight,
+        package_weight: packageWeightForBooking,
         package_length: data.length,
-        cod_charges: data?.courierCod,
+        cod_charges: shipmentPaymentType === 'cod' ? data?.courierCod : 0,
         package_breadth: data.breadth,
         package_height: data.height,
         shipping_charges: Number(data?.shippingCharges ?? 0), // What seller charges customer
@@ -319,7 +355,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
           pickup_date: data.pickupDate,
           pickup_time: data.pickupTime,
         },
-
         ...(!data?.isRtoSame && {
           rto: {
             warehouse_name: data?.rtoLocationName ?? '',

@@ -21,7 +21,6 @@ import { ekartWebhookHandler } from '../controllers/webhooks/ekart.webhook'
 import {
   getNdrEventsController,
   getNdrTimelineController,
-  getDelhiveryUplStatusController,
 } from '../controllers/externalApi/ndr.controller'
 import {
   cancelOrderController,
@@ -34,26 +33,8 @@ import {
   generateOrderQrController,
   retryFailedManifestController,
   trackOrderController,
-  updateEkartDispatchDateController,
-  updateEkartEwbnController,
   updateOrderProviderController,
 } from '../controllers/externalApi/order.controller'
-import {
-  checkEkartPairServiceabilityController,
-  getEkartBulkServiceabilityController,
-  checkEkartPincodeServiceabilityController,
-  downloadEkartLabelsController,
-  generateEkartManifestController,
-  getEkartRawTrackController,
-  getEkartShippingRatesController,
-  listEkartAddressesController,
-  submitEkartNdrActionController,
-  registerEkartAddressController,
-} from '../controllers/externalApi/ekart.controller'
-import {
-  getDelhiveryLabelController,
-  updateDelhiveryEwaybillController,
-} from '../controllers/externalApi/delhivery.controller'
 import {
   createPickupAddressController,
   getPickupAddressesController,
@@ -107,18 +88,6 @@ router.post('/webhook/ekart/track', ekartWebhookHandler)
 // Check pincode serviceability and get available couriers
 router.get('/serviceability', requireApiKey, checkServiceabilityController)
 router.post('/serviceability', requireApiKey, checkServiceabilityController)
-router.post('/ekart/pricing/estimate', requireApiKey, getEkartShippingRatesController)
-router.post('/ekart/serviceability', requireApiKey, checkEkartPairServiceabilityController)
-router.get('/ekart/serviceability/bulk/:type', requireApiKey, getEkartBulkServiceabilityController)
-router.get('/ekart/serviceability/:pincode', requireApiKey, checkEkartPincodeServiceabilityController)
-router.get('/ekart/track/:wbn', requireApiKey, getEkartRawTrackController)
-router.post('/ekart/package/label', requireApiKey, downloadEkartLabelsController)
-router.post('/ekart/package/manifest', requireApiKey, generateEkartManifestController)
-router.post('/ekart/address', requireApiKey, registerEkartAddressController)
-router.get('/ekart/addresses', requireApiKey, listEkartAddressesController)
-router.post('/ekart/package/ndr', requireApiKey, submitEkartNdrActionController)
-router.get('/delhivery/package/label', requireApiKey, getDelhiveryLabelController)
-router.put('/delhivery/package/ewaybill/:waybill', requireApiKey, updateDelhiveryEwaybillController)
 
 // Get shipping rates (pre-order calculation)
 router.post('/shipping/rates', requireApiKey, getShippingRatesController)
@@ -162,8 +131,6 @@ router.get('/orders/:orderId', requireApiKey, getOrderController)
 // Cancel order
 router.post('/orders/:orderId/cancel', requireApiKey, cancelOrderController)
 router.post('/orders/:orderId/update', requireApiKey, updateOrderProviderController)
-router.post('/orders/:orderId/ekart/dispatch-date', requireApiKey, updateEkartDispatchDateController)
-router.post('/orders/:orderId/ekart/ewbn', requireApiKey, updateEkartEwbnController)
 router.post('/orders/:orderId/escalate', requireApiKey, escalateOrderController)
 router.post('/orders/:orderId/qr', requireApiKey, generateOrderQrController)
 router.get('/orders/:orderId/pod', requireApiKey, getOrderPodController)
@@ -192,7 +159,6 @@ router.post('/pickup-addresses/request-pickup', requireApiKey, requestPickupCont
 // ============================================================================
 router.get('/ndr', requireApiKey, getNdrEventsController)
 router.get('/ndr/timeline', requireApiKey, getNdrTimelineController)
-router.get('/ndr/delhivery/upl-status', requireApiKey, getDelhiveryUplStatusController)
 
 // ============================================================================
 // RTO MANAGEMENT (Requires API Key)

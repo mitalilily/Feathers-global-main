@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,32 +26,50 @@ jobs:
       - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.SHIPLIFI_HOST }}" >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          touch ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<'EOF'
+          Host *
+            StrictHostKeyChecking accept-new
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ServerAliveInterval 30
+            ServerAliveCountMax 3
+          EOF
+          chmod 600 ~/.ssh/config
 
-      - name: Resolve deploy root
-        run: |
-          DEPLOY_ROOT=$(ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" '
-            if [ -d /srv/shiplifi/current/backend ]; then
-              printf "%s" /srv/shiplifi/current
-            elif [ -d /var/www/shiplifi/backend ]; then
-              printf "%s" /var/www/shiplifi
-            else
-              printf "%s" /srv/shiplifi/current
+          for attempt in 1 2 3 4 5; do
+            if ssh-keyscan -T 10 -H "${{ secrets.SHIPLIFI_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null; then
+              exit 0
             fi
-          ' | tr -d "\r\n")
+            echo "ssh-keyscan attempt ${attempt} failed; retrying..."
+            sleep 3
+          done
 
-          echo "DEPLOY_ROOT=$DEPLOY_ROOT" >> "$GITHUB_ENV"
-          echo "Using deploy root: $DEPLOY_ROOT"
+          echo "ssh-keyscan did not return a key; continuing with StrictHostKeyChecking=accept-new."
 
-      - name: Ensure deploy root exists
+      - name: Prepare server deploy directory
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "mkdir -p '$DEPLOY_ROOT'"
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" '
+            set -e
+            sudo install -d -o deploy -g deploy -m 2775 /srv/shiplifi/current
+            sudo chown -R deploy:deploy /srv/shiplifi/current
+            sudo find /srv/shiplifi/current -path "*/node_modules" -prune -o -type d -exec chmod 2775 {} +
+            sudo find /srv/shiplifi/current -path "*/node_modules" -prune -o -type f -exec chmod u+rw,g+rw {} +
+            if [ -f /srv/shiplifi/current/backend/.env.production ]; then
+              sudo chmod 0600 /srv/shiplifi/current/backend/.env.production
+            fi
+          '
 
       - name: Sync project to server
         run: |
           rsync -az --delete \
+            --no-owner \
+            --no-group \
+            --no-perms \
             --exclude '.git' \
             --exclude '.github' \
+            --exclude '.deployed_commit' \
             --exclude '.DS_Store' \
             --exclude 'backend/.env.production' \
             --exclude 'backend/node_modules' \
@@ -58,7 +80,7 @@ jobs:
             --exclude 'landing/dist' \
             --exclude 'courier-cart-client/dist' \
             --exclude 'admin-dashboard/build' \
-            ./ "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}:${DEPLOY_ROOT}/"
+            ./ "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}:/srv/shiplifi/current/"
 
       - name: Sync backend Amazon env
         env:
@@ -72,7 +94,7 @@ jobs:
             exit 0
           fi
 
-          python3 - <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && umask 077 && python3 -"
+          python3 - <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && umask 077 && python3 -'
           import os
 
           token = os.environ["AMAZON_SHIPPING_REFRESH_TOKEN"]
@@ -123,9 +145,102 @@ jobs:
           """)
           PY
 
-      - name: Backfill Amazon LWA env from DB
+      - name: Sync backend Shopify OAuth env
+        env:
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          SHOPIFY_SCOPES: ${{ secrets.SHOPIFY_SCOPES }}
+          SHOPIFY_SEND_OAUTH_SCOPE: ${{ vars.SHOPIFY_SEND_OAUTH_SCOPE }}
         run: |
-          cat <<'NODE' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && node -"
+          if [ -z "$SHOPIFY_CLIENT_ID" ] || [ -z "$SHOPIFY_CLIENT_SECRET" ]; then
+            echo "Shopify OAuth secrets are not fully set; skipping Shopify env sync."
+            exit 0
+          fi
+
+          python3 - <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && umask 077 && python3 -'
+          import os
+
+          client_id = os.environ["SHOPIFY_CLIENT_ID"]
+          client_secret = os.environ["SHOPIFY_CLIENT_SECRET"]
+          scopes = os.environ.get("SHOPIFY_SCOPES", "").strip() or "read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+          send_oauth_scope = os.environ.get("SHOPIFY_SEND_OAUTH_SCOPE", "").strip().lower()
+          if send_oauth_scope in {"true", "1", "yes", "on"}:
+              send_oauth_scope = "true"
+          else:
+              send_oauth_scope = "false"
+
+          print(f"""
+          from pathlib import Path
+
+          path = Path(".env.production")
+          existing = {{}}
+          if path.exists():
+              for existing_line in path.read_text().splitlines():
+                  if "=" not in existing_line or existing_line.lstrip().startswith("#"):
+                      continue
+                  existing_key, existing_value = existing_line.split("=", 1)
+                  existing[existing_key.strip()] = existing_value.strip().strip('"').strip("'")
+
+          preserve_admin_panel_credentials = existing.get("SHOPIFY_CREDENTIALS_SOURCE", "").strip().lower() == "admin_panel"
+          updates = {{
+              "API_URL": "https://api.shiplifi.com",
+              "SHOPIFY_SCOPES": {scopes!r},
+              "SHOPIFY_API_VERSION": "2026-04",
+              "SHOPIFY_OAUTH_SUCCESS_URL": "https://app.shiplifi.com/channels/connected",
+              "SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS": "true",
+              "SHOPIFY_SEND_OAUTH_SCOPE": {send_oauth_scope!r},
+              "SHOPIFY_ALLOW_LEGACY_MANUAL_AUTH": "false",
+          }}
+          if preserve_admin_panel_credentials:
+              print("Preserving Shopify OAuth credentials managed from the admin panel.")
+          else:
+              updates["SHOPIFY_CLIENT_ID"] = {client_id!r}
+              updates["SHOPIFY_CLIENT_SECRET"] = {client_secret!r}
+
+          lines = path.read_text().splitlines() if path.exists() else []
+          seen = set()
+          next_lines = []
+
+          for line in lines:
+              if "=" not in line or line.lstrip().startswith("#"):
+                  next_lines.append(line)
+                  continue
+              key = line.split("=", 1)[0].strip()
+              if key in updates:
+                  next_lines.append(f"{{key}}={{updates[key]}}")
+                  seen.add(key)
+              else:
+                  next_lines.append(line)
+                  seen.add(key)
+
+          for key, value in updates.items():
+              if key not in seen:
+                  next_lines.append(f"{{key}}={{value}}")
+                  seen.add(key)
+
+          path.write_text("\\n".join(next_lines) + "\\n")
+          print("Shopify OAuth backend env updated.")
+          """)
+          PY
+
+      - name: Verify Shopify OAuth env
+        continue-on-error: true
+        env:
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+        run: |
+          if [ -z "$SHOPIFY_CLIENT_ID" ] || [ -z "$SHOPIFY_CLIENT_SECRET" ]; then
+            echo "Shopify OAuth secrets are not fully set; skipping Shopify OAuth smoke check."
+            exit 0
+          fi
+
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" \
+            'cd /srv/shiplifi/current/backend && NODE_ENV=production npm run check:shopify-oauth -- --require-public --shop=shiplifi-oauth-smoke.myshopify.com'
+
+      - name: Backfill Amazon LWA env from DB
+        continue-on-error: true
+        run: |
+          cat <<'NODE' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && node -'
           const fs = require('fs')
           const path = require('path')
           const dotenv = require('dotenv')
@@ -226,8 +341,9 @@ jobs:
           NODE
 
       - name: Verify Amazon LWA env
+        continue-on-error: true
         run: |
-          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd '$DEPLOY_ROOT/backend' && python3 -"
+          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" 'cd /srv/shiplifi/current/backend && python3 -'
           from pathlib import Path
           from urllib import parse, request, error
           import hashlib
@@ -304,8 +420,12 @@ jobs:
 
       - name: Deploy on server
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd \"$DEPLOY_ROOT\" && chmod +x deploy/release.sh && ./deploy/release.sh"
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" '
+            set -e
+            sudo chown -R deploy:deploy /srv/shiplifi/current
+            sudo -u deploy -H bash -lc "export PM2_HOME=/home/deploy/.pm2; cd /srv/shiplifi/current && chmod +x deploy/release.sh && ./deploy/release.sh"
+          '
 
       - name: Mark deployed commit
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "printf '%s\n' '${{ github.sha }}' > \"$DEPLOY_ROOT/.deployed_commit\""
+          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "printf '%s\n' '${{ github.sha }}' | sudo tee /srv/shiplifi/current/.deployed_commit >/dev/null && sudo chown deploy:deploy /srv/shiplifi/current/.deployed_commit"

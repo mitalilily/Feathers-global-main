@@ -8,7 +8,7 @@ import {
 import CustomInput from '../../UI/inputs/CustomInput'
 import type { B2CFormData } from './B2COrderForm'
 
-const ACCENT = '#047b85'
+const ACCENT = '#E85500'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_MUTED = '#496189'
 

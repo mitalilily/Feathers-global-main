@@ -86,20 +86,20 @@ export const BankAccountsSection: React.FC = () => {
           flexDirection: { xs: 'column', md: 'row' },
           gap: 1.5,
           p: 2,
-          border: `1px solid ${alpha('#047b85', 0.12)}`,
+          border: `1px solid ${alpha('#E85500', 0.12)}`,
           background:
             'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(251,245,242,0.98) 100%)',
         }}
       >
         <Stack spacing={0.4}>
-          <Typography sx={{ fontSize: '0.72rem', letterSpacing: '0.16em', fontWeight: 800, color: '#ff821c', textTransform: 'uppercase' }}>
+          <Typography sx={{ fontSize: '0.72rem', letterSpacing: '0.16em', fontWeight: 800, color: '#1A7500', textTransform: 'uppercase' }}>
             Settlement accounts
           </Typography>
           <Typography sx={{ fontSize: '1.2rem', fontWeight: 800, color: '#111827' }}>
             Banking details for payouts and COD remittance
           </Typography>
           <Typography sx={{ fontSize: '0.92rem', color: '#4B5563' }}>
-            Control where Feather Global settles funds and which account remains primary for operations.
+            Control where Shiplifi settles funds and which account remains primary for operations.
           </Typography>
         </Stack>
         {accounts && accounts.length > 0 && (

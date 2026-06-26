@@ -18,7 +18,6 @@ import InsightsCard from '../../components/dashboard/InsightsCard'
 import MetricsOverviewCard from '../../components/dashboard/MetricsOverviewCard'
 import OrderStatusChart from '../../components/dashboard/OrderStatusChart'
 import OrdersTrendChart from '../../components/dashboard/OrdersTrendChart'
-import OpsAnalyticsSection from '../../components/dashboard/OpsAnalyticsSection'
 import PerformanceMetricsCard from '../../components/dashboard/PerformanceMetricsCard'
 import QuickActionsCard from '../../components/dashboard/QuickActionsCard'
 import QuickStatsCards from '../../components/dashboard/QuickStatsCards'
@@ -45,10 +44,9 @@ const widgetComponents: Record<string, React.ComponentType<any>> = {
   metricsOverview: MetricsOverviewCard,
   courierPerformance: CourierPerformanceCard,
   topDestinations: TopDestinationsCard,
-  opsAnalytics: OpsAnalyticsSection,
 }
 
-const BRAND_PRIMARY = '#047b85'
+const BRAND_PRIMARY = '#E85500'
 const BRAND_TEXT = '#17171A'
 const TEXT_MUTED = '#6B7280'
 const CARD_BORDER = 'rgba(17, 24, 39, 0.08)'
@@ -96,7 +94,6 @@ export default function Dashboard() {
     metricsOverview: { xs: 12, md: 4 },
     courierPerformance: { xs: 12, md: 6 },
     topDestinations: { xs: 12, md: 6 },
-    opsAnalytics: { xs: 12, md: 12 },
   }
 
   // Default widget order
@@ -115,7 +112,6 @@ export default function Dashboard() {
     'metricsOverview',
     'courierPerformance',
     'topDestinations',
-    'opsAnalytics',
   ]
 
   // All memoized values must be called before any conditional returns
@@ -256,7 +252,6 @@ export default function Dashboard() {
       topDestinations: {
         topDestinations: stats?.geographic?.topDestinations || [],
       },
-      opsAnalytics: {},
     }
   }, [
     todayOps,
@@ -489,8 +484,8 @@ export default function Dashboard() {
                   to right,
                   transparent 0,
                   transparent calc((100% / 12) - 1px),
-                  ${alpha('#047b85', 0.08)} calc((100% / 12) - 1px),
-                  ${alpha('#047b85', 0.08)} calc(100% / 12)
+                  ${alpha('#E85500', 0.08)} calc((100% / 12) - 1px),
+                  ${alpha('#E85500', 0.08)} calc(100% / 12)
                 )
               `,
             }}

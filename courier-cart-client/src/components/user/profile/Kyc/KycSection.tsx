@@ -1,6 +1,5 @@
 import { alpha, Box, Skeleton, Stack, Typography } from '@mui/material'
 import { useState } from 'react'
-import { BRAND } from '../../../../config/brand'
 import { useUserKyc } from '../../../../hooks/User/Kyc/UseKyc'
 import { useUserProfile } from '../../../../hooks/User/useUserProfile'
 import KycDetailsCard from './KycDetailsCard'
@@ -43,18 +42,18 @@ const KycSection = () => {
       <Box
         sx={{
           p: 2,
-          border: `1px solid ${alpha(BRAND.colors.teal, 0.14)}`,
+          border: `1px solid ${alpha('#E85500', 0.12)}`,
           background:
-            'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(244,251,252,0.98) 100%)',
+            'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(251,245,242,0.98) 100%)',
         }}
       >
-        <Typography sx={{ fontSize: '0.72rem', letterSpacing: '0.16em', fontWeight: 800, color: BRAND.colors.orange, textTransform: 'uppercase' }}>
+        <Typography sx={{ fontSize: '0.72rem', letterSpacing: '0.16em', fontWeight: 800, color: '#1A7500', textTransform: 'uppercase' }}>
           Compliance review
         </Typography>
-        <Typography sx={{ fontSize: '1.15rem', fontWeight: 800, color: BRAND.colors.ink }}>
+        <Typography sx={{ fontSize: '1.15rem', fontWeight: 800, color: '#111827' }}>
           KYC verification and document readiness
         </Typography>
-        <Typography sx={{ fontSize: '0.92rem', color: BRAND.colors.muted, mt: 0.35 }}>
+        <Typography sx={{ fontSize: '0.92rem', color: '#4B5563', mt: 0.35 }}>
           Submit, review, and maintain verification documents required for payouts and account access.
         </Typography>
       </Box>

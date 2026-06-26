@@ -9,11 +9,7 @@ import { HttpError } from './classes'
  * @throws HttpError if KYC is not verified
  */
 export async function requireKycVerification(userId: string): Promise<void> {
-  const kycRecord = await db
-    .select({ status: kyc.status })
-    .from(kyc)
-    .where(eq(kyc.userId, userId))
-    .limit(1)
+  const kycRecord = await db.select().from(kyc).where(eq(kyc.userId, userId)).limit(1)
 
   // If no KYC record exists, throw error
   if (!kycRecord || kycRecord.length === 0) {

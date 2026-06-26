@@ -114,7 +114,7 @@ const DEFAULT_LABEL_SETTINGS = {
     deadWeight: false,
     otherCharges: true,
   },
-  powered_by: 'Feather Global',
+  powered_by: 'Shiplifi',
 }
 
 function safeParseObject(value: unknown, fallback: Record<string, any> = {}) {
@@ -204,7 +204,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   const adminPrefs = await getAdminInvoicePreferences()
   const platformLogoKey =
     adminPrefs?.includeLogo !== false && adminPrefs?.logoFile ? adminPrefs.logoFile : null
-  // Always show Feather Global platform logo (Powered by ...) when configured in admin billing prefs
+  // Always show Shiplifi platform logo (Powered by ...) when configured in admin billing prefs
   let platformLogoBase64: string | null = null
   if (platformLogoKey) {
     try {
@@ -868,9 +868,15 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       `📄 PDF generated successfully (${pdfBuffer.length} bytes) for order ${order?.order_number}`,
     )
 
+    const labelIdentifier = String(order?.order_number ?? order?.id ?? 'order')
+      .trim()
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 46) || 'order'
+
     // Upload
     const { uploadUrl, key } = await presignUpload({
-      filename: `label-${order?.order_number ?? order?.id}.pdf`,
+      filename: `label-${labelIdentifier}.pdf`,
       contentType: 'application/pdf',
       userId,
       folderKey: 'labels',

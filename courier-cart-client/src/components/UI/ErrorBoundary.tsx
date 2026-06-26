@@ -102,7 +102,7 @@ class ErrorBoundaryCore extends React.Component<InnerProps, State> {
               variant="contained"
               onClick={this.handleReload}
               sx={{
-                background: 'linear-gradient(135deg, #047b85 0%, #2F3B5F 100%)',
+                background: 'linear-gradient(135deg, #E85500 0%, #2F3B5F 100%)',
                 color: '#FFFFFF',
                 fontWeight: 600,
                 px: 4,

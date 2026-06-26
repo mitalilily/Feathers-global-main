@@ -32,7 +32,6 @@ interface Props {
   companyType?: CompanyType;
   defaultValue?: Partial<AdditionalKYCForm>;
   onComplete: (data?: AdditionalKYCForm) => void;
-  submitLabel?: string;
 }
 
 const fieldLabels: Record<keyof AdditionalKYCForm, string> = {
@@ -96,7 +95,6 @@ export default function AdditionalDetailsStep({
   defaultValue,
   companyType,
   onComplete,
-  submitLabel = "Submit KYC",
 }: Props) {
   const {
     control,
@@ -136,9 +134,6 @@ export default function AdditionalDetailsStep({
   const filePlaceholder = (field: keyof AdditionalKYCForm) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     watch(`${field}_key` as any);
-
-  const getMimeFieldName = (field: keyof AdditionalKYCForm) =>
-    `${field.replace('Url', '')}Mime` as keyof AdditionalKYCForm
 
   const isRequiredField = (field: keyof AdditionalKYCForm) =>
     structure === "company" && companyType
@@ -319,7 +314,7 @@ export default function AdditionalDetailsStep({
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       setValue(`${field}_key` as any, file?.originalName);
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      setValue(getMimeFieldName(field) as any, file?.mime);
+                      setValue(`${field}_mime` as any, file?.mime);
                       ctrl.onChange(fileKey);
                     }}
                   />
@@ -375,7 +370,7 @@ export default function AdditionalDetailsStep({
 
       <Box mt={4} display="flex" justifyContent="flex-end">
         <Button variant="contained" type="submit" disabled={!isValid}>
-          {submitLabel}
+          Submit KYC
         </Button>
       </Box>
     </Box>

@@ -44,12 +44,11 @@ import {
   useCreateWebhook,
   useDeleteWebhook,
   useConnectShopifyEnvStore,
-  useConnectShopifyManualStore,
   useShopifyStatus,
+  useStartShopifyOAuth,
   useSyncShopifyOrders,
   useUpdateWebhook,
 } from 'hooks/useApiIntegration'
-import DelhiveryLifecyclePanel from './DelhiveryLifecyclePanel'
 
 const WEBHOOK_EVENTS = [
   'order.created',
@@ -75,16 +74,11 @@ const normalizeShopifyStoreUrl = (value) =>
     .replace(/\/admin(?:\/.*)?$/, '')
 
 const ApiIntegration = () => {
-  const [activeTab, setActiveTab] = useState('delhivery')
+  const [activeTab, setActiveTab] = useState('apiKeys')
   const [copiedKey, setCopiedKey] = useState(null)
   const [shopifyTargetUserId, setShopifyTargetUserId] = useState('')
   const [shopifySyncLimit, setShopifySyncLimit] = useState(50)
-  const [shopifyManualForm, setShopifyManualForm] = useState({
-    storeUrl: '',
-    apiKey: '',
-    adminApiAccessToken: '',
-    apiSecretKey: '',
-  })
+  const [shopifyOAuthStoreUrl, setShopifyOAuthStoreUrl] = useState('')
   const toast = useToast()
 
   // API Keys
@@ -111,7 +105,7 @@ const ApiIntegration = () => {
   } = useShopifyStatus()
   const shopifyStatus = shopifyStatusData?.data || null
   const connectShopifyEnvStore = useConnectShopifyEnvStore()
-  const connectShopifyManualStore = useConnectShopifyManualStore()
+  const startShopifyOAuth = useStartShopifyOAuth()
   const syncShopifyOrders = useSyncShopifyOrders()
 
   // Modals
@@ -232,28 +226,13 @@ const ApiIntegration = () => {
     })
   }
 
-  const handleConnectShopifyManualStore = () => {
+  const handleStartShopifyOAuth = () => {
     const targetUserId = shopifyTargetUserId.trim()
-    const payload = {
-      ...shopifyManualForm,
-      storeUrl: normalizeShopifyStoreUrl(shopifyManualForm.storeUrl),
-      apiKey: shopifyManualForm.apiKey.trim(),
-      adminApiAccessToken: shopifyManualForm.adminApiAccessToken.trim(),
-      apiSecretKey: shopifyManualForm.apiSecretKey.trim(),
-      webhookSecret: shopifyManualForm.apiSecretKey.trim(),
-      ...(targetUserId ? { targetUserId, userId: targetUserId } : {}),
-      settings: {
-        fulfillTrigger: 'do_not_fulfill',
-        customerNotifyOnFulfill: 'do_not_notify',
-        autoUpdateShipmentStatus: false,
-        autoCancelOrders: false,
-        markCodPaidOnDelivery: false,
-      },
-    }
+    const shop = normalizeShopifyStoreUrl(shopifyOAuthStoreUrl)
 
-    if (!payload.storeUrl || !payload.apiKey || !payload.adminApiAccessToken || !payload.apiSecretKey) {
+    if (!shop) {
       toast({
-        title: 'Enter Shopify credentials',
+        title: 'Enter a Shopify store domain',
         status: 'warning',
         duration: 3000,
         isClosable: true,
@@ -261,7 +240,11 @@ const ApiIntegration = () => {
       return
     }
 
-    connectShopifyManualStore.mutate(payload)
+    startShopifyOAuth.mutate({
+      shop,
+      ...(targetUserId ? { targetUserId, userId: targetUserId } : {}),
+      returnTo: '/channels/connected',
+    })
   }
 
   const handleSyncShopifyOrders = () => {
@@ -287,13 +270,6 @@ const ApiIntegration = () => {
       {/* Tabs */}
       <HStack spacing={4} borderBottom="1px" borderColor="gray.200">
         <Button
-          variant={activeTab === 'delhivery' ? 'solid' : 'ghost'}
-          colorScheme={activeTab === 'delhivery' ? 'blue' : 'gray'}
-          onClick={() => setActiveTab('delhivery')}
-        >
-          Delhivery ONE
-        </Button>
-        <Button
           variant={activeTab === 'apiKeys' ? 'solid' : 'ghost'}
           colorScheme={activeTab === 'apiKeys' ? 'blue' : 'gray'}
           onClick={() => setActiveTab('apiKeys')}
@@ -315,9 +291,6 @@ const ApiIntegration = () => {
           Shopify
         </Button>
       </HStack>
-
-      {/* Delhivery ONE Tab */}
-      {activeTab === 'delhivery' && <DelhiveryLifecyclePanel />}
 
       {/* API Keys Tab */}
       {activeTab === 'apiKeys' && (
@@ -643,61 +616,32 @@ const ApiIntegration = () => {
 
               <Box p={4} border="1px" borderColor="gray.200" borderRadius="md">
                 <Text fontSize="md" fontWeight="semibold" mb={4}>
-                  Manual Shopify Store Connection
+                  Shopify OAuth Connection
+                </Text>
+                <Text fontSize="sm" color="gray.600" mb={4}>
+                  Manual Admin API token connection is disabled. Start OAuth for a target merchant or ask
+                  the merchant to connect Shopify from the Shiplifi customer panel.
                 </Text>
                 <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
                   <FormControl isRequired>
                     <FormLabel>Shopify Store URL</FormLabel>
                     <Input
-                      value={shopifyManualForm.storeUrl}
-                      onChange={(e) =>
-                        setShopifyManualForm((prev) => ({ ...prev, storeUrl: e.target.value }))
-                      }
+                      value={shopifyOAuthStoreUrl}
+                      onChange={(e) => setShopifyOAuthStoreUrl(e.target.value)}
                       placeholder="mystore.myshopify.com"
-                    />
-                  </FormControl>
-                  <FormControl isRequired>
-                    <FormLabel>Shopify API Key</FormLabel>
-                    <Input
-                      value={shopifyManualForm.apiKey}
-                      onChange={(e) =>
-                        setShopifyManualForm((prev) => ({ ...prev, apiKey: e.target.value }))
-                      }
-                    />
-                  </FormControl>
-                  <FormControl isRequired>
-                    <FormLabel>Admin API Access Token</FormLabel>
-                    <Input
-                      type="password"
-                      value={shopifyManualForm.adminApiAccessToken}
-                      onChange={(e) =>
-                        setShopifyManualForm((prev) => ({
-                          ...prev,
-                          adminApiAccessToken: e.target.value,
-                        }))
-                      }
-                    />
-                  </FormControl>
-                  <FormControl isRequired>
-                    <FormLabel>App Secret / Webhook Secret</FormLabel>
-                    <Input
-                      type="password"
-                      value={shopifyManualForm.apiSecretKey}
-                      onChange={(e) =>
-                        setShopifyManualForm((prev) => ({ ...prev, apiSecretKey: e.target.value }))
-                      }
                     />
                   </FormControl>
                 </SimpleGrid>
                 <Flex justify="flex-end" mt={4}>
                   <Button
                     colorScheme="green"
-                    onClick={handleConnectShopifyManualStore}
+                    onClick={handleStartShopifyOAuth}
                     isLoading={
-                      connectShopifyManualStore.isLoading || connectShopifyManualStore.isPending
+                      startShopifyOAuth.isLoading || startShopifyOAuth.isPending
                     }
+                    isDisabled={!shopifyStatus?.oauthConfigured}
                   >
-                    Connect Manual Store
+                    Start Shopify OAuth
                   </Button>
                 </Flex>
               </Box>
@@ -881,3 +825,4 @@ const ApiIntegration = () => {
 }
 
 export default ApiIntegration
+

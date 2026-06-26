@@ -216,7 +216,7 @@ export const useConnectShopifyEnvStore = () => {
       queryClient.invalidateQueries(['shopifyStatus'])
       toast({
         title: 'Shopify store connected',
-        description: data?.data?.warning || 'Custom app credentials are now bound in Feather Global.',
+        description: data?.data?.warning || 'Custom app credentials are now bound in Shiplifi.',
         status: data?.data?.warning ? 'warning' : 'success',
         duration: 5000,
         isClosable: true,
@@ -234,18 +234,23 @@ export const useConnectShopifyEnvStore = () => {
   })
 }
 
-export const useConnectShopifyManualStore = () => {
+export const useStartShopifyOAuth = () => {
   const queryClient = useQueryClient()
   const toast = useToast()
 
   return useMutation({
-    mutationFn: shopifyIntegrationService.connectManualStore,
+    mutationFn: shopifyIntegrationService.startOAuth,
     onSuccess: (data) => {
       queryClient.invalidateQueries(['shopifyStatus'])
+      const authUrl = data?.authUrl || data?.data?.authUrl
+      if (authUrl) {
+        window.location.assign(authUrl)
+        return
+      }
       toast({
-        title: 'Shopify store connected',
-        description: data?.warning || data?.message || 'Store credentials were saved successfully.',
-        status: data?.warning ? 'warning' : 'success',
+        title: 'Shopify OAuth started',
+        description: data?.message || 'Authorization URL created.',
+        status: 'success',
         duration: 5000,
         isClosable: true,
       })

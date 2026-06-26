@@ -115,30 +115,6 @@ const collectShadowfaxTypedDocumentUrls = (node: any, seen = new WeakSet<object>
   return urls
 }
 
-const collectShadowfaxRecipientSignatureUrls = (node: any): string[] => {
-  if (!node || typeof node !== 'object') return []
-
-  const raw = (node as any).recipient_signature
-  if (!raw) return []
-
-  if (Array.isArray(raw)) {
-    return raw.flatMap((value) => collectUrlValues(value))
-  }
-
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim()
-    if (!trimmed) return []
-    try {
-      const parsed = JSON.parse(trimmed)
-      return collectUrlValues(parsed)
-    } catch {
-      return collectUrlValues(trimmed)
-    }
-  }
-
-  return collectUrlValues(raw)
-}
-
 const uniqueUrls = (urls: string[]) => Array.from(new Set(urls.filter(Boolean)))
 
 const extractShadowfaxProofArtifacts = (payload: any) => {
@@ -146,10 +122,7 @@ const extractShadowfaxProofArtifacts = (payload: any) => {
     ...collectShadowfaxUrlsByKeys(payload, SHADOWFAX_WEIGHT_PROOF_KEYS),
     ...collectShadowfaxTypedDocumentUrls(payload),
   ])
-  const podUrls = uniqueUrls([
-    ...collectShadowfaxUrlsByKeys(payload, SHADOWFAX_POD_KEYS),
-    ...collectShadowfaxRecipientSignatureUrls(payload),
-  ])
+  const podUrls = uniqueUrls(collectShadowfaxUrlsByKeys(payload, SHADOWFAX_POD_KEYS))
   const proofUrls = weightUrls.length > 0 ? weightUrls : podUrls
 
   const metadata = {
@@ -269,12 +242,7 @@ async function fetchDelhiveryProof(awb: string): Promise<WeightProof | null> {
 async function fetchShadowfaxProof(awb: string): Promise<WeightProof | null> {
   try {
     const shadowfax = new ShadowfaxService()
-    const normalizedAwb = String(awb || '').trim().toLowerCase()
-    const reverse =
-      normalizedAwb.startsWith('r') ||
-      normalizedAwb.includes('rev') ||
-      normalizedAwb.includes('return') ||
-      normalizedAwb.includes('rto')
+    const reverse = String(awb).toUpperCase().startsWith('R')
 
     try {
       const trackingResponse = reverse

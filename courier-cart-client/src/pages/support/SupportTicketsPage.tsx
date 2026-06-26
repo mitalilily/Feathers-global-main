@@ -185,7 +185,7 @@ export const SupportTicketsPage = () => {
             label: 'Email Support',
             onClick: () =>
               (window.location.href =
-                'mailto:support@featherglobal.in?subject=Feather Global%20Support%20Request'),
+                'mailto:info@shiplifi.com?subject=Shiplifi%20Support%20Request'),
             icon: <FiMail />,
             variant: 'outlined',
           },

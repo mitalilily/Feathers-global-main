@@ -46,7 +46,7 @@ export const shadowfaxWebhookHandler = async (req: Request, res: Response) => {
 
   try {
     const shadowfax = new ShadowfaxService()
-    const configuredSecret = shadowfax.configuredWebhookSecret
+    const configuredSecret = await shadowfax.getConfiguredWebhookSecret()
     if (configuredSecret) {
       const providedSecret =
         String(req.headers['x-shadowfax-secret'] || req.headers['authorization'] || '').trim()

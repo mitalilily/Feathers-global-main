@@ -5,7 +5,6 @@ import { useAuth } from '../../context/auth/AuthContext'
 import Navbar from '../Navbar/Navbar'
 import KeyboardShortcuts from './keyboard/KeyboardShortcuts'
 import Sidebar from './Sidebar'
-import { brandGradient } from '../../config/brand'
 
 export default function Layout() {
   const theme = useTheme()
@@ -34,7 +33,7 @@ export default function Layout() {
       sx={{
         display: 'flex',
         minHeight: '100vh',
-        background: brandGradient,
+        background: 'linear-gradient(180deg, #EEEBE8 0%, #E7E0DB 100%)',
         scrollbarGutter: 'stable',
       }}
     >
@@ -49,9 +48,9 @@ export default function Layout() {
           sx={{
             '& .MuiDrawer-paper': {
               width: 280,
-            border: 0,
-            background: '#FFFFFF',
-            boxShadow: '0 18px 48px rgba(7, 25, 35, 0.14)',
+              border: 0,
+              background: '#FFFFFF',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
             },
           }}
         >
@@ -92,7 +91,7 @@ export default function Layout() {
             minHeight: 0,
             overflowY: 'auto',
             p: 0,
-            backgroundColor: 'rgba(255, 255, 255, 0.72)',
+            backgroundColor: 'rgba(255, 255, 255, 0.96)',
           }}
         >
           <Box
@@ -128,7 +127,7 @@ export default function Layout() {
               width: '100%',
               px: { xs: 0.6, md: 0.2 },
               pt: 0.4,
-              borderTop: '1px solid rgba(4, 123, 133, 0.12)',
+              borderTop: '1px solid rgba(17, 17, 19, 0.08)',
             }}
           >
             <Box

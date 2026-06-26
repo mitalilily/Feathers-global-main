@@ -29,18 +29,29 @@ import {
 import { useLocation } from 'react-router-dom'
 import { exportOrdersToCSV } from 'services/order.service'
 
+const getRouteFiltersFromSearch = (search) => {
+  const params = new URLSearchParams(search)
+  return {
+    status: params.get('status') || '',
+    pickupAlert: params.get('pickupAlert') || '',
+    search: params.get('search') || '',
+  }
+}
+
 const Orders = () => {
   const location = useLocation()
-  const initialSearch = new URLSearchParams(location.search).get('search') || ''
+  const initialRouteFilters = getRouteFiltersFromSearch(location.search)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(10)
   const [filters, setFilters] = useState({
     status: '',
+    pickupAlert: '',
     sortBy: 'created_at',
     sortOrder: 'desc',
-    search: initialSearch,
+    search: '',
     fromDate: '',
     toDate: '',
+    ...initialRouteFilters,
   })
   const [isExporting, setIsExporting] = useState(false)
 
@@ -48,12 +59,11 @@ const Orders = () => {
   const toast = useToast()
 
   useEffect(() => {
-    const nextSearch = new URLSearchParams(location.search).get('search') || ''
+    const nextRouteFilters = getRouteFiltersFromSearch(location.search)
     setFilters((prev) => {
-      if (prev.search === nextSearch) return prev
       return {
         ...prev,
-        search: nextSearch,
+        ...nextRouteFilters,
       }
     })
     setPage(1)
@@ -124,7 +134,9 @@ const Orders = () => {
       placeholder: 'All Statuses',
       options: [
         { value: 'pending', label: 'Pending' },
+        { value: 'pickup_initiated', label: 'Pickup Initiated' },
         { value: 'shipment_created', label: 'Shipment Created' },
+        { value: 'manifest_failed', label: 'Manifest Failed' },
         { value: 'in_transit', label: 'In Transit' },
         { value: 'out_for_delivery', label: 'Out for Delivery' },
         { value: 'ndr', label: 'NDR' },
@@ -135,6 +147,16 @@ const Orders = () => {
         { value: 'rto', label: 'RTO' },
         { value: 'rto_in_transit', label: 'RTO In Transit' },
         { value: 'rto_delivered', label: 'RTO Delivered' },
+      ],
+    },
+    {
+      key: 'pickupAlert',
+      label: 'Pickup Alert',
+      type: 'select',
+      placeholder: 'All Pickup Alerts',
+      options: [
+        { value: 'pending_for_pickup', label: 'Pending for pickup' },
+        { value: 'not_scheduled', label: 'Pickup not scheduled' },
       ],
     },
     {

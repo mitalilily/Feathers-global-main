@@ -17,6 +17,16 @@ import {
 import { DelhiveryManifestError, HttpError } from '../../utils/classes'
 import { calculateGstBreakup } from '../../utils/gst'
 import {
+  calculateBookingWalletDebit,
+  resolveGstInclusiveWalletDebit,
+} from '../../utils/bookingWalletDebit'
+import {
+  getCourierProviderDisplayName,
+  getProviderMetaCourierName,
+  normalizeCourierProviderKey,
+  resolveCourierProviderKeyFromFields,
+} from '../../utils/courierProvider'
+import {
   type DelhiveryShippingMode,
   getCanonicalDelhiveryCourierIdByMode,
   getDelhiveryCourierDisplayName,
@@ -25,12 +35,14 @@ import {
   resolveDelhiveryRateCardShippingMode,
   resolveDelhiveryShippingMode,
 } from '../../utils/delhiveryCourier'
+import { getAmazonOrderLabelReference } from '../../utils/orderLabels'
 import { parseDelhiveryTrackingTimestamp } from '../../utils/delhiveryTrackingTime'
 import { getBucketName } from '../../utils/functions'
 import { db } from '../client'
 import { b2b_orders } from '../schema/b2bOrders'
 import { b2c_orders } from '../schema/b2cOrders'
 import { invoicePreferences } from '../schema/invoicePreferences'
+import { ndr_events } from '../schema/ndr'
 // import { shippingRate, shippingRateCard } from '../schema/shippingRateCard'
 import dayjs from 'dayjs'
 import { sendWebhookEvent } from '../../services/webhookDelivery.service'
@@ -77,6 +89,7 @@ import {
 import {
   buildAmazonShippingAddressFromWarehouse,
   cancelAmazonShipment,
+  getAmazonShipmentDocuments,
   getAmazonShippingRates,
   getAmazonShippingTracking,
   purchaseAmazonShipment,
@@ -91,6 +104,7 @@ import { ShadowfaxService } from './couriers/shadowfax.service'
 import { XpressbeesService } from './couriers/xpressbees.service'
 import { calculateOrderWeights } from './courierWeightCalculation.service'
 import { generateLabelForOrder } from './generateCustomLabelService'
+import { recordNdrEvent } from './ndr.service'
 import { fetchCombinedOrdersPage } from './orderListing.service'
 import { b2bOrderListSelect, b2cOrderListSelect } from './orderListSelects'
 import {
@@ -118,6 +132,7 @@ const WALLET_TRANSACTION_GST_PERCENT = 18
 export const ORIGINAL_WALLET_DEBIT_REASONS = [
   'B2C Prepaid Order Payment',
   'B2C COD Service Charges',
+  'reverse_shipment',
 ]
 
 type ShadowfaxForwardModeSelection = 'marketplace' | 'warehouse'
@@ -248,6 +263,263 @@ const firstNonEmptyText = (...values: unknown[]): string => {
   return ''
 }
 
+const getAmazonLabelReference = (...values: unknown[]): string | null => {
+  for (const value of values) {
+    const normalized = String(value ?? '').trim()
+    if (normalized) return normalized
+  }
+  return null
+}
+
+const extractAmazonShipmentLabel = (payload: any): string | null => {
+  if (!payload || typeof payload !== 'object') return null
+
+  const candidateLists = [
+    payload,
+    payload?.payload,
+    payload?.data,
+    payload?.result,
+    payload?.shipmentDocuments?.[0],
+    payload?.packageDocumentDetail,
+    payload?.packageDocumentDetails?.[0],
+    payload?.packages?.[0],
+  ]
+
+  for (const candidate of candidateLists) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const label = getAmazonLabelReference(
+      candidate.label,
+      candidate.labelUrl,
+      candidate.label_url,
+      candidate.documentUrl,
+      candidate.document_url,
+      candidate.url,
+      candidate.downloadUrl,
+      candidate.download_url,
+      candidate.fileUrl,
+      candidate.file_url,
+    )
+    if (label) return label
+  }
+
+  return null
+}
+
+const extractAmazonShipmentDocumentContents = (payload: any): string | null => {
+  if (!payload || typeof payload !== 'object') return null
+
+  const candidateLists = [
+    payload,
+    payload?.payload,
+    payload?.data,
+    payload?.result,
+    payload?.shipmentDocuments?.[0],
+    payload?.packageDocumentDetail,
+    payload?.packageDocumentDetails?.[0],
+    payload?.packages?.[0],
+  ]
+
+  for (const candidate of candidateLists) {
+    if (!candidate || typeof candidate !== 'object') continue
+
+    const packageDocuments = Array.isArray(candidate.packageDocuments)
+      ? candidate.packageDocuments
+      : []
+    for (const document of packageDocuments) {
+      const contents = firstNonEmptyText(
+        document?.contents,
+        document?.content,
+        document?.base64,
+        document?.document,
+      )
+      if (contents) return contents
+    }
+
+    const directContents = firstNonEmptyText(
+      candidate.contents,
+      candidate.content,
+      candidate.base64,
+      candidate.document,
+    )
+    if (directContents) return directContents
+  }
+
+  return null
+}
+
+const uploadAmazonShipmentDocumentToR2 = async ({
+  contents,
+  userId,
+  shipmentId,
+  packageClientReferenceId,
+}: {
+  contents: string
+  userId: string
+  shipmentId: string
+  packageClientReferenceId: string
+}) => {
+  const normalizedContents = contents.trim()
+  if (!normalizedContents) return null
+
+  const base64Contents = normalizedContents.startsWith('data:')
+    ? normalizedContents.split(',', 2)[1] || ''
+    : normalizedContents
+  if (!base64Contents) return null
+
+  const pdfBuffer = Buffer.from(base64Contents, 'base64')
+  if (!pdfBuffer.length) return null
+
+  const { uploadUrl, key } = await presignUpload({
+    filename: `amazon-label-${shipmentId}-${packageClientReferenceId}.pdf`,
+    contentType: 'application/pdf',
+    userId,
+    folderKey: 'labels',
+  })
+  const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
+  await axios.put(finalUploadUrl, pdfBuffer, {
+    headers: { 'Content-Type': 'application/pdf' },
+    timeout: 30000,
+  })
+
+  return Array.isArray(key) ? key[0] : key
+}
+
+const resolveAmazonShipmentLabel = async ({
+  shipmentData,
+  amazonPayload,
+  amazonPackage,
+  amazonShipmentId,
+  amazonPackageClientReferenceId,
+  amazonCredentials,
+  userId,
+}: {
+  shipmentData: any
+  amazonPayload: any
+  amazonPackage: any
+  amazonShipmentId?: string | null
+  amazonPackageClientReferenceId?: string | null
+  amazonCredentials: any
+  userId: string
+}) => {
+  const directLabel = extractAmazonShipmentLabel({
+    label: amazonPackage?.label,
+    labelUrl: amazonPackage?.labelUrl,
+    label_url: amazonPackage?.label_url,
+    documentUrl: amazonPackage?.documentUrl,
+    document_url: amazonPackage?.document_url,
+    url: amazonPackage?.url,
+    shipmentDocuments: amazonPayload?.shipmentDocuments,
+    packageDocumentDetails: amazonPayload?.packageDocumentDetails,
+    packages: amazonPayload?.packages,
+  })
+
+  if (directLabel) {
+    return directLabel
+  }
+
+  if (!amazonShipmentId || !amazonPackageClientReferenceId) {
+    return null
+  }
+
+  try {
+    const documentsResponse: any = await getAmazonShipmentDocuments(
+      {
+        shipmentId: amazonShipmentId,
+        packageClientReferenceId: amazonPackageClientReferenceId,
+        format: 'PDF',
+      },
+      amazonCredentials,
+    )
+
+    const documentPayload =
+      documentsResponse?.data?.payload ||
+      documentsResponse?.data?.data ||
+      documentsResponse?.data ||
+      documentsResponse?.payload ||
+      documentsResponse
+
+    const fetchedLabel = extractAmazonShipmentLabel(documentPayload)
+    if (fetchedLabel) return fetchedLabel
+
+    const fetchedContents = extractAmazonShipmentDocumentContents(documentPayload)
+    if (fetchedContents) {
+      const storedLabel = await uploadAmazonShipmentDocumentToR2({
+        contents: fetchedContents,
+        userId,
+        shipmentId: amazonShipmentId,
+        packageClientReferenceId: amazonPackageClientReferenceId,
+      })
+      if (storedLabel) return storedLabel
+    }
+  } catch (error: any) {
+    console.warn('[AmazonShipping] Failed to fetch shipment documents for label passthrough', {
+      shipmentId: amazonShipmentId,
+      packageClientReferenceId: amazonPackageClientReferenceId,
+      message: error?.message || error,
+    })
+  }
+
+  return directLabel
+}
+
+const resolveAmazonProviderLabelReference = async ({
+  order,
+  amazonCredentials,
+}: {
+  order: any
+  amazonCredentials: any | null
+}) => {
+  const directLabel = getAmazonOrderLabelReference(order)
+  if (directLabel) return directLabel
+
+  if (!amazonCredentials) return null
+
+  const providerMeta = parseRecordValue(order?.provider_meta)
+  const amazonMeta = parseRecordValue(providerMeta.amazon || providerMeta.amazonMeta)
+  const amazonPayload = amazonMeta && Object.keys(amazonMeta).length > 0 ? amazonMeta : providerMeta
+  const amazonPackage = {
+    label: firstNonEmptyText(
+      providerMeta.amazon_label,
+      providerMeta.amazonLabel,
+      amazonMeta.label,
+      amazonMeta.labelUrl,
+      amazonMeta.label_url,
+      amazonMeta.documentUrl,
+      amazonMeta.document_url,
+      amazonMeta.url,
+    ),
+  }
+  const amazonShipmentId = firstNonEmptyText(
+    providerMeta.amazon_shipment_id,
+    providerMeta.amazonShipmentId,
+    amazonMeta.shipmentId,
+    amazonMeta.shipment_id,
+    providerMeta.shipment_id,
+    providerMeta.provider_reference,
+    order?.shipment_id,
+  )
+  const amazonPackageClientReferenceId = firstNonEmptyText(
+    providerMeta.amazon_package_client_reference_id,
+    providerMeta.amazonPackageClientReferenceId,
+    amazonMeta.packageClientReferenceId,
+    amazonMeta.package_client_reference_id,
+    providerMeta.package_client_reference_id,
+    providerMeta.client_reference_id,
+  )
+
+  if (!amazonShipmentId || !amazonPackageClientReferenceId) return null
+
+  return resolveAmazonShipmentLabel({
+    shipmentData: { amazon: amazonPayload },
+    amazonPayload,
+    amazonPackage,
+    amazonShipmentId,
+    amazonPackageClientReferenceId,
+    amazonCredentials,
+    userId: String(order?.user_id || ''),
+  })
+}
+
 const getXpressbeesManifestToken = (value: unknown): string => {
   const record = parseRecordValue(value)
   const data = parseRecordValue(record.data)
@@ -345,7 +617,7 @@ const mergeXpressbeesManifestMeta = ({
   return {
     ...meta,
     provider_flow: meta.provider_flow || XPRESSBEES_PRE_SHIP_FLOW,
-    provider_manifest_status: meta.provider_manifest_status || 'accepted',
+    provider_manifest_status: 'accepted',
     provider_manifest_id: meta.provider_manifest_id || providerManifestToken || null,
     xpressbees: {
       ...nested,
@@ -354,7 +626,8 @@ const mergeXpressbeesManifestMeta = ({
         ...existingManifestation,
         provider_manifest_id:
           existingManifestation.provider_manifest_id || providerManifestToken || null,
-        status: existingManifestation.status || 'accepted',
+        status: 'accepted',
+        accepted_at: existingManifestation.accepted_at || new Date().toISOString(),
         skipped_duplicate_provider_call: skippedProviderCall,
         last_provider_manifest_response: providerResponse || existingManifestation.last_provider_manifest_response,
       },
@@ -398,6 +671,51 @@ const buildXpressbeesPickupVendorCode = (params: ShipmentParams, userId: string)
     .toUpperCase()
 
   return `SL${base || userId.replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`.slice(0, 30)
+}
+
+const ensureXpressbeesManifestPickupVendorCode = (order: any) => {
+  const pickupDetails = parseRecordValue(order?.pickup_details)
+  const meta = parseRecordValue(order?.provider_meta)
+  const nested = parseRecordValue(meta.xpressbees)
+  const existingCode = firstNonEmptyText(
+    pickupDetails.pickupVendorCode,
+    pickupDetails.pickup_vendor_code,
+    pickupDetails.vendorCode,
+    pickupDetails.vendor_code,
+    order?.pickupVendorCode,
+    order?.PickupVendorCode,
+    meta.pickup_vendor_code,
+    nested.pickup_vendor_code,
+    process.env.XPRESSBEES_PICKUP_VENDOR_CODE,
+  )
+    .replace(/[^A-Za-z0-9]/g, '')
+    .slice(0, 30)
+
+  const pickupVendorCode =
+    existingCode ||
+    buildXpressbeesPickupVendorCode(
+      {
+        pickup: pickupDetails as ShipmentParams['pickup'],
+      } as ShipmentParams,
+      String(order?.user_id || order?.id || ''),
+    )
+
+  const nextPickupDetails = {
+    ...pickupDetails,
+    pickupVendorCode,
+    pickup_vendor_code: pickupVendorCode,
+  }
+
+  return {
+    order: {
+      ...order,
+      pickup_details: nextPickupDetails,
+      pickupVendorCode,
+      PickupVendorCode: pickupVendorCode,
+    },
+    pickupDetails: nextPickupDetails,
+    generated: !existingCode,
+  }
 }
 
 type XpressbeesAwbCandidate = {
@@ -548,6 +866,10 @@ const normalizeShadowfaxServiceModeValue = (
 
 const resolveCourierBookingLifecycle = (
   integrationType: string,
+  options: {
+    providerFlow?: string | null
+    providerManifestStatus?: string | null
+  } = {},
 ): {
   orderStatus: string
   pickupStatus: string
@@ -570,6 +892,21 @@ const resolveCourierBookingLifecycle = (
       orderStatus: 'pickup_initiated',
       pickupStatus: 'pickup_initiated',
       providerLastStatus: 'shipment_purchased',
+    }
+  }
+
+  if (provider === 'xpressbees') {
+    const providerFlow = String(options.providerFlow || '').trim()
+    const providerManifestStatus = String(options.providerManifestStatus || '').trim().toLowerCase()
+    const needsManualManifest =
+      providerFlow === XPRESSBEES_MANUAL_MANIFEST_FLOW && providerManifestStatus !== 'accepted'
+
+    if (!needsManualManifest) {
+      return {
+        orderStatus: 'pickup_initiated',
+        pickupStatus: 'pickup_requested',
+        providerLastStatus: 'pickup_initiated',
+      }
     }
   }
 
@@ -901,28 +1238,26 @@ const getExpectedWalletDebitFromOrder = (order: {
   freight_charges?: number | string | null
   other_charges?: number | string | null
   cod_charges?: number | string | null
+  gst_percent?: number | string | null
   gst_amount?: number | string | null
   wallet_debit_amount?: number | string | null
 }) => {
-  const storedWalletDebit = Number(order.wallet_debit_amount ?? 0)
-  if (Number.isFinite(storedWalletDebit) && storedWalletDebit > 0) {
-    return storedWalletDebit
-  }
-
-  const freightCharges = Number(order.freight_charges ?? 0)
-  const otherCharges = Number(order.other_charges ?? 0)
-  const codCharges = Number(order.cod_charges ?? 0)
-  const gstAmount = Number(order.gst_amount ?? 0)
-  const baseDebit = String(order.order_type || '').toLowerCase() === 'cod'
-    ? freightCharges + otherCharges + codCharges
-    : freightCharges + otherCharges
-  return baseDebit + (Number.isFinite(gstAmount) ? gstAmount : 0)
+  return resolveGstInclusiveWalletDebit({
+    storedDebit: order.wallet_debit_amount,
+    paymentType: order.order_type,
+    freightCharges: order.freight_charges,
+    otherCharges: order.other_charges,
+    codCharges: order.cod_charges,
+    gstPercent: order.gst_percent ?? WALLET_TRANSACTION_GST_PERCENT,
+    gstAmount: order.gst_amount,
+  })
 }
 
-const getWalletDebitReasonFromOrder = (orderType: string | null | undefined) =>
-  String(orderType || '').toLowerCase() === 'cod'
-    ? 'B2C COD Service Charges'
-    : 'B2C Prepaid Order Payment'
+const getWalletDebitReasonFromOrder = (orderType: string | null | undefined) => {
+  const normalizedOrderType = String(orderType || '').toLowerCase()
+  if (normalizedOrderType === 'reverse') return 'reverse_shipment'
+  return normalizedOrderType === 'cod' ? 'B2C COD Service Charges' : 'B2C Prepaid Order Payment'
+}
 
 export const getOrderRefundOutstanding = async (
   executor: any,
@@ -1944,8 +2279,8 @@ const buildAmazonAddressFromLooseInput = async ({
   }
 
   return buildAmazonShippingAddressFromWarehouse({
-    alias: trimText(name) || trimText(companyName) || 'Feather Global',
-    contactName: trimText(name) || trimText(companyName) || 'Feather Global',
+    alias: trimText(name) || trimText(companyName) || 'Shiplifi',
+    contactName: trimText(name) || trimText(companyName) || 'Shiplifi',
     contactPhone: trimText(phone),
     contactEmail: trimText(email),
     addressLine1: trimText(addressLine1) || `Pincode ${normalizedPincode}`,
@@ -1954,7 +2289,7 @@ const buildAmazonAddressFromLooseInput = async ({
     state: resolvedState,
     country: trimText(country) || trimText(location?.country) || 'India',
     pincode: normalizedPincode,
-    companyName: trimText(companyName) || trimText(name) || 'Feather Global',
+    companyName: trimText(companyName) || trimText(name) || 'Shiplifi',
   })
 }
 
@@ -1966,12 +2301,13 @@ const buildAmazonShippingRatesRequest = async (params: any, userId?: string | nu
   const destinationPincode = trimText(
     params.destination || params.destination_pincode || params.consignee?.pincode,
   )
+  const isReverseShipment = params.isReverse === true || params.payment_type === 'reverse'
 
   let shipFrom
   let pickupWarehouse: PickupWarehouseRecord | null = null
   if (userId && pickupId) {
     pickupWarehouse = await fetchPickupWarehouseRecord(userId, pickupId)
-    if (pickupWarehouse) {
+    if (pickupWarehouse && !isReverseShipment) {
       shipFrom = buildAmazonShippingAddressFromWarehouse({
         alias: pickupWarehouse.addressNickname || pickupWarehouse.contactName || 'Amazon Warehouse',
         contactName: pickupWarehouse.contactName,
@@ -1986,37 +2322,88 @@ const buildAmazonShippingRatesRequest = async (params: any, userId?: string | nu
         pincode: pickupWarehouse.pincode,
         latitude: pickupWarehouse.latitude,
         longitude: pickupWarehouse.longitude,
-        companyName: pickupWarehouse.addressNickname || pickupWarehouse.contactName || 'Feather Global',
+        companyName: pickupWarehouse.addressNickname || pickupWarehouse.contactName || 'Shiplifi',
       })
     }
   }
 
   if (!shipFrom) {
-    shipFrom = await buildAmazonAddressFromLooseInput({
-      name: params.pickup?.name || params.pickupName || params.pickup_name,
-      phone: params.pickup?.phone,
-      addressLine1: params.pickup?.address || params.pickupAddress,
-      addressLine2: params.pickup?.address_2,
-      city: params.pickup?.city || params.pickupCity,
-      state: params.pickup?.state || params.pickupState,
-      country: params.pickup?.country,
-      pincode: params.pickup?.pincode || originPincode,
-      companyName: params.company?.name || params.pickup?.warehouse_name || params.pickupName,
+    shipFrom = isReverseShipment
+      ? await buildAmazonAddressFromLooseInput({
+          name: params.consignee?.name || params.pickupName || params.pickup_name,
+          phone: params.consignee?.phone || params.pickupPhone || params.pickup_phone,
+          email: params.consignee?.email,
+          addressLine1: params.consignee?.address || params.pickupAddress,
+          addressLine2: params.consignee?.address_2,
+          city: params.consignee?.city || params.pickupCity,
+          state: params.consignee?.state || params.pickupState,
+          country: params.consignee?.country,
+          pincode: params.consignee?.pincode || originPincode,
+          companyName: params.consignee?.company_name || params.pickupName,
+        })
+      : await buildAmazonAddressFromLooseInput({
+          name: params.pickup?.name || params.pickupName || params.pickup_name,
+          phone: params.pickup?.phone || params.pickupPhone || params.pickup_phone,
+          addressLine1: params.pickup?.address || params.pickupAddress,
+          addressLine2: params.pickup?.address_2,
+          city: params.pickup?.city || params.pickupCity,
+          state: params.pickup?.state || params.pickupState,
+          country: params.pickup?.country,
+          pincode: params.pickup?.pincode || originPincode,
+          companyName: params.company?.name || params.pickup?.warehouse_name || params.pickupName,
+        })
+  }
+
+  let shipTo
+  if (isReverseShipment && pickupWarehouse) {
+    shipTo = buildAmazonShippingAddressFromWarehouse({
+      alias: pickupWarehouse.addressNickname || pickupWarehouse.contactName || 'Amazon Warehouse',
+      contactName: pickupWarehouse.contactName,
+      contactPhone: pickupWarehouse.contactPhone,
+      contactEmail: pickupWarehouse.contactEmail,
+      addressLine1: pickupWarehouse.addressLine1,
+      addressLine2: pickupWarehouse.addressLine2,
+      landmark: pickupWarehouse.landmark,
+      city: pickupWarehouse.city,
+      state: pickupWarehouse.state,
+      country: pickupWarehouse.country,
+      pincode: pickupWarehouse.pincode,
+      latitude: pickupWarehouse.latitude,
+      longitude: pickupWarehouse.longitude,
+      companyName: pickupWarehouse.addressNickname || pickupWarehouse.contactName || 'Shiplifi',
     })
   }
 
-  const shipTo = await buildAmazonAddressFromLooseInput({
-    name: params.consignee?.name || params.deliveryName || 'Customer',
-    phone: params.consignee?.phone || params.deliveryPhone,
-    email: params.consignee?.email,
-    addressLine1: params.consignee?.address || params.deliveryAddress,
-    addressLine2: params.consignee?.address_2,
-    city: params.consignee?.city || params.deliveryCity,
-    state: params.consignee?.state || params.deliveryState,
-    country: params.consignee?.country,
-    pincode: params.consignee?.pincode || destinationPincode,
-    companyName: params.consignee?.company_name,
-  })
+  if (!shipTo) {
+    shipTo = isReverseShipment
+      ? await buildAmazonAddressFromLooseInput({
+          name: params.rto?.name || params.pickup?.name || params.deliveryName || 'Return Warehouse',
+          phone: params.rto?.phone || params.pickup?.phone || params.deliveryPhone,
+          addressLine1: params.rto?.address || params.pickup?.address || params.deliveryAddress,
+          addressLine2: params.rto?.address_2 || params.pickup?.address_2,
+          city: params.rto?.city || params.pickup?.city || params.deliveryCity,
+          state: params.rto?.state || params.pickup?.state || params.deliveryState,
+          country: params.rto?.country || params.pickup?.country,
+          pincode: params.rto?.pincode || params.pickup?.pincode || destinationPincode,
+          companyName:
+            params.company?.name ||
+            params.rto?.warehouse_name ||
+            params.pickup?.warehouse_name ||
+            params.deliveryName,
+        })
+      : await buildAmazonAddressFromLooseInput({
+          name: params.consignee?.name || params.deliveryName || 'Customer',
+          phone: params.consignee?.phone || params.deliveryPhone,
+          email: params.consignee?.email,
+          addressLine1: params.consignee?.address || params.deliveryAddress,
+          addressLine2: params.consignee?.address_2,
+          city: params.consignee?.city || params.deliveryCity,
+          state: params.consignee?.state || params.deliveryState,
+          country: params.consignee?.country,
+          pincode: params.consignee?.pincode || destinationPincode,
+          companyName: params.consignee?.company_name,
+        })
+  }
 
   const countryCode = normalizeAmazonCountry(shipTo.countryCode || shipFrom.countryCode)
   const currency = getAmazonCurrencyForCountry(countryCode)
@@ -2104,7 +2491,7 @@ const buildAmazonShippingRatesRequest = async (params: any, userId?: string | nu
         ],
       },
     ],
-    shipmentType: params.isReverse === true || params.payment_type === 'reverse' ? 'RETURNS' : 'FORWARD',
+    shipmentType: isReverseShipment ? 'RETURNS' : 'FORWARD',
   }
 
   if (gstNumber) {
@@ -2234,7 +2621,7 @@ function buildPickupFromWarehouse(
     city: warehouse.city,
     state: warehouse.state,
     pincode: warehouse.pincode,
-    name: warehouse.contactName || 'Feather Global',
+    name: warehouse.contactName || 'Shiplifi',
     phone: warehouse.contactPhone || '',
     gst_number: previousPickup?.gst_number ?? warehouse.gstNumber ?? '',
     pickup_date: previousPickup?.pickup_date ?? fallbackDate,
@@ -2362,8 +2749,6 @@ interface NimbusServiceabilityParams {
   shipment_type?: 'b2b' | 'b2c'
   breadth?: number
   height?: number
-  numberOfBoxes?: number
-  pieceCount?: number
   isReverse?: boolean
   preferred_carriers?: number[]
   delivery_type?: number
@@ -2758,18 +3143,6 @@ const convertKgToGrams = (value: unknown) => {
   const numericValue = Number(value ?? 0)
   if (!Number.isFinite(numericValue) || numericValue <= 0) return 0
   return Math.round(numericValue * 1000)
-}
-
-const isShadowfaxReverseReference = (value: unknown) => {
-  const normalized = String(value || '').trim().toLowerCase()
-  if (!normalized) return false
-
-  return (
-    normalized.startsWith('r') ||
-    normalized.includes('rev') ||
-    normalized.includes('return') ||
-    normalized.includes('rto')
-  )
 }
 
 const normalizeServiceabilityWeightToGrams = (value: unknown) => {
@@ -3762,7 +4135,6 @@ export const fetchAvailableCouriersWithRates = async (
     let shadowfaxAvailable = false
     let shadowfaxResp: any = null
     let shadowfaxEDD = '3-5 Days'
-    let shadowfaxLiveCheckAttempted = false
     if (shouldRunLiveServiceability && enabledProviders.has('shadowfax')) {
       const shadowfax = new ShadowfaxService()
       const originPincode = normalizePincode(params.origin ?? params.source_pincode)?.toString()
@@ -3771,7 +4143,6 @@ export const fetchAvailableCouriersWithRates = async (
       )?.toString()
 
       if (originPincode && destinationPincode) {
-        shadowfaxLiveCheckAttempted = true
         try {
           const isReverseShipment =
             params.isReverse === true ||
@@ -3797,7 +4168,8 @@ export const fetchAvailableCouriersWithRates = async (
             serviceable: shadowfaxResp.serviceable,
             services: shadowfaxResp.services,
             mode: shadowfaxResp?.mode || shadowfaxRequestedMode,
-            service: shadowfaxRequestedService,
+            requestedService: shadowfaxRequestedService,
+            service: shadowfaxResp?.service || shadowfaxRequestedService,
           })
         } catch (err: any) {
           console.error(
@@ -3825,6 +4197,33 @@ export const fetchAvailableCouriersWithRates = async (
         services: shadowfaxResp?.services ?? [],
         candidates: providerCourierBuckets.get('shadowfax')?.rows.length ?? 0,
       })
+    }
+
+    const getShadowfaxBookingBlockReason = (resp: any) => {
+      if (!resp || resp.serviceable !== false) return null
+
+      const attempts = Array.isArray(resp?.raw?.attempts) ? resp.raw.attempts : []
+      const originUnavailable = attempts.some((attempt: any) => attempt?.originAvailable === false)
+      const destinationUnavailable = attempts.some(
+        (attempt: any) => attempt?.destinationAvailable === false,
+      )
+      const codUnavailable =
+        normalizedPaymentType === 'cod' &&
+        attempts.some((attempt: any) => attempt?.destinationCodAvailable === false)
+
+      if (originUnavailable) {
+        return 'Shadowfax pickup is not live-serviceable for this pickup pincode.'
+      }
+
+      if (destinationUnavailable) {
+        return 'Shadowfax delivery is not live-serviceable for this destination pincode.'
+      }
+
+      if (codUnavailable) {
+        return 'Shadowfax COD is not live-serviceable for this destination pincode.'
+      }
+
+      return 'Shadowfax live serviceability failed for this pickup and delivery combination.'
     }
 
     let amazonRateResponseData: any = null
@@ -4009,7 +4408,12 @@ export const fetchAvailableCouriersWithRates = async (
         if (serviceableProviders.has(providerKey) || !bucket.rows.length) continue
         if (!localRateProviders.has(providerKey)) continue
         if (providerKey === AMAZON_PROVIDER_KEY) continue
-        if (providerKey === 'shadowfax' && shadowfaxLiveCheckAttempted) continue
+
+        // If Shadowfax definitively rejects the lane, do not expose a local
+        // rate-card fallback that cannot be booked.
+        const shadowfaxBookingBlockReason =
+          providerKey === 'shadowfax' ? getShadowfaxBookingBlockReason(shadowfaxResp) : null
+        if (shadowfaxBookingBlockReason) continue
 
         const providerRateCards = localRates.filter(
           (rate) =>
@@ -4102,8 +4506,10 @@ export const fetchAvailableCouriersWithRates = async (
                   normalizeB2CShippingMode(params.shadowfax_service_mode) ||
                   shadowfaxRequestedService,
                 service_mode:
-                  normalizeB2CShippingMode(params.shadowfax_service_mode) ||
-                  shadowfaxRequestedService,
+                  normalizeShadowfaxServiceModeValue(
+                    shadowfaxResp?.service || providerMeta.raw?.service_mode,
+                    shadowfaxRequestedService,
+                  ),
               }
             : null
         const amazonRate =
@@ -4168,6 +4574,7 @@ export const fetchAvailableCouriersWithRates = async (
             amazonRecord,
           })
         }
+        const bookingAvailable = providerMeta.raw?.booking_available !== false
         providerMeta.matchedCourierIds.add(Number(courier.id))
         const delhiveryShippingMode =
           providerKey === 'delhivery'
@@ -4192,6 +4599,9 @@ export const fetchAvailableCouriersWithRates = async (
           prepaid: providerMeta.prepaidAvailable,
           edd: providerMeta.edd,
           approxZone: null,
+          booking_available: bookingAvailable,
+          can_book: bookingAvailable,
+          booking_blocked_reason: providerMeta.raw?.booking_blocked_reason ?? null,
           createdAt: courier.createdAt,
           shipping_mode: delhiveryShippingMode,
           service_mode: delhiveryShippingMode,
@@ -4381,11 +4791,32 @@ export const fetchAvailableCouriersWithRates = async (
           ? courierRates.filter((r) => normalizeB2CShippingMode(r.mode) === providerMode)
           : courierRates
         const blankModeCourierRates = courierRates.filter((r) => !normalizeB2CShippingMode(r.mode))
-        const rawEffectiveCourierRates = providerMode
-          ? matchedCourierRates.length
-            ? matchedCourierRates
-            : blankModeCourierRates
-          : courierRates
+        const shadowfaxRequestedRateMode =
+          providerKey === 'shadowfax'
+            ? normalizeB2CShippingMode(
+                (params as any).shadowfax_service_mode || shadowfaxRequestedService,
+              )
+            : ''
+        const shadowfaxRequestedModeRates =
+          providerKey === 'shadowfax' && shadowfaxRequestedRateMode
+            ? courierRates.filter(
+                (r) => normalizeB2CShippingMode(r.mode) === shadowfaxRequestedRateMode,
+              )
+            : []
+        const rawEffectiveCourierRates =
+          providerKey === 'shadowfax'
+            ? matchedCourierRates.length
+              ? matchedCourierRates
+              : shadowfaxRequestedModeRates.length
+                ? shadowfaxRequestedModeRates
+                : blankModeCourierRates.length
+                  ? blankModeCourierRates
+                  : courierRates
+            : providerMode
+              ? matchedCourierRates.length
+                ? matchedCourierRates
+                : blankModeCourierRates
+              : courierRates
         const effectiveCourierRates = mergeResolvedB2CRateCards(rawEffectiveCourierRates, {
           serviceProvider: providerKey,
         })
@@ -4400,9 +4831,12 @@ export const fetchAvailableCouriersWithRates = async (
             courierRateCount: courierRates.length,
             matchedCourierRateCount: matchedCourierRates.length,
             blankModeCourierRateCount: blankModeCourierRates.length,
+            shadowfaxRequestedRateMode,
+            shadowfaxRequestedModeRateCount: shadowfaxRequestedModeRates.length,
             rawEffectiveCourierRateCount: rawEffectiveCourierRates.length,
             effectiveCourierRateCount: effectiveCourierRates.length,
             courierRateModes: courierRates.map((r) => r.mode),
+            selectedRateModes: rawEffectiveCourierRates.map((r) => r.mode),
           })
         }
 
@@ -4490,7 +4924,7 @@ export const fetchAvailableCouriersWithRates = async (
                   : courier.shipping_mode,
             service_mode:
               providerKey === 'shadowfax'
-                ? applicableRate.mode || courier?.provider_serviceability?.service_mode || null
+                ? courier?.provider_serviceability?.service_mode || applicableRate.mode || null
                 : providerKey === 'delhivery'
                   ? delhiveryShippingMode || applicableRate.mode || courier.service_mode || null
                   : courier.service_mode,
@@ -4501,7 +4935,7 @@ export const fetchAvailableCouriersWithRates = async (
                     shipping_mode:
                       applicableRate.mode || courier?.provider_serviceability?.shipping_mode || null,
                     service_mode:
-                      applicableRate.mode || courier?.provider_serviceability?.service_mode || null,
+                      courier?.provider_serviceability?.service_mode || applicableRate.mode || null,
                   }
                 : providerKey === 'delhivery'
                   ? {
@@ -4551,27 +4985,31 @@ export const fetchAvailableCouriersWithRates = async (
     // ✅ Final filter: Ensure all couriers have correct business_type
     combined = await filterCouriersByBusinessType(combined, 'b2c')
 
+    const activeLocalRateKey = isReverseShipment ? 'rto' : 'forward'
+    const getActiveLocalRate = (courier: any) =>
+      courier?.localRates?.[activeLocalRateKey] ?? courier?.localRates?.forward ?? null
+
     combined = combined.map((courier: any) => {
-      const forwardRate = courier?.localRates?.forward
-      if (!forwardRate) return courier
+      const activeRate = getActiveLocalRate(courier)
+      if (!activeRate) return courier
 
       return {
         ...courier,
-        rate: forwardRate.rate ?? courier.rate ?? null,
-        freight_charges: forwardRate.rate ?? courier.freight_charges ?? null,
-        cod_charges: forwardRate.cod_charges ?? courier.cod_charges ?? 0,
-        other_charges: forwardRate.other_charges ?? courier.other_charges ?? 0,
-        total_charges: forwardRate.total_charges ?? courier.total_charges ?? null,
+        rate: activeRate.rate ?? courier.rate ?? null,
+        freight_charges: activeRate.rate ?? courier.freight_charges ?? null,
+        cod_charges: activeRate.cod_charges ?? courier.cod_charges ?? 0,
+        other_charges: activeRate.other_charges ?? courier.other_charges ?? 0,
+        total_charges: activeRate.total_charges ?? courier.total_charges ?? null,
         courier_cost_estimate:
-          forwardRate.total_charges ?? courier.courier_cost_estimate ?? courier.total_charges ?? null,
-        chargeable_weight: forwardRate.chargeable_weight ?? null,
-        volumetric_weight: forwardRate.volumetric_weight ?? null,
+          activeRate.total_charges ?? courier.courier_cost_estimate ?? courier.total_charges ?? null,
+        chargeable_weight: activeRate.chargeable_weight ?? null,
+        volumetric_weight: activeRate.volumetric_weight ?? null,
         localRates: {
           ...courier.localRates,
-          forward: {
-            ...forwardRate,
-            chargeable_weight: forwardRate.chargeable_weight ?? null,
-            volumetric_weight: forwardRate.volumetric_weight ?? null,
+          [activeLocalRateKey]: {
+            ...activeRate,
+            chargeable_weight: activeRate.chargeable_weight ?? null,
+            volumetric_weight: activeRate.volumetric_weight ?? null,
           },
         },
       }
@@ -4625,12 +5063,12 @@ export const fetchAvailableCouriersWithRates = async (
         } else if (profile.name === 'economy') {
           combined = combined.sort(
             (a: any, b: any) =>
-              (a.localRates.forward?.rate ?? Infinity) - (b.localRates.forward?.rate ?? Infinity),
+              (getActiveLocalRate(a)?.rate ?? Infinity) - (getActiveLocalRate(b)?.rate ?? Infinity),
           )
         } else {
           combined = combined.sort(
             (a: any, b: any) =>
-              (a.localRates.forward?.rate ?? Infinity) - (b.localRates.forward?.rate ?? Infinity),
+              (getActiveLocalRate(a)?.rate ?? Infinity) - (getActiveLocalRate(b)?.rate ?? Infinity),
           )
         }
       }
@@ -4646,7 +5084,7 @@ export const fetchAvailableCouriersWithRates = async (
 
       const sortedByRate = [...combined].sort(
         (a, b) =>
-          (a.localRates.forward?.rate ?? Infinity) - (b.localRates.forward?.rate ?? Infinity),
+          (getActiveLocalRate(a)?.rate ?? Infinity) - (getActiveLocalRate(b)?.rate ?? Infinity),
       )
       if (sortedByRate.length) cheapestCourierId = makeCourierIdentityKey(sortedByRate[0])
 
@@ -4983,10 +5421,6 @@ export const fetchAvailableCouriersWithRatesB2B = async (
     combined = await Promise.all(
       combined.map(async (courier: any) => {
         try {
-          const pieceCount = Math.max(
-            Number((params as any).numberOfBoxes ?? params.pieceCount ?? 1) || 1,
-            1,
-          )
           const rateResult = await calculateB2BRate({
             originPincode: originPincode || '',
             destinationPincode: destinationPincode || '',
@@ -5004,8 +5438,6 @@ export const fetchAvailableCouriersWithRatesB2B = async (
             pickupDate: (params as any).pickup_date,
             deliveryAddress: '',
             planId: activePlanId ?? undefined,
-            pieceCount,
-            isSinglePiece: pieceCount === 1,
           })
 
           return {
@@ -5151,7 +5583,6 @@ export interface ShipmentParams {
   plastic_packaging?: boolean | string | number
   quantity?: string | number
   country?: string
-  return_reason?: string
   consignee: {
     name: string
     company_name?: string
@@ -5200,8 +5631,6 @@ export interface ShipmentParams {
   preferred_dispatch_date?: string
   delayed_dispatch?: boolean
   mps?: boolean
-  master_waybill?: string
-  waybills?: string[]
   obd_shipment?: boolean
   qc_details?: any
   category_of_goods?: string
@@ -5361,10 +5790,10 @@ export async function createB2COrder({
       : String(providerModeRaw).trim() || null
   const providerService =
     String(
-      params.shadowfax_service_mode ??
-        shipmentData?.provider_service ??
+      shipmentData?.provider_service ??
         shipmentData?.service_mode ??
         shipmentData?.service ??
+        params.shadowfax_service_mode ??
         '',
     ).trim() || null
   const tagParts = String(params.tags || '')
@@ -5376,7 +5805,7 @@ export async function createB2COrder({
     const shadowfaxMode = String(providerModeRaw).trim()
       ? normalizeShadowfaxForwardModeValue(providerModeRaw)
       : ''
-    const shadowfaxService = String(params.shadowfax_service_mode || '')
+    const shadowfaxService = String(providerService || '')
       .trim()
       .toLowerCase()
     const shadowfaxReference = String(
@@ -5611,10 +6040,10 @@ async function updateExistingB2COrderWithShipment({
       : String(providerModeRaw).trim() || null
   const providerService =
     String(
-      params.shadowfax_service_mode ??
-        shipmentData?.provider_service ??
+      shipmentData?.provider_service ??
         shipmentData?.service_mode ??
         shipmentData?.service ??
+        params.shadowfax_service_mode ??
         '',
     ).trim() || null
   const tagParts = Array.from(
@@ -5752,7 +6181,7 @@ export const createB2CShipmentService = async (
     if (tagValue.includes('shadowfax_mode=warehouse')) return 'warehouse'
     if (tagValue.includes('shadowfax_mode=marketplace')) return 'marketplace'
 
-    return 'warehouse'
+    return 'marketplace'
   }
 
   const resolveShadowfaxServiceMode = (): 'regular' | 'surface' => {
@@ -5916,6 +6345,7 @@ export const createB2CShipmentService = async (
     packageBreadth,
     packageHeight,
     orderNumber,
+    isReverse,
   }: {
     ekart: EkartService
     originPin: string
@@ -5927,6 +6357,7 @@ export const createB2CShipmentService = async (
     packageBreadth?: number
     packageHeight?: number
     orderNumber?: string
+    isReverse?: boolean
   }) => {
     const invoiceAmount = Number(orderAmount ?? 0) > 0 ? Number(orderAmount) : 1
     const normalizedPaymentType = paymentType === 'cod' ? 'COD' : 'Prepaid'
@@ -5952,7 +6383,54 @@ export const createB2CShipmentService = async (
         )
       }
 
-      if (normalizedPaymentType === 'COD' && resp.codAvailable === false) {
+      if (isReverse) {
+        const readPath = (source: any, path: string) =>
+          path.split('.').reduce((current: any, part: string) => {
+            if (current === undefined || current === null) return undefined
+            return current?.[part]
+          }, source)
+        const toBoolean = (value: any): boolean | undefined => {
+          if (typeof value === 'boolean') return value
+          if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase()
+            if (['true', 'yes', '1', 'available', 'serviceable'].includes(normalized)) return true
+            if (['false', 'no', '0', 'unavailable', 'not available', 'not serviceable'].includes(normalized)) {
+              return false
+            }
+          }
+          if (typeof value === 'number') return value > 0
+          return undefined
+        }
+        const readAnyBoolean = (paths: string[]) => {
+          const sources = [resp.availability, ...(Array.isArray(resp.records) ? resp.records : [])]
+          for (const source of sources) {
+            for (const path of paths) {
+              const parsed = toBoolean(readPath(source, path))
+              if (parsed !== undefined) return parsed
+            }
+          }
+          return undefined
+        }
+        const reversePickup = readAnyBoolean([
+          'reverse_pickup',
+          'reversePickup',
+          'reverse.pickup',
+          'details.reverse_pickup',
+        ])
+        const reverseDrop = readAnyBoolean([
+          'reverse_drop',
+          'reverseDrop',
+          'reverse.drop',
+          'details.reverse_drop',
+        ])
+
+        if (reversePickup === false || reverseDrop === false) {
+          throw new HttpError(
+            400,
+            `Ekart reverse pickup is not serviceable between pickup pincode ${originPin} and destination pincode ${destinationPin} for order ${orderNumber ?? 'unknown'}.`,
+          )
+        }
+      } else if (normalizedPaymentType === 'COD' && resp.codAvailable === false) {
         throw new HttpError(
           400,
           `Ekart COD is not serviceable for destination pincode ${destinationPin}. Please choose prepaid or another courier.`,
@@ -6291,8 +6769,8 @@ export const createB2CShipmentService = async (
       if (searchTerm) {
         conditions.push(
           or(
-            eq(addresses.addressNickname, searchTerm),
-            eq(addresses.contactName, searchTerm),
+            ilike(addresses.addressNickname, `%${searchTerm}%`),
+            ilike(addresses.contactName, `%${searchTerm}%`),
           ),
         )
       }
@@ -6337,11 +6815,6 @@ export const createB2CShipmentService = async (
           params.pickup_location_alias = warehouseName
           params.return_location_alias = params.return_location_alias || warehouseName
         }
-      } else if (searchTerm) {
-        throw new HttpError(
-          400,
-          `Pickup warehouse "${searchTerm}" was not found. Warehouse names are case-sensitive and must exactly match the Delhivery registration.`,
-        )
       }
     } catch (err: any) {
       console.warn('⚠️ Failed to resolve pickup address from DB:', err?.message || err)
@@ -6370,9 +6843,10 @@ export const createB2CShipmentService = async (
     )
   }
   params.payment_type = normalizedPaymentType as ShipmentParams['payment_type']
+  const isReverseShipment = params.isReverse === true || normalizedPaymentType === 'reverse'
 
   const orderAmount = Number(params.order_amount ?? 0)
-  if (!orderAmount || Number.isNaN(orderAmount)) {
+  if (!isReverseShipment && (!orderAmount || Number.isNaN(orderAmount))) {
     throw new HttpError(
       400,
       'order_amount is required and must be greater than 0 for Delhivery bookings.',
@@ -6428,7 +6902,7 @@ export const createB2CShipmentService = async (
 
     params.company = {
       ...(params.company || {}),
-      name: resolvedCompanyName || 'Feather Global',
+      name: resolvedCompanyName || 'Shiplifi',
       gst: resolvedCompanyGst || '',
     }
 
@@ -6490,7 +6964,10 @@ export const createB2CShipmentService = async (
   const giftWrap = Number(params?.gift_wrap ?? 0)
   const transactionFee = Number(params?.transaction_fee ?? 0)
   const prepaidAmt = Number(params?.prepaid_amount ?? 0)
-  const isReverseShipment = params.isReverse === true || params.payment_type === 'reverse'
+  const freightOriginPincode = isReverseShipment ? bookingDestinationPincode : bookingPickupPincode
+  const freightDestinationPincode = isReverseShipment
+    ? normalizePincode(params.rto?.pincode ?? params.pickup?.pincode ?? bookingPickupPincode)
+    : bookingDestinationPincode
 
   const courierIdForRate =
     selectedDelhiveryCourierId ?? (params.courier_id ? Number(params.courier_id) : null)
@@ -6513,7 +6990,7 @@ export const createB2CShipmentService = async (
     slabs: null,
   }
 
-  if (courierIdForRate && bookingPickupPincode && bookingDestinationPincode) {
+  if (courierIdForRate && freightOriginPincode && freightDestinationPincode) {
     try {
       const computedFreight = await computeB2CFreightForOrder({
         userId,
@@ -6523,8 +7000,8 @@ export const createB2CShipmentService = async (
         selectedRateCardId,
         selectedMaxSlabWeight,
         zoneIdOverride: params.zone_id ?? null,
-        destinationPincode: bookingDestinationPincode,
-        originPincode: bookingPickupPincode,
+        destinationPincode: freightDestinationPincode,
+        originPincode: freightOriginPincode,
         weightG: normalizeServiceabilityWeightToGrams(params.package_weight ?? params.weight ?? 0),
         lengthCm: Number(params.package_length ?? params.length ?? 0),
         breadthCm: Number(params.package_breadth ?? params.breadth ?? 0),
@@ -6547,8 +7024,8 @@ export const createB2CShipmentService = async (
       console.error('❌ Failed to compute slab-based freight; aborting shipment creation', {
         order_number: params.order_number,
         error: freightErr?.message || freightErr,
-        pickup_pincode: bookingPickupPincode,
-        destination_pincode: bookingDestinationPincode,
+        pickup_pincode: freightOriginPincode,
+        destination_pincode: freightDestinationPincode,
         courier_id: courierIdForRate,
       })
       if (freightErr instanceof HttpError) {
@@ -6561,22 +7038,29 @@ export const createB2CShipmentService = async (
     }
   }
 
-  if (!isReverseShipment && (!Number.isFinite(freightCharges) || freightCharges <= 0)) {
-    throw new HttpError(400, 'No Feather Global rate card freight available for selected courier/zone')
+  if (!Number.isFinite(freightCharges) || freightCharges <= 0) {
+    throw new HttpError(
+      400,
+      isReverseShipment
+        ? 'No reverse pickup rate card freight available for selected courier/zone'
+        : 'No Shiplifi rate card freight available for selected courier/zone',
+    )
   }
 
   const configuredGstPercent = WALLET_TRANSACTION_GST_PERCENT
   let estimatedWalletDebit = 0
   let estimatedWalletBaseDebit = 0
   let estimatedWalletGstAmount = 0
-  if (!isReverseShipment) {
-    if (params.payment_type === 'prepaid') {
-      estimatedWalletBaseDebit = freightCharges + otherCharges
-    } else if (params.payment_type === 'cod') {
-      estimatedWalletBaseDebit = freightCharges + otherCharges + codCharges
-    }
-    const estimatedTaxBreakup = calculateGstBreakup(estimatedWalletBaseDebit, configuredGstPercent)
-    estimatedWalletDebit = estimatedTaxBreakup.baseAmount
+  {
+    const estimatedTaxBreakup = calculateBookingWalletDebit({
+      paymentType: params.payment_type,
+      freightCharges,
+      otherCharges,
+      codCharges,
+      gstPercent: configuredGstPercent,
+    })
+    estimatedWalletBaseDebit = estimatedTaxBreakup.baseAmount
+    estimatedWalletDebit = estimatedTaxBreakup.totalAmount
     estimatedWalletGstAmount = estimatedTaxBreakup.gstAmount
 
     if (estimatedWalletDebit > 0) {
@@ -6597,7 +7081,7 @@ export const createB2CShipmentService = async (
         estimated_wallet_base_debit: estimatedWalletBaseDebit,
         gst_percent: configuredGstPercent,
         gst_amount: estimatedWalletGstAmount,
-        gst_included_in_wallet_debit: false,
+        gst_included_in_wallet_debit: true,
         estimated_wallet_debit: estimatedWalletDebit,
         freight_charges: freightCharges,
         other_charges: otherCharges,
@@ -6606,16 +7090,18 @@ export const createB2CShipmentService = async (
 
       if (walletBalance < estimatedWalletDebit) {
         const errorMessage =
-          params.payment_type === 'prepaid'
-            ? 'Insufficient wallet balance for prepaid order'
-            : 'Insufficient wallet balance for COD service charges'
+          isReverseShipment
+            ? 'Insufficient wallet balance for reverse shipment'
+            : params.payment_type === 'prepaid'
+              ? 'Insufficient wallet balance for prepaid order'
+              : 'Insufficient wallet balance for COD service charges'
         console.error('❌ Wallet balance check failed:', {
           wallet_balance: walletBalance,
           required_amount: estimatedWalletDebit,
           shortfall: estimatedWalletDebit - walletBalance,
           gst_percent: configuredGstPercent,
           gst_amount: estimatedWalletGstAmount,
-          gst_included_in_wallet_debit: false,
+          gst_included_in_wallet_debit: true,
         })
         throw new Error(errorMessage)
       }
@@ -6718,26 +7204,15 @@ export const createB2CShipmentService = async (
     provider_manifest_id?: string | null
     provider_manifest_status?: string
     provider_manifested_at?: string
-    preferred_dispatch_date?: string
-    delayed_dispatch?: boolean
     pickup_vendor_code?: string
     manifest_attempts?: any
     xpressbees?: any
-    ekart?: {
-      delayed_dispatch?: boolean
-      preferred_dispatch_date?: string
-      dispatch_date_updated_at?: string
-      dispatch_date_update_request?: {
-        ids?: string[]
-        dispatchDate?: string
-      }
-      dispatch_date_update_response?: any
-    }
     amazon_rate_id?: string
     amazon_carrier_id?: string
     amazon_tracking_id?: string
     amazon_shipment_id?: string | null
     amazon_package_client_reference_id?: string | null
+    amazon_label?: string | null
   } = {}
 
   const rollbackActions: Array<() => Promise<void>> = []
@@ -6772,6 +7247,37 @@ export const createB2CShipmentService = async (
               ? 'Shadowfax'
               : 'Amazon Shipping'
 
+    if (!isReverseShipment) {
+      const orderDateRaw =
+        params.order_date instanceof Date ? params.order_date.toISOString() : params.order_date
+      const bookingPickupSchedule = normalizePickupSchedule({
+        pickupDateRaw:
+          params.pickup_date ||
+          params.pickup?.pickup_date ||
+          orderDateRaw ||
+          new Date().toISOString(),
+        pickupTimeRaw: params.pickup_time || params.pickup?.pickup_time || getDefaultPickupTime(),
+        isManifestRetry: false,
+      })
+
+      params.pickup_date = bookingPickupSchedule.pickupDate
+      params.pickup_time = bookingPickupSchedule.pickupTime
+      params.pickup = {
+        ...(params.pickup || ({} as ShipmentParams['pickup'])),
+        pickup_date: bookingPickupSchedule.pickupDate,
+        pickup_time: bookingPickupSchedule.pickupTime,
+      }
+      if (integrationType === 'shadowfax' && !params.preferred_dispatch_date) {
+        params.preferred_dispatch_date = bookingPickupSchedule.pickupDate
+      }
+
+      console.log(`[${providerName}] Booking pickup schedule resolved`, {
+        order_number: params.order_number,
+        pickup_date: bookingPickupSchedule.pickupDate,
+        pickup_time: bookingPickupSchedule.pickupTime,
+      })
+    }
+
     let shipmentSuccessPackage: any = null
     let providerCourierCost: number | null = null
     let providerSortCode: string | null = null
@@ -6779,29 +7285,28 @@ export const createB2CShipmentService = async (
       console.log(
         isReverseShipment
           ? '→ Using Delhivery Reverse Shipment API...'
-          : '→ Creating Delhivery shipment now; pickup request will be sent on manifest...',
+          : '→ Creating Delhivery shipment now; pickup request will be scheduled after booking...',
       )
       const delhivery = new DelhiveryService()
       delhiveryService = delhivery
 
       if (isReverseShipment) {
-        if (!originalOrderId) {
-          throw new Error('Original order ID is required for reverse shipment')
-        }
+        let originalOrder: typeof b2c_orders.$inferSelect | null = null
+        if (originalOrderId) {
+          ;[originalOrder] = await db
+            .select()
+            .from(b2c_orders)
+            .where(and(eq(b2c_orders.id, originalOrderId), eq(b2c_orders.user_id, userId)))
+            .limit(1)
 
-        const [originalOrder] = await db
-          .select()
-          .from(b2c_orders)
-          .where(eq(b2c_orders.id, originalOrderId))
-          .limit(1)
-
-        if (!originalOrder) {
-          throw new Error('Original order not found for reverse shipment')
+          if (!originalOrder) {
+            throw new Error('Original order not found for reverse shipment')
+          }
         }
 
         shipmentData = await delhivery.createReverseShipment({
-          originalAwb: originalOrder.awb_number || '',
-          originalOrderId: originalOrder.order_number || undefined,
+          originalAwb: originalOrder?.awb_number || '',
+          originalOrderId: originalOrder?.order_number || params.order_number,
           consignee: params.consignee,
           pickup: params.pickup,
           rto: params.rto,
@@ -6811,7 +7316,6 @@ export const createB2CShipmentService = async (
           package_breadth: params.package_breadth,
           package_height: params.package_height,
           order_items: params.order_items,
-          qc_details: params.qc_details,
         })
       } else {
         const originPin = bookingPickupPincode
@@ -6875,8 +7379,11 @@ export const createB2CShipmentService = async (
       const ekart = new EkartService()
       await ensureEkartServiceable({
         ekart,
-        originPin: bookingPickupPincode,
-        destinationPin: bookingDestinationPincode,
+        originPin: isReverseShipment ? bookingDestinationPincode : bookingPickupPincode,
+        destinationPin: isReverseShipment
+          ? normalizePincode(params.rto?.pincode ?? params.pickup?.pincode ?? bookingPickupPincode) ||
+            bookingPickupPincode
+          : bookingDestinationPincode,
         paymentType: params.payment_type,
         orderAmount: Number(params.order_amount ?? 0),
         packageWeight: Number(params.package_weight ?? params.weight ?? 0),
@@ -6884,6 +7391,7 @@ export const createB2CShipmentService = async (
         packageBreadth: Number(params.package_breadth ?? params.breadth ?? 0),
         packageHeight: Number(params.package_height ?? params.height ?? 0),
         orderNumber: params.order_number,
+        isReverse: isReverseShipment,
       })
 
       if (!params.delayed_dispatch) {
@@ -6943,24 +7451,6 @@ export const createB2CShipmentService = async (
         manifest: undefined,
         courier_cost: providerCourierCost,
         sort_code: providerSortCode,
-        provider_flow: isReverseShipment ? 'reverse_pickup' : 'forward_shipment',
-        provider_reference:
-          shipmentData?.shipment_id ??
-          shipmentData?.tracking_id ??
-          shipmentData?.awb_number ??
-          ekartWaybill ??
-          undefined,
-        provider_request_id:
-          shipmentData?.tracking_id ??
-          shipmentData?.awb_number ??
-          ekartWaybill ??
-          undefined,
-        preferred_dispatch_date: params.preferred_dispatch_date || undefined,
-        delayed_dispatch: Boolean(params.delayed_dispatch),
-        ekart: {
-          delayed_dispatch: Boolean(params.delayed_dispatch),
-          preferred_dispatch_date: params.preferred_dispatch_date || undefined,
-        },
       }
     } else if (integrationType === 'xpressbees') {
       console.log(
@@ -6995,22 +7485,21 @@ export const createB2CShipmentService = async (
       if (isReverseShipment) {
         xpressbeesProviderFlow = XPRESSBEES_SHIPMENTS2_FLOW
         xpressbeesProviderManifestStatus = null
-        if (!originalOrderId) {
-          throw new Error('Original order ID is required for reverse shipment')
-        }
+        let originalOrder: typeof b2c_orders.$inferSelect | null = null
+        if (originalOrderId) {
+          ;[originalOrder] = await db
+            .select()
+            .from(b2c_orders)
+            .where(and(eq(b2c_orders.id, originalOrderId), eq(b2c_orders.user_id, userId)))
+            .limit(1)
 
-        const [originalOrder] = await db
-          .select()
-          .from(b2c_orders)
-          .where(eq(b2c_orders.id, originalOrderId))
-          .limit(1)
-
-        if (!originalOrder) {
-          throw new Error('Original order not found for reverse shipment')
+          if (!originalOrder) {
+            throw new Error('Original order not found for reverse shipment')
+          }
         }
 
         shipmentData = await xpressbees.createReverseShipment({
-          order_id: originalOrder.order_number || params.order_number,
+          order_id: originalOrder?.order_number || params.order_number,
           request_auto_pickup: params.request_auto_pickup || 'yes',
           consignee: {
             name: xpressParams?.consignee?.name,
@@ -7370,29 +7859,16 @@ export const createB2CShipmentService = async (
         const originPin = bookingPickupPincode
         const destinationPin = bookingDestinationPincode
 
-        const serviceability = await shadowfax.checkForwardServiceability({
+        const booking = await shadowfax.createForwardShipmentWithFallback(params, {
           origin: originPin,
           destination: destinationPin,
           paymentType: params.payment_type,
           mode: forwardMode,
           service: serviceMode,
         })
-        if (!serviceability.serviceable) {
-          throw new HttpError(
-            400,
-            `Shadowfax is not serviceable for ${params.order_number} between ${originPin} and ${destinationPin}.`,
-          )
-        }
-
-        const resolvedShadowfaxMode =
-          serviceability.mode === 'warehouse' || serviceability.mode === 'marketplace'
-            ? serviceability.mode
-            : forwardMode
-
-        shipmentData = await shadowfax.createForwardShipment(params, {
-          mode: resolvedShadowfaxMode,
-          service: serviceMode,
-        })
+        const resolvedShadowfaxMode = booking.mode
+        const resolvedShadowfaxService = booking.service
+        shipmentData = booking.shipment
 
         const forwardData = shipmentData?.data || shipmentData
         const shadowfaxAwb = forwardData?.awb_number || shipmentData?.awb_number || null
@@ -7414,12 +7890,9 @@ export const createB2CShipmentService = async (
           sort_code: providerSortCode,
         }
         ;(shipmentMeta as any).provider_mode = resolvedShadowfaxMode
+        ;(shipmentMeta as any).provider_service = resolvedShadowfaxService
       }
     } else if (integrationType === 'amazon') {
-      if (isReverseShipment) {
-        throw new HttpError(400, 'Amazon Shipping reverse shipments are not supported in this flow')
-      }
-
       console.log('Using Amazon Shipping API...')
       const amazonCredentials = await getStoredAmazonShippingCredentials()
       applyAmazonShippingCredentialsToEnv(amazonCredentials)
@@ -7636,6 +8109,22 @@ export const createB2CShipmentService = async (
         })
       }
 
+      const amazonLabel = await resolveAmazonShipmentLabel({
+        shipmentData,
+        amazonPayload,
+        amazonPackage,
+        amazonShipmentId,
+        amazonPackageClientReferenceId,
+        amazonCredentials,
+        userId: String((params as any).user_id || ''),
+      })
+      if (amazonLabel && amazonLabel.length > 100) {
+        console.warn('[AmazonShipping] Amazon label exceeds label column limit; storing exact reference in provider meta', {
+          order_number: params.order_number,
+          labelLength: amazonLabel.length,
+        })
+      }
+
       providerCourierCost =
         getAmazonRateCharge(selectedAmazonRate) ??
         (params?.courier_cost ? Number(params.courier_cost) : null)
@@ -7646,11 +8135,8 @@ export const createB2CShipmentService = async (
         courier_name: 'Amazon Shipping',
         courier_id: params.courier_id ? Number(params.courier_id) : null,
         label:
-          typeof amazonPackage?.label === 'string'
-            ? amazonPackage.label
-            : typeof amazonPayload?.label === 'string'
-              ? amazonPayload.label
-              : undefined,
+          amazonLabel && amazonLabel.length <= 100 ? amazonLabel : undefined,
+        amazon_label: amazonLabel ?? null,
         manifest: undefined,
         courier_cost: providerCourierCost,
         sort_code: null,
@@ -7766,8 +8252,13 @@ export const createB2CShipmentService = async (
       // Total shipping charges = base shipping + other charges (from serviceability API)
       const totalShippingCharges = shippingCharges + otherCharges
       const freightCharges = Number(finalSlabbedFreight?.freight ?? params?.freight_charges ?? 0) // What platform charges seller (based on rate card)
-      if (!isReverseShipment && (!Number.isFinite(freightCharges) || freightCharges <= 0)) {
-        throw new HttpError(400, 'No Feather Global rate card freight available for selected courier/zone')
+      if (!Number.isFinite(freightCharges) || freightCharges <= 0) {
+        throw new HttpError(
+          400,
+          isReverseShipment
+            ? 'No reverse pickup rate card freight available for selected courier/zone'
+            : 'No Shiplifi rate card freight available for selected courier/zone',
+        )
       }
       // Extract courier_cost from shipment response or use estimated from params
       const courierCost =
@@ -7793,13 +8284,13 @@ export const createB2CShipmentService = async (
       const transactionFee = Number(params?.transaction_fee ?? 0)
       const prepaidAmt = Number(params?.prepaid_amount ?? 0)
 
-      // Calculate total amount (customer-facing) - includes other_charges in shipping
+      // Calculate total amount (customer-facing). Courier COD service fees are
+      // seller wallet charges and must not be added to the buyer collectable.
       const totalAmount =
         orderAmount +
         totalShippingCharges + // Includes other_charges
         transactionFee +
         giftWrap +
-        (isCodOrder ? codCharges : 0) -
         discount -
         prepaidAmt
 
@@ -7827,13 +8318,33 @@ export const createB2CShipmentService = async (
         const walletTaxBreakup = calculateGstBreakup(baseAmount, configuredGstPercent)
         walletDebitBaseAmount = walletTaxBreakup.baseAmount
         walletGstAmount = walletTaxBreakup.gstAmount
-        walletDebit = walletTaxBreakup.baseAmount
+        walletDebit = walletTaxBreakup.totalAmount
       }
 
-      if (params.payment_type === 'prepaid') {
+      if (isReverseShipment) {
+        applyConfiguredGstToWalletDebit(freightCharges + otherCharges)
+
+        console.log('Reverse pickup wallet deduction:', {
+          order_number: params.order_number,
+          wallet_balance: walletBalance,
+          freight_charges: freightCharges,
+          other_charges: otherCharges,
+          gst_percent: configuredGstPercent,
+          gst_amount: walletGstAmount,
+          gst_included_in_wallet_debit: true,
+          wallet_base_debit: walletDebitBaseAmount,
+          wallet_debit: walletDebit,
+          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + gst (${walletGstAmount}) = ${walletDebit}`,
+          reason: 'reverse_shipment',
+        })
+
+        if (walletBalance < walletDebit) {
+          throw new Error('Insufficient wallet balance for reverse shipment')
+        }
+      } else if (params.payment_type === 'prepaid') {
         // Prepaid: Seller wallet debited for freight charges + other charges (all courier costs)
         // Customer pays: order_amount + shipping + transaction_fee + gift_wrap - discount - prepaid
-        // Seller wallet debited: freight_charges (Feather Global rate-card freight) + other_charges (fuel surcharge, handling, etc.)
+        // Seller wallet debited: freight_charges (Shiplifi rate-card freight) + other_charges (fuel surcharge, handling, etc.)
         applyConfiguredGstToWalletDebit(freightCharges + otherCharges)
 
         // Validate that otherCharges are included
@@ -7852,10 +8363,10 @@ export const createB2CShipmentService = async (
           other_charges: otherCharges,
           gst_percent: configuredGstPercent,
           gst_amount: walletGstAmount,
-          gst_included_in_wallet_debit: false,
+          gst_included_in_wallet_debit: true,
           wallet_base_debit: walletDebitBaseAmount,
           wallet_debit: walletDebit,
-          breakdown: `freight (${freightCharges}) + other (${otherCharges}) = ${walletDebit}`,
+          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + gst (${walletGstAmount}) = ${walletDebit}`,
           reason: 'B2C Prepaid Order Payment',
         })
 
@@ -7864,8 +8375,8 @@ export const createB2CShipmentService = async (
         }
       } else {
         // COD: Seller wallet debited for freight charges + other charges + COD charges
-        // Customer pays: order_amount + shipping + COD + transaction_fee + gift_wrap - discount
-        // Seller wallet debited: freight_charges (Feather Global rate-card freight) + other_charges (fuel surcharge, handling, etc.) + cod_charges (courier COD fee)
+        // Customer pays: order_amount + shipping + transaction_fee + gift_wrap - discount
+        // Seller wallet debited: freight_charges (Shiplifi rate-card freight) + other_charges (fuel surcharge, handling, etc.) + cod_charges (courier COD fee)
         applyConfiguredGstToWalletDebit(freightCharges + otherCharges + codCharges)
 
         // Validate that otherCharges are included
@@ -7885,10 +8396,10 @@ export const createB2CShipmentService = async (
           cod_charges: codCharges,
           gst_percent: configuredGstPercent,
           gst_amount: walletGstAmount,
-          gst_included_in_wallet_debit: false,
+          gst_included_in_wallet_debit: true,
           wallet_base_debit: walletDebitBaseAmount,
           wallet_debit: walletDebit,
-          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + cod (${codCharges}) = ${walletDebit}`,
+          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + cod (${codCharges}) + gst (${walletGstAmount}) = ${walletDebit}`,
           reason: 'B2C COD Service Charges',
         })
 
@@ -7898,9 +8409,31 @@ export const createB2CShipmentService = async (
       }
 
       // 3️⃣ CREATE/UPDATE LOCAL ORDER ENTRY (no seller insurance for B2C – platform liability only)
-      const bookingLifecycle = resolveCourierBookingLifecycle(integrationType)
+      const bookingLifecycle = resolveCourierBookingLifecycle(integrationType, {
+        providerFlow: shipmentMeta.provider_flow,
+        providerManifestStatus: shipmentMeta.provider_manifest_status,
+      })
       const orderStatus = bookingLifecycle.orderStatus
       const manifestErrorMessage = null
+
+      const finalWalletDebit = resolveGstInclusiveWalletDebit({
+        storedDebit: walletDebit,
+        paymentType: params.payment_type,
+        freightCharges,
+        otherCharges,
+        codCharges,
+        gstPercent: configuredGstPercent,
+        gstAmount: walletGstAmount,
+      })
+      if (walletBalance < finalWalletDebit) {
+        throw new Error(
+          isReverseShipment
+            ? 'Insufficient wallet balance for reverse shipment'
+            : params.payment_type === 'prepaid'
+            ? 'Insufficient wallet balance for prepaid order'
+            : 'Insufficient wallet balance for COD service charges',
+        )
+      }
 
       const orderPersistencePayload = {
         tx,
@@ -7912,7 +8445,7 @@ export const createB2CShipmentService = async (
         freightCharges,
         gstPercent: configuredGstPercent,
         gstAmount: walletGstAmount,
-        walletDebitAmount: walletDebit,
+        walletDebitAmount: finalWalletDebit,
         courierCost: courierCost ?? undefined, // Save courier cost (actual from API or estimated from serviceability)
         transactionFee,
         giftWrap,
@@ -7971,7 +8504,6 @@ export const createB2CShipmentService = async (
       }
 
       // 4️⃣ WALLET TRANSACTION
-      const finalWalletDebit = walletDebit ?? 0
       if (finalWalletDebit <= 0) {
         console.warn('Wallet debit is 0 or negative, skipping wallet transaction')
       } else {
@@ -7981,12 +8513,15 @@ export const createB2CShipmentService = async (
           currency: 'INR',
           type: 'debit',
           reason:
-            params.payment_type === 'prepaid'
+            isReverseShipment
+              ? 'reverse_shipment'
+              : params.payment_type === 'prepaid'
               ? 'B2C Prepaid Order Payment'
               : 'B2C COD Service Charges',
           ref: newOrder?.id?.toString(),
           meta: {
             order_number: params.order_number,
+            original_order_id: params.original_order_id ?? null,
             shipment_id: shipmentMeta.shipment_id,
             awb_number: shipmentMeta.awb_number,
             courier_name: shipmentMeta.courier_name,
@@ -7998,7 +8533,7 @@ export const createB2CShipmentService = async (
             cod_charges: isCodOrder ? codCharges : 0,
             gst_percent: configuredGstPercent,
             gst_amount: walletGstAmount,
-            gst_included_in_wallet_debit: false,
+            gst_included_in_wallet_debit: true,
             wallet_base_debit: walletDebitBaseAmount,
             charged_weight: finalSlabbedFreight.chargeable_weight,
             volumetric_weight: finalSlabbedFreight.volumetric_weight,
@@ -8016,7 +8551,7 @@ export const createB2CShipmentService = async (
             cod_charges: isCodOrder ? codCharges : 0,
             gst_percent: configuredGstPercent,
             gst_amount: walletGstAmount,
-            gst_included_in_wallet_debit: false,
+            gst_included_in_wallet_debit: true,
             wallet_base_debit: walletDebitBaseAmount,
           },
           charged_weight: finalSlabbedFreight.chargeable_weight,
@@ -8025,7 +8560,7 @@ export const createB2CShipmentService = async (
         })
       }
 
-      // Download the Feather Global label URL and save to R2, or generate a platform label.
+      // Download the Shiplifi label URL and save to R2, or generate a platform label.
       if (
         params.integration_type === 'shiplifi' ||
         params.integration_type === 'couriercart' ||
@@ -8038,7 +8573,7 @@ export const createB2CShipmentService = async (
             .where(eq(b2c_orders.id, newOrder.id))
 
           if (freshOrder) {
-            // Try to download the Feather Global label URL first if available.
+            // Try to download the Shiplifi label URL first if available.
             const courierCartLabelUrl = shipmentMeta?.label
 
             if (
@@ -8047,7 +8582,7 @@ export const createB2CShipmentService = async (
               courierCartLabelUrl.startsWith('http')
             ) {
               try {
-                console.log(`Downloading Feather Global label from URL: ${courierCartLabelUrl}`)
+                console.log(`Downloading Shiplifi label from URL: ${courierCartLabelUrl}`)
 
                 // Download label PDF from the platform URL.
                 const labelResponse = await axios.get(courierCartLabelUrl, {
@@ -8081,10 +8616,10 @@ export const createB2CShipmentService = async (
                   })
                   .where(eq(b2c_orders.id, newOrder.id))
 
-                console.log(`Feather Global label downloaded and saved to R2: ${labelKey}`)
+                console.log(`Shiplifi label downloaded and saved to R2: ${labelKey}`)
               } catch (downloadErr: any) {
                 console.error(
-                  `Failed to download Feather Global label from URL: ${courierCartLabelUrl}`,
+                  `Failed to download Shiplifi label from URL: ${courierCartLabelUrl}`,
                   downloadErr?.message || downloadErr,
                 )
                 console.log(`Falling back to generating a custom label for ${params.order_number}`)
@@ -8099,13 +8634,13 @@ export const createB2CShipmentService = async (
                       updated_at: new Date(),
                     })
                     .where(eq(b2c_orders.id, newOrder.id))
-                  console.log(`Feather Global custom label generated and saved: ${labelKey}`)
+                  console.log(`Shiplifi custom label generated and saved: ${labelKey}`)
                 }
               }
             } else {
-              // No hosted platform label URL, generate a custom Feather Global label.
+              // No hosted platform label URL, generate a custom Shiplifi label.
               console.log(
-                `No Feather Global label URL, generating custom label for ${params.order_number}`,
+                `No Shiplifi label URL, generating custom label for ${params.order_number}`,
               )
               const labelKey = await generateLabelForOrder(freshOrder, userId, tx)
               if (labelKey) {
@@ -8116,17 +8651,17 @@ export const createB2CShipmentService = async (
                     updated_at: new Date(),
                   })
                   .where(eq(b2c_orders.id, newOrder.id))
-                console.log(`Feather Global custom label generated and saved: ${labelKey}`)
+                console.log(`Shiplifi custom label generated and saved: ${labelKey}`)
               } else {
                 console.warn(
-                  `Feather Global label generator returned empty result for ${params.order_number}`,
+                  `Shiplifi label generator returned empty result for ${params.order_number}`,
                 )
               }
             }
           }
         } catch (labelErr: any) {
           console.error(
-            `Failed to process Feather Global label for ${params.order_number}:`,
+            `Failed to process Shiplifi label for ${params.order_number}:`,
             labelErr?.message || labelErr,
           )
         }
@@ -8158,6 +8693,148 @@ export const createB2CShipmentService = async (
     })
 
     rollbackActions.length = 0
+
+    if (integrationType === 'delhivery' && !isReverseShipment && result?.order?.id) {
+      const pickupLocationName = String(
+        params.pickup?.warehouse_name || params.pickup_location_alias || params.pickup_location_id || '',
+      ).trim()
+      const orderDateRaw =
+        params.order_date instanceof Date ? params.order_date.toISOString() : params.order_date
+      const delhiveryPickupSchedule = normalizePickupSchedule({
+        pickupDateRaw:
+          params.pickup_date ||
+          params.pickup?.pickup_date ||
+          orderDateRaw ||
+          new Date().toISOString(),
+        pickupTimeRaw: params.pickup_time || params.pickup?.pickup_time || getDefaultPickupTime(),
+        isManifestRetry: false,
+      })
+      const expectedPackageCount = Math.max(
+        1,
+        Array.isArray(result?.shipment?.packages) ? result.shipment.packages.length : 1,
+      )
+
+      if (pickupLocationName) {
+        const delhivery = delhiveryService ?? new DelhiveryService()
+        const [freshOrder] = await db
+          .select({
+            pickup_details: b2c_orders.pickup_details,
+            provider_meta: b2c_orders.provider_meta,
+          })
+          .from(b2c_orders)
+          .where(eq(b2c_orders.id, result.order.id))
+          .limit(1)
+        const existingPickupDetails = normalizePickupDetails(freshOrder?.pickup_details) || {}
+        const updatedPickupDetails = {
+          ...existingPickupDetails,
+          warehouse_name: pickupLocationName,
+          pickup_date: delhiveryPickupSchedule.pickupDate,
+          pickup_time: delhiveryPickupSchedule.pickupTime,
+        }
+        const buildDelhiveryPickupProviderMeta = (
+          status: 'accepted' | 'failed',
+          details: Record<string, any>,
+        ) => ({
+          ...parseRecordValue(freshOrder?.provider_meta),
+          pickup_request: {
+            provider: 'delhivery',
+            status,
+            pickup_location: pickupLocationName,
+            pickup_date: delhiveryPickupSchedule.pickupDate,
+            pickup_time: delhiveryPickupSchedule.pickupTime,
+            expected_package_count: expectedPackageCount,
+            recorded_at: new Date().toISOString(),
+            ...details,
+          },
+        })
+
+        try {
+          const pickupRequest = await delhivery.createPickupRequest({
+            pickup_date: delhiveryPickupSchedule.pickupDate,
+            pickup_time: delhiveryPickupSchedule.pickupTime,
+            pickup_location: pickupLocationName,
+            expected_package_count: expectedPackageCount,
+          })
+
+          await db
+            .update(b2c_orders)
+            .set({
+              pickup_status: 'pickup_requested',
+              pickup_error: null,
+              order_status: 'pickup_initiated',
+              provider_last_status: 'pickup_requested',
+              provider_meta: buildDelhiveryPickupProviderMeta('accepted', {
+                response: pickupRequest,
+              }) as any,
+              pickup_details: updatedPickupDetails as any,
+              updated_at: new Date(),
+            } as any)
+            .where(eq(b2c_orders.id, result.order.id))
+
+          if (result.shipment && typeof result.shipment === 'object') {
+            result.shipment.pickup_request = pickupRequest
+          }
+          console.log('✅ Delhivery pickup request created after booking', {
+            order_number: params.order_number,
+            pickup_location: pickupLocationName,
+            pickup_date: delhiveryPickupSchedule.pickupDate,
+            pickup_time: delhiveryPickupSchedule.pickupTime,
+            expected_package_count: expectedPackageCount,
+          })
+        } catch (error: any) {
+          const pickupErrorMessage = getUserFacingManifestError(
+            error,
+            'Pickup request failed after shipment booking.',
+          )
+          await db
+            .update(b2c_orders)
+            .set({
+              pickup_status: 'failed',
+              pickup_error: truncateColumnValue(pickupErrorMessage),
+              order_status: 'shipment_created',
+              provider_last_status: 'shipment_created',
+              provider_meta: buildDelhiveryPickupProviderMeta('failed', {
+                error: pickupErrorMessage,
+              }) as any,
+              pickup_details: updatedPickupDetails as any,
+              updated_at: new Date(),
+            } as any)
+            .where(eq(b2c_orders.id, result.order.id))
+
+          if (result.shipment && typeof result.shipment === 'object') {
+            result.shipment.pickup_request_error = pickupErrorMessage
+          }
+          console.warn('⚠️ Delhivery shipment booked but pickup request failed after booking', {
+            order_number: params.order_number,
+            pickup_location: pickupLocationName,
+            pickup_date: delhiveryPickupSchedule.pickupDate,
+            pickup_time: delhiveryPickupSchedule.pickupTime,
+            expected_package_count: expectedPackageCount,
+            error: pickupErrorMessage,
+          })
+        }
+      } else {
+        const pickupErrorMessage =
+          'Pickup warehouse name is required to create Delhivery pickup request.'
+        await db
+          .update(b2c_orders)
+          .set({
+            pickup_status: 'failed',
+            pickup_error: truncateColumnValue(pickupErrorMessage),
+            order_status: 'shipment_created',
+            provider_last_status: 'shipment_created',
+            updated_at: new Date(),
+          } as any)
+          .where(eq(b2c_orders.id, result.order.id))
+
+        if (result.shipment && typeof result.shipment === 'object') {
+          result.shipment.pickup_request_error = pickupErrorMessage
+        }
+        console.warn('⚠️ Delhivery shipment booked without a pickup warehouse name', {
+          order_number: params.order_number,
+        })
+      }
+    }
 
     if (
       integrationType === 'shadowfax' &&
@@ -8281,6 +8958,7 @@ export const bookExistingB2COrderWithCourierService = async (
   const orderAmount = resolveB2COrderItemsAmount(orderItems, existingOrder.order_amount)
   const paymentType = String(existingOrder.order_type || 'prepaid').toLowerCase() === 'cod' ? 'cod' : 'prepaid'
   const pickup = payload.pickup || ({} as ShipmentParams['pickup'])
+  const consignee = payload.consignee || ({} as ShipmentParams['consignee'])
   const rto = payload.rto
 
   const shipmentParams: ShipmentParams = {
@@ -8320,14 +8998,14 @@ export const bookExistingB2COrderWithCourierService = async (
     zone: payload.zone,
     zone_id: payload.zone_id,
     consignee: {
-      name: existingOrder.buyer_name || '',
-      address: existingOrder.address || '',
-      city: existingOrder.city || '',
-      state: existingOrder.state || '',
-      country: existingOrder.country || 'India',
-      pincode: existingOrder.pincode || '',
-      phone: existingOrder.buyer_phone || '',
-      email: existingOrder.buyer_email || undefined,
+      name: consignee?.name ?? existingOrder.buyer_name ?? '',
+      address: consignee?.address ?? existingOrder.address ?? '',
+      city: consignee?.city ?? existingOrder.city ?? '',
+      state: consignee?.state ?? existingOrder.state ?? '',
+      country: consignee?.country ?? existingOrder.country ?? 'India',
+      pincode: consignee?.pincode ?? existingOrder.pincode ?? '',
+      phone: consignee?.phone ?? existingOrder.buyer_phone ?? '',
+      email: consignee?.email || existingOrder.buyer_email || undefined,
     },
     pickup: {
       warehouse_name: pickup?.warehouse_name || '',
@@ -8380,14 +9058,14 @@ export const bookExistingB2COrderWithCourierService = async (
 
   if (updatedOrder && String(updatedOrder.order_id || '').startsWith('shopify_')) {
     const { syncShopifyStatusForLocalOrder } = await import('./shopify.service')
-    await syncShopifyStatusForLocalOrder(updatedOrder).catch((err: any) => {
+    await syncShopifyStatusForLocalOrder(updatedOrder, db, { source: 'courier-booking' }).catch((err: any) => {
       console.warn('Shopify status sync skipped after courier booking:', err?.message || err)
     })
   }
 
   if (updatedOrder && String(updatedOrder.order_id || '').startsWith('woo_')) {
     const { syncWooCommerceStatusForLocalOrder } = await import('./woocommerce.service')
-    await syncWooCommerceStatusForLocalOrder(updatedOrder).catch((err: any) => {
+    await syncWooCommerceStatusForLocalOrder(updatedOrder, db, { source: 'courier-booking' }).catch((err: any) => {
       console.warn('WooCommerce status sync skipped after courier booking:', err?.message || err)
     })
   }
@@ -8685,12 +9363,9 @@ export const createB2BShipmentService = async (
       is_external_api: is_external_api ?? false,
       provider_mode:
         normalizeShadowfaxForwardModeValue(params.shadowfax_forward_mode || 'warehouse'),
-      provider_service:
-        String(params.shadowfax_service_mode || '')
-          .trim()
-          .toLowerCase() === 'surface'
-          ? 'surface'
-          : 'surface',
+      provider_service: normalizeShadowfaxServiceModeValue(
+        params.shadowfax_service_mode || params.shipping_mode || params.transport_speed || 'surface',
+      ),
       provider_last_status: 'pending',
       created_at: new Date(),
       updated_at: new Date(),
@@ -8750,39 +9425,22 @@ export const createB2BShipmentService = async (
   const shadowfaxForwardMode = normalizeShadowfaxForwardModeValue(
     params.shadowfax_forward_mode || 'warehouse',
   )
-  const shadowfaxServiceMode =
-    String(params.shadowfax_service_mode || '')
-      .trim()
-      .toLowerCase() === 'surface'
-      ? 'surface'
-      : 'surface'
+  const shadowfaxServiceMode = normalizeShadowfaxServiceModeValue(
+    params.shadowfax_service_mode || params.shipping_mode || params.transport_speed || 'surface',
+  )
 
   try {
     const shadowfax = new ShadowfaxService()
-    const serviceability = await shadowfax.checkForwardServiceability({
+    const booking = await shadowfax.createForwardShipmentWithFallback(payload, {
       origin: String(params.pickup?.pincode || ''),
       destination: String(params.consignee?.pincode || ''),
       paymentType: params.payment_type,
       mode: shadowfaxForwardMode,
       service: shadowfaxServiceMode,
     })
-
-    if (!serviceability.serviceable) {
-      throw new HttpError(
-        400,
-        `Shadowfax is not serviceable for ${normalizedOrderNumber} between ${params.pickup?.pincode} and ${params.consignee?.pincode}.`,
-      )
-    }
-
-    const resolvedShadowfaxMode =
-      serviceability.mode === 'warehouse' || serviceability.mode === 'marketplace'
-        ? serviceability.mode
-        : shadowfaxForwardMode
-
-    const shipmentData = await shadowfax.createForwardShipment(payload, {
-      mode: resolvedShadowfaxMode,
-      service: shadowfaxServiceMode,
-    })
+    const resolvedShadowfaxMode = booking.mode
+    const resolvedShadowfaxService = booking.service
+    const shipmentData = booking.shipment
 
     const forwardData = shipmentData?.data || shipmentData
     const shadowfaxAwb = forwardData?.awb_number || shipmentData?.awb_number || null
@@ -8840,7 +9498,7 @@ export const createB2BShipmentService = async (
         provider_reference: providerReference,
         provider_request_id: providerRequestId,
         provider_mode: resolvedShadowfaxMode,
-        provider_service: shadowfaxServiceMode,
+        provider_service: resolvedShadowfaxService,
         provider_last_status: String(
           forwardData?.status || forwardData?.current_status || 'pickup_initiated',
         ),
@@ -9064,7 +9722,6 @@ export const getB2COrdersByUserService = async (
           + COALESCE(${b2c_orders.shipping_charges}, 0)
           + COALESCE(${b2c_orders.transaction_fee}, 0)
           + COALESCE(${b2c_orders.gift_wrap}, 0)
-          + CASE WHEN ${b2c_orders.order_type} = 'cod' THEN COALESCE(${b2c_orders.cod_charges}, 0) ELSE 0 END
           - COALESCE(${b2c_orders.discount}, 0)
           - COALESCE(${b2c_orders.prepaid_amount}, 0)
         ) as "totalAmount"
@@ -10635,8 +11292,24 @@ export const generateManifestService = async (params: {
 
             if (ordersNeedingProviderManifest.length) {
               const xpressbees = new XpressbeesService()
+              const providerManifestOrders: any[] = []
+              for (const order of ordersNeedingProviderManifest) {
+                const prepared = ensureXpressbeesManifestPickupVendorCode(order)
+                providerManifestOrders.push(prepared.order)
+
+                if (prepared.generated) {
+                  await tx
+                    .update(b2c_orders)
+                    .set({
+                      pickup_details: prepared.pickupDetails as any,
+                      updated_at: new Date(),
+                    })
+                    .where(eq(b2c_orders.id, order.id))
+                }
+              }
+
               const providerManifestResponse =
-                await xpressbees.generateManifest(ordersNeedingProviderManifest)
+                await xpressbees.generateManifest(providerManifestOrders)
               assertXpressbeesManifestAccepted(
                 providerManifestResponse,
                 'provider manifest request',
@@ -10644,7 +11317,7 @@ export const generateManifestService = async (params: {
 
               const normalizedResponses =
                 normalizeXpressbeesManifestResponses(providerManifestResponse)
-              ordersNeedingProviderManifest.forEach((order, index) => {
+              providerManifestOrders.forEach((order, index) => {
                 providerManifestResponsesByOrderId.set(
                   String(order.id),
                   normalizedResponses[index] || providerManifestResponse,
@@ -10902,7 +11575,9 @@ export const generateManifestService = async (params: {
               manifest: manifestKey,
               order_status: nextOrderStatus,
               pickup_status:
-                nextOrderStatus === 'pickup_initiated'
+                integrationType === 'xpressbees' && nextOrderStatus === 'pickup_initiated'
+                  ? 'pickup_initiated'
+                  : nextOrderStatus === 'pickup_initiated'
                   ? 'pickup_requested'
                   : freshOrder.pickup_status ?? null,
               provider_last_status: nextOrderStatus,
@@ -11252,6 +11927,11 @@ export const generateManifestService = async (params: {
             ? (signedManifestUrl[0] ?? null)
             : signedManifestUrl
           const manifestWarnings: string[] = []
+          const amazonCredentials =
+            integrationType === 'amazon' ? await getStoredAmazonShippingCredentials() : null
+          if (amazonCredentials) {
+            applyAmazonShippingCredentialsToEnv(amazonCredentials)
+          }
 
           const orderUpdatePromises = fetchedOrders.map(async (order) => {
             const [freshOrder] = await tx
@@ -11270,25 +11950,15 @@ export const generateManifestService = async (params: {
             }
 
             let labelKey: string | null =
-              typeof freshOrder.label === 'string' && freshOrder.label.trim()
-                ? freshOrder.label.trim()
-                : null
+              await resolveAmazonProviderLabelReference({
+                order: freshOrder,
+                amazonCredentials,
+              })
 
-            if (!labelKey && freshOrder.awb_number) {
-              try {
-                labelKey = await generateLabelForOrder(freshOrder, freshOrder.user_id, tx)
-                if (labelKey) {
-                  console.log(
-                    `✅ [Amazon] Custom label generated for order ${freshOrder.order_number}: ${labelKey}`,
-                  )
-                }
-              } catch (labelErr: any) {
-                console.error(
-                  `❌ [Amazon] Failed to generate custom label for order ${freshOrder.order_number}:`,
-                  labelErr?.message || labelErr,
-                )
-                manifestWarnings.push(`${freshOrder.order_number}: label could not be generated.`)
-              }
+            if (!labelKey) {
+              const warning = `${freshOrder.order_number}: Amazon label could not be resolved from provider data.`
+              console.warn(`⚠️ [Amazon] ${warning}`)
+              manifestWarnings.push(warning)
             }
 
             const currentOrderStatus = String(freshOrder.order_status || '').trim().toLowerCase()
@@ -13667,6 +14337,91 @@ const normalizeTrackingStatusCode = (value: unknown) =>
 const hasTrackingStatusToken = (status: string, token: string) =>
   new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(status)
 
+const DELHIVERY_TRACKING_NDR_STATUS_CODES = new Set([
+  'EOD-3',
+  'EOD-6',
+  'EOD-11',
+  'EOD-15',
+  'EOD-16',
+  'EOD-43',
+  'EOD-69',
+  'EOD-74',
+  'EOD-86',
+  'EOD-104',
+  'ST-108',
+])
+
+const normalizeDelhiveryTrackingStatusCode = (value: unknown) =>
+  sanitizeString(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+const hasDelhiveryTrackingNdrStatusCode = (...parts: unknown[]) =>
+  parts.some((part) =>
+    DELHIVERY_TRACKING_NDR_STATUS_CODES.has(normalizeDelhiveryTrackingStatusCode(part)),
+  )
+
+const hasLiveTrackingNdrSignal = (...parts: unknown[]) => {
+  const status = normalizeLiveTrackingStatusText(parts.map((part) => sanitizeString(part)).join(' '))
+  if (!status) return hasDelhiveryTrackingNdrStatusCode(...parts)
+
+  return (
+    hasDelhiveryTrackingNdrStatusCode(...parts) ||
+    status.includes('ndr') ||
+    status.includes('undeliver') ||
+    status.includes('unsuccessful delivery') ||
+    status.includes('not delivered') ||
+    status.includes('attempt') ||
+    status.includes('reattempt') ||
+    status.includes('customer not available') ||
+    status.includes('customer unavailable') ||
+    status.includes('consignee not available') ||
+    status.includes('consignee unavailable') ||
+    status.includes('not contactable') ||
+    status.includes('door locked') ||
+    status.includes('address issue') ||
+    status.includes('refused') ||
+    status.includes('rejected') ||
+    status.includes('failed') ||
+    hasTrackingStatusToken(status, 'nc') ||
+    hasTrackingStatusToken(status, 'na')
+  )
+}
+
+const findLiveTrackingNdrEvent = (
+  tracking: Pick<TrackingServiceResponse, 'history' | 'status' | 'shipment_info'>,
+) => {
+  const historyMatch = (tracking.history || []).find((event) =>
+    hasLiveTrackingNdrSignal(event.status_code, event.message),
+  )
+  if (historyMatch) return historyMatch
+
+  if (hasLiveTrackingNdrSignal(tracking.status, tracking.shipment_info)) {
+    const now = new Date().toISOString()
+    return {
+      status_code: sanitizeString(tracking.status, 'ndr'),
+      message: sanitizeString(tracking.shipment_info || tracking.status, 'NDR'),
+      location: '',
+      event_time: now,
+    }
+  }
+
+  return null
+}
+
+const isSameTrackingHistoryEvent = (
+  first?: TrackingHistoryItem | null,
+  second?: TrackingHistoryItem | null,
+) => {
+  if (!first || !second) return false
+  return (
+    first.status_code === second.status_code &&
+    first.message === second.message &&
+    first.event_time === second.event_time
+  )
+}
+
 const mapProviderTrackingCodeToInternal = (
   rawStatus: unknown,
   providerKey: string,
@@ -13717,6 +14472,8 @@ const mapProviderTrackingCodeToInternal = (
     xpressbees: {
       manifest: 'pickup_initiated',
       manifested: 'pickup_initiated',
+      drc: 'pickup_initiated',
+      pnd: 'pickup_initiated',
       pck: 'pickup_initiated',
       pku: 'pickup_initiated',
       pkd: 'pickup_initiated',
@@ -13744,8 +14501,6 @@ const mapProviderTrackingCodeToInternal = (
       dispatched: 'in_transit',
     },
     shadowfax: {
-      // Shadowfax uses separate marketplace and warehouse state ids; keep both mapped here
-      // so live tracking stays stable even when the provider switches response vocabulary.
       new: 'booked',
       assigned_for_seller_pickup: 'pickup_initiated',
       assigned_for_pickup: 'pickup_initiated',
@@ -13756,9 +14511,6 @@ const mapProviderTrackingCodeToInternal = (
       item_manifested: 'in_transit',
       recd_at_fwd_dc: 'in_transit',
       recd_at_fwd_hub: 'in_transit',
-      bag_in_transit: 'in_transit',
-      bag_received: 'in_transit',
-      bag_received_at_via: 'in_transit',
       assigned_for_delivery: 'out_for_delivery',
       cid: 'ndr',
       seller_initiated_delay: 'ndr',
@@ -13770,16 +14522,9 @@ const mapProviderTrackingCodeToInternal = (
       pickup_not_attempted: 'ndr',
       cancelled_by_customer: 'cancelled',
       cancelled_by_seller: 'cancelled',
-      in_transit_return: 'rto_in_transit',
-      rto_in_process: 'rto_in_transit',
-      rto: 'rto',
-      rts: 'rto',
-      rts_nd: 'ndr',
-      rto_nd: 'ndr',
       item_misrouted: 'in_transit',
       pincode_updated: 'in_transit',
       returned_to_client: 'rto_delivered',
-      reopen_ndr: 'ndr',
     },
     amazon: {
       pre_transit: 'pickup_initiated',
@@ -13847,7 +14592,10 @@ const mapLiveTrackingStatusToInternal = (
     return preserveNonRegressiveTrackingStatus(current, providerCodeStatus)
   }
 
-  if (status.includes('cancel')) mapped = 'cancelled'
+  // Delhivery and other carriers sometimes include "cancelled" in refusal /
+  // reattempt messages. Those are NDR signals, not terminal cancellations.
+  if (hasLiveTrackingNdrSignal(status)) mapped = 'ndr'
+  else if (status.includes('cancel')) mapped = 'cancelled'
   else if (
     status.includes('rto delivered') ||
     status.includes('return delivered') ||
@@ -13866,22 +14614,6 @@ const mapLiveTrackingStatusToInternal = (
   else if (status.includes('rto') || status.includes('rts') || status.includes('return to origin')) {
     mapped = 'rto'
   } else if (status.includes('lost')) mapped = 'lost'
-  else if (
-    status.includes('ndr') ||
-    status.includes('undeliver') ||
-    status.includes('attempt') ||
-    status.includes('customer not available') ||
-    status.includes('consignee not available') ||
-    status.includes('not delivered') ||
-    status.includes('not contactable') ||
-    status.includes('cid') ||
-    hasTrackingStatusToken(status, 'nc') ||
-    hasTrackingStatusToken(status, 'na') ||
-    status.includes('on hold') ||
-    status.includes('refused') ||
-    status.includes('rejected') ||
-    status.includes('failed')
-  ) mapped = 'ndr'
   else if (status.includes('out for delivery') || status === 'ofd' || status.includes('assigned for delivery')) {
     mapped = 'out_for_delivery'
   } else if (status.includes('delivered')) mapped = 'delivered'
@@ -13935,7 +14667,7 @@ const runB2CLiveTrackingSideEffects = async ({
   previousStatus: string
 }) => {
   if (order.source_type !== 'b2c') return
-  if (nextStatus === previousStatus && nextStatus !== 'delivered') return
+  if (nextStatus === previousStatus && !['delivered', 'cancelled'].includes(nextStatus)) return
 
   const [freshOrder] = await db
     .select()
@@ -13944,17 +14676,63 @@ const runB2CLiveTrackingSideEffects = async ({
     .limit(1)
   const syncedOrder = freshOrder || order
 
+  if (nextStatus === 'cancelled') {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(b2c_orders)
+        .set({
+          pickup_status: 'cancelled',
+          provider_last_status: 'cancelled',
+          updated_at: new Date(),
+        })
+        .where(eq(b2c_orders.id, syncedOrder.id))
+
+      const [wallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, syncedOrder.user_id))
+        .limit(1)
+      if (!wallet?.id) return
+
+      const outstandingRefund = await getOrderRefundOutstanding(
+        tx,
+        wallet.id,
+        syncedOrder.id,
+        syncedOrder.order_number,
+        Number((syncedOrder as any).wallet_debit_amount ?? 0),
+      )
+      if (outstandingRefund <= 0) return
+
+      await createWalletTransaction({
+        walletId: wallet.id,
+        amount: outstandingRefund,
+        type: 'credit',
+        ref: syncedOrder.id,
+        reason: getCancellationRefundReason(syncedOrder.order_number),
+        currency: wallet.currency ?? 'INR',
+        meta: {
+          source: 'live_tracking_cancelled',
+          order_id: syncedOrder.id,
+          order_number: syncedOrder.order_number,
+          awb_number: syncedOrder.awb_number,
+          previous_status: previousStatus,
+        },
+        tx: tx as any,
+      })
+    })
+  }
+
   if (nextStatus !== previousStatus) {
     if (String(syncedOrder.order_id || '').startsWith('shopify_')) {
       const { syncShopifyStatusForLocalOrder } = await import('./shopify.service')
-      await syncShopifyStatusForLocalOrder(syncedOrder).catch((err: any) => {
+      await syncShopifyStatusForLocalOrder(syncedOrder, db, { source: 'live-tracking' }).catch((err: any) => {
         console.warn('Shopify status sync skipped after live tracking update:', err?.message || err)
       })
     }
 
     if (String(syncedOrder.order_id || '').startsWith('woo_')) {
       const { syncWooCommerceStatusForLocalOrder } = await import('./woocommerce.service')
-      await syncWooCommerceStatusForLocalOrder(syncedOrder).catch((err: any) => {
+      await syncWooCommerceStatusForLocalOrder(syncedOrder, db, { source: 'live-tracking' }).catch((err: any) => {
         console.warn(
           'WooCommerce status sync skipped after live tracking update:',
           err?.message || err,
@@ -13995,16 +14773,92 @@ const runB2CLiveTrackingSideEffects = async ({
   }
 }
 
+const recordLiveTrackingNdrEvent = async (params: {
+  order: OrderSummary
+  providerKey: string
+  tracking: TrackingServiceResponse
+  ndrEvent: TrackingHistoryItem | null
+  mappedStatus: string
+}) => {
+  const { order, providerKey, tracking, ndrEvent, mappedStatus } = params
+  if (order.source_type !== 'b2c' || !ndrEvent) return
+  if (['ndr', 'undelivered', 'lost'].includes(normalizeInternalTrackingStatus(order.order_status))) {
+    return
+  }
+
+  const reason = sanitizeString(ndrEvent.message || tracking.shipment_info || tracking.status, 'NDR')
+  const remarks = sanitizeString(ndrEvent.status_code || tracking.status || providerKey, 'NDR')
+  const eventTime = sanitizeString(ndrEvent.event_time)
+  const duplicateWhere = eventTime
+    ? and(
+        eq(ndr_events.order_id, order.id),
+        sql`${ndr_events.payload}->>'source' = 'live_tracking_fetch'`,
+        sql`${ndr_events.payload}->>'event_time' = ${eventTime}`,
+      )
+    : and(eq(ndr_events.order_id, order.id), eq(ndr_events.reason, reason.slice(0, 300)))
+
+  const [existing] = await db
+    .select({ id: ndr_events.id })
+    .from(ndr_events)
+    .where(duplicateWhere)
+    .limit(1)
+
+  if (existing) return
+
+  await recordNdrEvent({
+    orderId: order.id,
+    userId: order.user_id,
+    awbNumber: order.awb_number,
+    status: 'ndr',
+    reason: reason.slice(0, 300),
+    remarks: remarks.slice(0, 500),
+    payload: {
+      source: 'live_tracking_fetch',
+      provider: providerKey,
+      current_status: tracking.status,
+      mapped_status: mappedStatus,
+      event_time: eventTime || null,
+      shipment_info: tracking.shipment_info || null,
+      event: ndrEvent,
+    },
+  })
+
+  await createNotificationService({
+    targetRole: 'user',
+    userId: order.user_id,
+    title: 'Delivery attempt issue',
+    message: `Order ${order.order_number} has a Delhivery NDR update.`,
+  }).catch((err: any) => {
+    console.warn('Failed to notify user for live tracking NDR:', err?.message || err)
+  })
+  await createNotificationService({
+    targetRole: 'admin',
+    title: 'NDR captured (Delhivery)',
+    message: `User ${order.user_id} order ${order.order_number} status ndr`,
+  }).catch((err: any) => {
+    console.warn('Failed to notify admin for live tracking NDR:', err?.message || err)
+  })
+}
+
 const persistLiveTrackingStatus = async (
   order: OrderSummary,
   providerKey: string,
   tracking: TrackingServiceResponse,
 ) => {
   const latest = tracking.history?.[0]
+  const ndrEvent = findLiveTrackingNdrEvent(tracking)
   const rawStatus = sanitizeString(
     tracking.status || latest?.message || latest?.status_code || order.order_status || '',
   )
-  const nextStatus = mapLiveTrackingStatusToInternal(rawStatus, providerKey, order.order_status)
+  const statusForMapping = [rawStatus, tracking.shipment_info, latest?.message, latest?.status_code]
+    .map((part) => sanitizeString(part))
+    .filter(Boolean)
+    .join(' | ')
+  const nextStatus = mapLiveTrackingStatusToInternal(
+    statusForMapping,
+    providerKey,
+    order.order_status,
+  )
   const previousStatus = normalizeInternalTrackingStatus(order.order_status)
   const deliveryLocation = sanitizeString(latest?.location, '')
   const deliveryMessage = sanitizeString(tracking.shipment_info || latest?.message || rawStatus, '')
@@ -14034,14 +14888,31 @@ const persistLiveTrackingStatus = async (
     rawStatusForPickup.includes('pickup requested') ||
     rawStatusForPickup.includes('pickup booked') ||
     rawStatusForPickup.includes('assigned for pickup') ||
-    rawStatusForPickup.includes('assigned for seller pickup')
+    rawStatusForPickup.includes('assigned for seller pickup') ||
+    rawStatusForPickup.includes('manifest') ||
+    rawStatusForPickup.includes('picked')
+  const trackingConfirmsShipmentProgress = [
+    'pickup_initiated',
+    'in_transit',
+    'out_for_delivery',
+    'delivered',
+    'ndr',
+    'rto',
+    'rto_in_transit',
+    'rto_delivered',
+  ].includes(nextStatus)
 
   if (
     order.source_type === 'b2c' &&
-    nextStatus === 'pickup_initiated' &&
-    trackingConfirmsPickupRequest
+    nextStatus !== 'cancelled' &&
+    (trackingConfirmsPickupRequest || trackingConfirmsShipmentProgress)
   ) {
     updateData.pickup_status = 'pickup_initiated'
+    updateData.pickup_error = null
+    updateData.manifest_error = null
+  }
+  if (order.source_type === 'b2c' && nextStatus === 'cancelled') {
+    updateData.pickup_status = 'cancelled'
     updateData.pickup_error = null
   }
 
@@ -14051,6 +14922,15 @@ const persistLiveTrackingStatus = async (
     await db.update(b2c_orders).set(updateData as any).where(eq(b2c_orders.id, order.id))
     await runB2CLiveTrackingSideEffects({ order, nextStatus, previousStatus }).catch((err: any) => {
       console.warn('Live tracking side effects skipped:', err?.message || err)
+    })
+    await recordLiveTrackingNdrEvent({
+      order,
+      providerKey,
+      tracking,
+      ndrEvent,
+      mappedStatus: nextStatus,
+    }).catch((err: any) => {
+      console.warn('Live tracking NDR capture skipped:', err?.message || err)
     })
 
     try {
@@ -14287,15 +15167,40 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
     throw new HttpError(404, `No order found for AWB: ${awb}`)
   }
 
-  let providerKey = sanitizeString(order.integration_type ?? 'delhivery').toLowerCase()
+  const providerMetaCourierName = getProviderMetaCourierName(order.provider_meta)
+  const providerKey = resolveCourierProviderKeyFromFields(
+    order.integration_type,
+    order.courier_partner,
+    providerMetaCourierName,
+    order.provider_service,
+  )
 
-  if (!['delhivery', 'shadowfax', 'amazon', 'xpressbees', 'ekart'].includes(providerKey) && order.courier_partner) {
-    const partner = order.courier_partner.toLowerCase()
-    if (partner.includes('delhivery')) providerKey = 'delhivery'
-    if (partner.includes('shadowfax')) providerKey = 'shadowfax'
-    if (partner.includes('amazon')) providerKey = 'amazon'
-    if (partner.includes('xpressbees') || partner.includes('xpress bees')) providerKey = 'xpressbees'
-    if (partner.includes('ekart')) providerKey = 'ekart'
+  if (!providerKey) {
+    throw new HttpError(400, 'Unsupported integration_type for tracking')
+  }
+
+  const providerDisplayName =
+    providerMetaCourierName || getCourierProviderDisplayName(providerKey) || order.courier_partner
+  const shouldRepairProviderFields =
+    order.source_type === 'b2c' &&
+    (normalizeCourierProviderKey(order.integration_type) !== providerKey ||
+      normalizeCourierProviderKey(order.courier_partner) !== providerKey)
+
+  if (shouldRepairProviderFields) {
+    await db
+      .update(b2c_orders)
+      .set({
+        integration_type: providerKey,
+        courier_partner: providerDisplayName,
+        updated_at: new Date(),
+      } as any)
+      .where(eq(b2c_orders.id, order.id))
+      .catch((err: any) => {
+        console.warn('Tracking provider field repair skipped:', err?.message || err)
+      })
+
+    order.integration_type = providerKey
+    order.courier_partner = providerDisplayName
   }
 
   let providerData: ProviderNormalizedTracking | null = null
@@ -14306,11 +15211,7 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
       const raw = await delhiveryService.trackShipment(awb)
       providerData = mapDelhiveryTracking(raw, order)
     } else if (providerKey === 'shadowfax') {
-      const isReverseShadowfax =
-        String(order?.order_type || '').trim().toLowerCase() === 'reverse' ||
-        isShadowfaxReverseReference(order?.provider_request_id) ||
-        isShadowfaxReverseReference(order?.provider_reference) ||
-        isShadowfaxReverseReference(awb)
+      const isReverseShadowfax = awb.toUpperCase().startsWith('R')
 
       if (!isReverseShadowfax && isAfterShipTrackingConfigured()) {
         try {
@@ -14373,8 +15274,6 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
       const ekartService = new EkartService()
       const raw = await ekartService.track(awb)
       providerData = mapEkartTracking(raw, order)
-    } else {
-      throw new HttpError(400, 'Unsupported integration_type for tracking')
     }
   } catch (err: any) {
     if (err instanceof HttpError) throw err

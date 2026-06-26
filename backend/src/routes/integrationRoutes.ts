@@ -18,8 +18,12 @@ import {
 } from "../controllers/platformIntegration.controller";
 import {
   connectConfiguredShopifyStoreController,
+  shopifyOAuthCallbackController,
+  shopifyOAuthInstallController,
+  startShopifyOAuthController,
   syncShopifyOrdersController,
   testShopifyConnectionController,
+  updateShopifySettingsController,
 } from '../controllers/shopify.controller'
 import { syncWooCommerceOrdersController } from '../controllers/woocommerce.controller'
 import { requireAuth } from '../middlewares/requireAuth'
@@ -27,11 +31,17 @@ import { deleteStoreById } from "../models/services/PlatformIntegration.service"
 
 const router = Router();
 
+router.get('/shopify/oauth/callback', shopifyOAuthCallbackController)
+router.get('/shopify/oauth/install', shopifyOAuthInstallController)
+
 router.use(requireAuth)
 
+router.post('/shopify/oauth/start', startShopifyOAuthController)
 router.post("/shopify-auth", integrateShopifyStore);
 router.get('/shopify/test-connection', testShopifyConnectionController)
 router.post('/shopify/connect-env', connectConfiguredShopifyStoreController)
+router.put('/shopify/settings', updateShopifySettingsController)
+router.post('/shopify/settings', updateShopifySettingsController)
 router.post('/shopify/sync-orders', syncShopifyOrdersController)
 router.post('/amazon-shipping/rates', getAmazonShippingRatesController)
 router.post('/amazon-shipping/shipments', purchaseAmazonShipmentController)

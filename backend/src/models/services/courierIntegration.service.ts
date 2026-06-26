@@ -710,7 +710,7 @@ export const createCourier = async (data: {
   if (!data?.serviceProvider) throw new Error('Service provider is required')
   
   // Validate service provider is one of the allowed providers
-  const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax']
+  const allowedProviders = ['delhivery', 'ekart', 'xpressbees', 'shadowfax', 'amazon']
   const normalizedProvider = (data.serviceProvider || '').toLowerCase().trim()
   if (!allowedProviders.includes(normalizedProvider)) {
     throw new Error(

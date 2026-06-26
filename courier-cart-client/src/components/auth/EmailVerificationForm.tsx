@@ -8,13 +8,13 @@ import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
 import CustomInput from '../UI/inputs/CustomInput'
 import { toast } from '../UI/Toast'
 
-const BRAND_NAVY = '#047b85'
-const BRAND_ORANGE = '#ff821c'
+const BRAND_NAVY = '#E85500'
+const BRAND_ORANGE = '#1A7500'
 
 const primaryButtonStyles = {
   width: '100%',
   borderRadius: '12px',
-  background: `linear-gradient(135deg, ${BRAND_NAVY} 0%, #047b85 100%)`,
+  background: `linear-gradient(135deg, ${BRAND_NAVY} 0%, #2a5fbe 100%)`,
   boxShadow: '0 10px 24px rgba(13, 59, 142, 0.24)',
 }
 

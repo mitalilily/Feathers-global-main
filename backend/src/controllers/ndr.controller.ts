@@ -1,4 +1,4 @@
-import { and, eq, ilike, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { Response } from 'express'
 import { db } from '../models/client'
 import { b2c_orders } from '../models/schema/b2cOrders'
@@ -126,39 +126,17 @@ export const exportAdminNdrCsv = async (req: any, res: Response) => {
     const { search, fromDate, toDate, courier, integration_type, attempt_count, status } =
       req.query as any
 
-    const where = and(
-      search
-        ? and(sql`true`, sql`${ndr_events.awb_number} ILIKE ${'%' + search + '%'}`)
-        : sql`true`,
-      status ? ilike(ndr_events.status, `%${status}%`) : sql`true`,
-    )
-
-    const rows = await db
-      .select({
-        awb: ndr_events.awb_number,
-        order_id: ndr_events.order_id,
-        status: ndr_events.status,
-        reason: ndr_events.reason,
-        remarks: ndr_events.remarks,
-        attempt_no: ndr_events.attempt_no,
-        created_at: ndr_events.created_at,
-        courier_partner: b2c_orders.courier_partner,
-        integration_type: b2c_orders.integration_type,
-      })
-      .from(ndr_events)
-      .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
-      .where(
-        and(
-          where,
-          courier ? ilike(b2c_orders.courier_partner, `%${courier}%`) : sql`true`,
-          integration_type
-            ? ilike(b2c_orders.integration_type, `%${integration_type}%`)
-            : sql`true`,
-          attempt_count ? ilike(ndr_events.attempt_no, `%${String(attempt_count)}%`) : sql`true`,
-          fromDate ? sql`${ndr_events.created_at} >= ${new Date(fromDate)}` : sql`true`,
-          toDate ? sql`${ndr_events.created_at} <= ${new Date(toDate)}` : sql`true`,
-        ),
-      )
+    const { rows } = await listNdrEventsAdmin(undefined, {
+      page: 1,
+      limit: 100000,
+      search: search || '',
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      courier: courier || undefined,
+      integration_type: integration_type || undefined,
+      attempt_count: attempt_count ? Number(attempt_count) : undefined,
+      status: status || undefined,
+    })
 
     const headers = [
       'AWB',
@@ -173,8 +151,8 @@ export const exportAdminNdrCsv = async (req: any, res: Response) => {
     ]
     const csv = buildCsv(
       headers,
-      rows.map((r) => [
-        r.awb,
+      rows.map((r: any) => [
+        r.awb_number,
         r.order_id,
         r.courier_partner,
         r.integration_type,

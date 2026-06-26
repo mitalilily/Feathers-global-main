@@ -26,6 +26,7 @@ export interface UseAvailableCouriersParams {
   pickupPincode: string
   pickupName?: string
   pickupId?: string
+  pickupPhone?: string
   pickupAddress?: string
   pickupCity?: string
   pickupState?: string
@@ -43,12 +44,12 @@ export interface UseAvailableCouriersParams {
   length?: number
   breadth?: number
   height?: number
-  numberOfBoxes?: number
   enabled?: boolean
   shipmentType?: 'b2b' | 'b2c'
-  payment_type: 'cod' | 'prepaid'
+  payment_type: 'cod' | 'prepaid' | 'reverse'
   context?: string
   isCalculator?: boolean
+  isReverse?: boolean
   shadowfax_forward_mode?: 'marketplace' | 'warehouse'
   shadowfax_service_mode?: 'regular' | 'surface'
 }
@@ -73,13 +74,14 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
 
   const normalizedOrderAmount =
     typeof orderAmount === 'number' && orderAmount > 0 ? orderAmount : undefined
+  const isReverseShipment = params.isReverse === true || payment_type === 'reverse'
   const isShipmentCourierSelection = params.context === 'shipment_courier_selection'
   const hasPositiveWeight = Number(weight) > 0
   const hasB2CPackageDimensions =
     shipmentType !== 'b2c' ||
     (Number(length) > 0 && Number(breadth) > 0 && Number(height) > 0)
   const hasRequiredB2COrderAmount =
-    shipmentType !== 'b2c' || typeof normalizedOrderAmount === 'number'
+    shipmentType !== 'b2c' || isReverseShipment || typeof normalizedOrderAmount === 'number'
   const canFetchAvailableCouriers =
     enabled &&
     !!pickupPincode &&
@@ -103,9 +105,9 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
       length,
       breadth,
       height,
-      params?.numberOfBoxes,
       shipmentType,
       params?.pickupName,
+      params?.pickupPhone,
       params?.pickupAddress,
       params?.pickupCity,
       params?.pickupState,
@@ -116,6 +118,7 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
       params?.deliveryState,
       params?.context,
       params?.isCalculator,
+      params?.isReverse,
       params?.shadowfax_forward_mode,
       params?.shadowfax_service_mode,
     ],
@@ -125,6 +128,7 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
         destination: deliveryPincode,
         pickupId,
         pickupName: params.pickupName,
+        pickupPhone: params.pickupPhone,
         pickupAddress: params.pickupAddress,
         pickupCity: params.pickupCity,
         pickupState: params.pickupState,
@@ -138,10 +142,10 @@ export const useAvailableCouriers = (params: UseAvailableCouriersParams) => {
         cod,
         weight,
         length,
-        number_of_boxes: params.numberOfBoxes,
         ...(shipmentType && { shipment_type: shipmentType }),
         context: params.context,
         isCalculator: params.isCalculator === true || params.context === 'rate_calculator',
+        isReverse: params.isReverse,
         shadowfax_forward_mode: params.shadowfax_forward_mode,
         shadowfax_service_mode: params.shadowfax_service_mode,
         breadth,
@@ -167,6 +171,7 @@ export const useAvailableCouriersMutation = () => {
         destination: params.deliveryPincode,
         pickupId: params.pickupId,
         pickupName: params.pickupName,
+        pickupPhone: params.pickupPhone,
         pickupAddress: params.pickupAddress,
         pickupCity: params.pickupCity,
         pickupState: params.pickupState,
@@ -182,10 +187,10 @@ export const useAvailableCouriersMutation = () => {
         length: params.length,
         breadth: params.breadth,
         height: params.height,
-        number_of_boxes: params.numberOfBoxes,
         shipment_type: params?.shipmentType,
         context: params.context,
         isCalculator: params.isCalculator === true || params.context === 'rate_calculator',
+        isReverse: params.isReverse,
         shadowfax_forward_mode: params.shadowfax_forward_mode,
         shadowfax_service_mode: params.shadowfax_service_mode,
       })
@@ -203,14 +208,14 @@ export const useShippingRates = (filters = {}) => {
 }
 
 export const useAllCouriers = () => {
-  return useQuery<any[]>({
+  return useQuery({
     queryKey: ['allCouriers'],
     queryFn: () => fetchAllCouriers(),
   })
 }
 
 export const useAllCouriersWithDetails = () => {
-  return useQuery<any[]>({
+  return useQuery({
     queryKey: ['allCouriers'],
     queryFn: () => fetchCouriersWithDetails(),
   })

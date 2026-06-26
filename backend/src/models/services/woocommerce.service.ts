@@ -4,6 +4,12 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { stores } from '../schema/stores'
+import {
+  getCourierProviderDisplayName,
+  getProviderMetaCourierName,
+  resolveCourierProviderKeyFromFields,
+} from '../../utils/courierProvider'
+import { recordSalesChannelSyncOutcome } from './salesChannelSyncAudit.service'
 import { ensurePlatformRegistration, updateUserChannelIntegration } from './userService'
 
 const WOOCOMMERCE_PLATFORM_ID = 2
@@ -22,6 +28,17 @@ type SyncResult = {
   updated: number
   skipped: number
 }
+
+const DEFAULT_WOOCOMMERCE_SYNC_SETTINGS = {
+  autoUpdateStatus: true,
+  autoUpdateShipmentStatus: true,
+  markCodPaid: false,
+}
+
+const normalizeWooCommerceSettings = (settings?: Record<string, any> | null) => ({
+  ...DEFAULT_WOOCOMMERCE_SYNC_SETTINGS,
+  ...(settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {}),
+})
 
 const toNumber = (value: unknown, fallback = 0): number => {
   const n = Number(value)
@@ -257,7 +274,7 @@ export const ensureWooCommerceOrderWebhooks = async (store: WooCommerceStore) =>
       method: 'post',
       path: '/webhooks',
       data: {
-        name: `Feather Global ${topic}`,
+        name: `Shiplifi ${topic}`,
         topic,
         delivery_url: address,
         secret,
@@ -301,6 +318,7 @@ export const connectWooCommerceStore = async ({
   const secret =
     String(webhookSecret || '').trim() ||
     crypto.randomBytes(32).toString('hex')
+  const normalizedSettings = normalizeWooCommerceSettings(settings)
 
   let savedStore: WooCommerceStore | undefined
   await tx.transaction(async (innerTx: any) => {
@@ -330,7 +348,7 @@ export const connectWooCommerceStore = async ({
           domain: normalizedUrl,
           apiKey: normalizedConsumerKey,
           adminApiAccessToken: normalizedConsumerSecret,
-          settings: settings || {},
+          settings: normalizedSettings,
           currency: wooData.currency || null,
           metadata: storeMetadata,
           updatedAt: new Date(),
@@ -345,7 +363,7 @@ export const connectWooCommerceStore = async ({
         platformId: WOOCOMMERCE_PLATFORM_ID,
         apiKey: normalizedConsumerKey,
         adminApiAccessToken: normalizedConsumerSecret,
-        settings: settings || {},
+        settings: normalizedSettings,
         currency: wooData.currency || null,
         metadata: storeMetadata,
         createdAt: new Date(),
@@ -480,13 +498,46 @@ const upsertFromWooCommerceOrder = async (
   }
 
   const [existing] = await tx
-    .select({ id: b2c_orders.id })
+    .select({
+      id: b2c_orders.id,
+      order_status: b2c_orders.order_status,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+      provider_meta: b2c_orders.provider_meta,
+      provider_service: b2c_orders.provider_service,
+    })
     .from(b2c_orders)
     .where(eq(b2c_orders.order_id, internalOrderId))
     .limit(1)
 
   if (existing?.id) {
-    await tx.update(b2c_orders).set(updatePayload).where(eq(b2c_orders.id, existing.id))
+    const providerMetaCourierName = getProviderMetaCourierName(existing.provider_meta)
+    const bookedProviderKey = existing.awb_number
+      ? resolveCourierProviderKeyFromFields(
+          existing.integration_type,
+          existing.courier_partner,
+          providerMetaCourierName,
+          existing.provider_service,
+        )
+      : ''
+    const updateBookedPayload = existing.awb_number
+      ? {
+          ...updatePayload,
+          order_status:
+            String(updatePayload.order_status || '').toLowerCase() === 'cancelled'
+              ? updatePayload.order_status
+              : existing.order_status || updatePayload.order_status,
+          courier_partner:
+            providerMetaCourierName ||
+            (bookedProviderKey ? getCourierProviderDisplayName(bookedProviderKey) : '') ||
+            existing.courier_partner ||
+            updatePayload.courier_partner,
+          integration_type: bookedProviderKey || existing.integration_type || updatePayload.integration_type,
+        }
+      : updatePayload
+
+    await tx.update(b2c_orders).set(updateBookedPayload).where(eq(b2c_orders.id, existing.id))
     return 'updated' as const
   }
 
@@ -582,24 +633,105 @@ export const processWooCommerceWebhookOrder = async (
   return { success: true, action: 'ignored_topic' }
 }
 
-export const syncWooCommerceStatusForLocalOrder = async (order: any, tx: any = db) => {
+const buildWooCommerceSyncNote = (orderStatus: string, awb: string, courierPartner: unknown) =>
+  `Shiplifi update: ${orderStatus}. AWB: ${awb}. Courier: ${courierPartner || 'Courier'}.`
+
+const ensureWooCommerceSyncNote = async ({
+  store,
+  wooOrderId,
+  note,
+}: {
+  store: WooCommerceStore
+  wooOrderId: string
+  note: string
+}) => {
+  const existingNotes = await wooRequest<any[]>({
+    storeUrl: store.domain,
+    consumerKey: store.apiKey,
+    consumerSecret: store.adminApiAccessToken,
+    method: 'get',
+    path: `/orders/${encodeURIComponent(wooOrderId)}/notes`,
+    params: { per_page: 50 },
+  })
+
+  const alreadyExists = (Array.isArray(existingNotes) ? existingNotes : []).some((existingNote: any) =>
+    String(existingNote?.note || '')
+      .replace(/<[^>]*>/g, '')
+      .includes(note),
+  )
+
+  if (alreadyExists) return false
+
+  await wooRequest({
+    storeUrl: store.domain,
+    consumerKey: store.apiKey,
+    consumerSecret: store.adminApiAccessToken,
+    method: 'post',
+    path: `/orders/${encodeURIComponent(wooOrderId)}/notes`,
+    data: {
+      note,
+      customer_note: false,
+    },
+  })
+
+  return true
+}
+
+export const syncWooCommerceStatusForLocalOrder = async (
+  order: any,
+  tx: any = db,
+  options: { source?: string } = {},
+) => {
   const localOrderId = String(order?.order_id || '')
-  if (!localOrderId.startsWith('woo_')) return
+  if (!localOrderId.startsWith('woo_')) {
+    return { attempted: false, success: true, channel: 'woocommerce', reason: 'not_a_woocommerce_order' }
+  }
 
   const parsed = parseInternalWooOrderId(localOrderId)
-  if (!parsed.storeId || !parsed.wooOrderId) return
+  if (!parsed.storeId || !parsed.wooOrderId) {
+    return { attempted: false, success: false, channel: 'woocommerce', reason: 'missing_woocommerce_order_id' }
+  }
 
   const [store] = await tx
     .select()
     .from(stores)
     .where(and(eq(stores.id, parsed.storeId), eq(stores.platformId, WOOCOMMERCE_PLATFORM_ID)))
     .limit(1)
-  if (!store) return
+  if (!store) {
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'woocommerce',
+        status: 'failed',
+        source: options.source,
+        reason: 'store_not_found',
+      },
+      tx,
+    )
+    return { attempted: false, success: false, channel: 'woocommerce', reason: 'store_not_found' }
+  }
 
-  const settings = ((store as any)?.settings || {}) as Record<string, any>
-  if (!settings.autoUpdateStatus && !settings.autoUpdateShipmentStatus) return
-
+  const settings = normalizeWooCommerceSettings(((store as any)?.settings || {}) as Record<string, any>)
   const orderStatus = String(order?.order_status || '').toLowerCase()
+  const awb = String(order?.awb_number || '').trim()
+  const actions: string[] = []
+
+  if (!settings.autoUpdateStatus && !settings.autoUpdateShipmentStatus) {
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'woocommerce',
+        status: 'skipped',
+        source: options.source,
+        reason: 'disabled_by_settings',
+        syncedStatus: orderStatus,
+        syncedAwb: awb,
+      },
+      tx,
+    )
+    return { attempted: false, success: true, channel: 'woocommerce', reason: 'disabled_by_settings' }
+  }
+
   const wooStatus =
     orderStatus === 'delivered'
       ? 'completed'
@@ -608,36 +740,85 @@ export const syncWooCommerceStatusForLocalOrder = async (order: any, tx: any = d
         : ['booked', 'pickup_initiated', 'in_transit', 'out_for_delivery'].includes(orderStatus)
           ? 'processing'
           : ''
-  if (!wooStatus) return
+  if (!wooStatus) {
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'woocommerce',
+        status: 'skipped',
+        source: options.source,
+        reason: 'unmapped_status',
+        syncedStatus: orderStatus,
+        syncedAwb: awb,
+      },
+      tx,
+    )
+    return { attempted: false, success: true, channel: 'woocommerce', reason: 'unmapped_status' }
+  }
 
   try {
-    await wooRequest({
-      storeUrl: store.domain,
-      consumerKey: store.apiKey,
-      consumerSecret: store.adminApiAccessToken,
-      method: 'put',
-      path: `/orders/${encodeURIComponent(parsed.wooOrderId)}`,
-      data: { status: wooStatus },
-    })
-
-    const awb = String(order?.awb_number || '').trim()
-    if (awb) {
+    if (settings.autoUpdateStatus) {
       await wooRequest({
         storeUrl: store.domain,
         consumerKey: store.apiKey,
         consumerSecret: store.adminApiAccessToken,
-        method: 'post',
-        path: `/orders/${encodeURIComponent(parsed.wooOrderId)}/notes`,
-        data: {
-          note: `Feather Global update: ${orderStatus}. AWB: ${awb}. Courier: ${order?.courier_partner || 'Courier'}.`,
-          customer_note: false,
-        },
+        method: 'put',
+        path: `/orders/${encodeURIComponent(parsed.wooOrderId)}`,
+        data: { status: wooStatus },
       })
+      actions.push(`status_${wooStatus}`)
     }
+
+    if (settings.autoUpdateShipmentStatus && awb) {
+      const note = buildWooCommerceSyncNote(orderStatus, awb, order?.courier_partner)
+      const created = await ensureWooCommerceSyncNote({
+        store,
+        wooOrderId: parsed.wooOrderId,
+        note,
+      })
+      actions.push(created ? 'awb_note_created' : 'awb_note_already_current')
+    } else if (!awb) {
+      actions.push('awb_note_skipped_no_awb')
+    }
+
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'woocommerce',
+        status: 'success',
+        source: options.source,
+        actions,
+        syncedStatus: orderStatus,
+        syncedAwb: awb,
+      },
+      tx,
+    )
+
+    return { attempted: true, success: true, channel: 'woocommerce', actions }
   } catch (err: any) {
+    await recordSalesChannelSyncOutcome(
+      order,
+      {
+        channel: 'woocommerce',
+        status: 'failed',
+        source: options.source,
+        actions,
+        error: err,
+        syncedStatus: orderStatus,
+        syncedAwb: awb,
+      },
+      tx,
+    )
     console.warn(
       `WooCommerce status sync failed for local order ${order?.order_number || order?.id}:`,
       err?.response?.data || err?.message || err,
     )
+    return {
+      attempted: true,
+      success: false,
+      channel: 'woocommerce',
+      actions,
+      error: err?.response?.data || err?.message || err,
+    }
   }
 }

@@ -1,74 +1,144 @@
-# Shopify Integration Runbook
+# Shopify OAuth Integration Runbook
 
-This backend connects Shopify through the GraphQL Admin API.
+This backend connects Shopify stores through the Shopify OAuth authorization code grant and then uses the GraphQL Admin API with the stored offline access token.
 
-- Store credentials are verified with the `shop` query.
-- Orders are imported with the `orders` query.
-- Order webhooks are registered with `webhookSubscriptionCreate`.
-- Shipment updates use GraphQL mutations for fulfillment creation, order tags, cancellation, and mark-as-paid.
+## Token Mode Decision
+
+Use one **offline OAuth access token per connected Shopify store**.
+
+This is the correct mode for Shiplifi because many independent merchants connect their own stores from the client panel, and Shiplifi must continue to work when the merchant is not actively logged in:
+
+- Shopify order webhooks must be accepted at any time.
+- Scheduled/manual order sync must run in the background.
+- Shipment booking can trigger Shopify fulfillment, tag, payment, or cancellation updates after the original install session.
+- A store connection belongs to the merchant's store, not to one Shopify staff member's browser session.
+
+Do not use Shopify online access tokens for this workflow. Online tokens are tied to an individual Shopify user/session and are not suitable for background order-to-shipment automation.
+
+Do not use client credentials as the main merchant install flow. That grant is for trusted server-to-server cases, not a multi-merchant SaaS flow where each merchant authorizes their own store.
+
+The current implementation requests an expiring offline token by sending `expiring=1` when exchanging Shopify's authorization code. The access token, refresh token, access-token expiry, and refresh-token expiry are stored under `stores.metadata.oauth`, and background Shopify API calls refresh the token before it expires.
+
+`SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS=false` can be used only for compatibility testing with custom apps that are not subject to the public-app requirement. Do not disable expiring offline tokens for Shiplifi's public multi-merchant OAuth flow.
+
+The OAuth flow intentionally requires `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`. Legacy aliases such as `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, and stored Admin API tokens are not used for OAuth.
 
 Official references:
 
+- Authorization code grant: https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant
+- Offline access tokens: https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/offline-access-tokens
 - GraphQL Admin API: https://shopify.dev/docs/api/admin-graphql/latest
-- Orders query: https://shopify.dev/docs/api/admin-graphql/latest/queries/orders
 - Webhooks: https://shopify.dev/docs/apps/build/webhooks
-- Access tokens: https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens
+- Legacy custom app cutoff: https://changelog.shopify.com/posts/legacy-custom-apps-can-t-be-created-after-january-1-2026
 
-## Required Scopes
+## Required Shopify App Setup
 
-Use the least privileges possible for the features you enable:
+Create one Shiplifi app from the Shopify Dev Dashboard. The Shopify app's client ID and client secret belong to Shiplifi, not to each merchant. Every merchant installs this same app, and Shopify returns a separate store access token for each connected store.
 
-- `read_orders` to import recent orders.
-- `write_orders` to update order tags, cancel orders, and mark COD orders as paid.
-- `read_webhooks` and `write_webhooks` to list and auto-register webhook subscriptions.
-- Fulfillment write scopes such as `write_merchant_managed_fulfillment_orders` when using Shopify fulfillment creation.
-- `read_all_orders` only if older-than-60-days order import is required and approved by Shopify.
+Configure the app URL:
+
+```text
+https://api.shiplifi.com/api/integrations/shopify/oauth/install
+```
+
+Configure the allowed redirection URL:
+
+```text
+https://api.shiplifi.com/api/integrations/shopify/oauth/callback
+```
+
+For local testing, use a public HTTPS tunnel for the backend and add that callback too:
+
+```text
+https://your-ngrok-domain.ngrok-free.app/api/integrations/shopify/oauth/callback
+```
 
 ## Backend Configuration
 
-For production webhook auto-registration, `API_URL` must be a public HTTPS backend URL Shopify can reach.
+`API_URL` must be the public backend origin and must not include `/api`.
 
 ```bash
 API_URL=https://api.shiplifi.com
-SHOPIFY_STORE=your-store.myshopify.com
-SHOPIFY_ACCESS_TOKEN=shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SHOPIFY_API_SECRET=shpss_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SHOPIFY_CLIENT_ID=your_shopify_client_id
+SHOPIFY_CLIENT_SECRET=your_shopify_client_secret
+SHOPIFY_SCOPES=read_orders,write_orders,read_customers,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders
 SHOPIFY_API_VERSION=2026-04
+SHOPIFY_OAUTH_SUCCESS_URL=https://app.shiplifi.com/channels/connected
+SHOPIFY_SEND_OAUTH_SCOPE=false
 ```
 
-The app registers this webhook delivery URL:
+The OAuth callback path defaults to:
+
+```text
+/api/integrations/shopify/oauth/callback
+```
+
+The public install handoff path for the Shopify app URL is:
+
+```text
+/api/integrations/shopify/oauth/install
+```
+
+The app registers Shopify order webhooks at:
 
 ```text
 https://api.shiplifi.com/api/webhooks/shopify/order-created
 ```
 
-Shopify signs webhook deliveries with the app secret. Pass one of these fields when connecting a store:
+Shopify signs OAuth callbacks and webhook deliveries with `SHOPIFY_CLIENT_SECRET`.
 
-- `webhookSecret`
-- `apiSecretKey`
-- `apiSecret`
-- `clientSecret`
+## Required Scopes
 
-If a store-level secret is not provided, the backend falls back to `SHOPIFY_API_SECRET` or `SHOPIFY_WEBHOOK_SECRET`.
+Use the least privileges possible for the features enabled:
 
-## Admin Status
+- `read_orders` to import recent orders.
+- `write_orders` to update order tags, cancel orders, and mark COD orders as paid.
+- `read_customers` when customer data is needed for shipping.
+- `read_webhooks` and `write_webhooks` to list and auto-register webhook subscriptions.
+- `read_merchant_managed_fulfillment_orders` and `write_merchant_managed_fulfillment_orders` when reading fulfillment orders and creating Shopify fulfillments.
+- `read_all_orders` only if older-than-60-days order import is required and approved by Shopify.
 
-The admin dashboard API integration page can test and bind the env-backed custom app without exposing tokens.
+Protected customer data must also be approved/configured in Shopify for buyer name, email, phone, shipping address, and billing address. Without that access, Shopify can hide address details in Admin API responses.
 
-- GET `/api/integrations/shopify/test-connection`
-- POST `/api/integrations/shopify/connect-env`
-- POST `/api/integrations/shopify/sync-orders`
+## Runtime Flow
 
-## Connect Payload
+1. Client enters `mystore.myshopify.com` in Shiplifi.
+2. Client calls `POST /api/integrations/shopify/oauth/start`.
+3. Backend returns a Shopify authorization URL.
+4. Browser redirects to Shopify for merchant approval.
+5. Shopify redirects to `GET /api/integrations/shopify/oauth/callback`.
+6. Backend verifies Shopify HMAC and the signed state.
+7. Backend exchanges `code` for an offline Admin API access token.
+8. Backend probes the shop, saves the store, registers webhooks, and redirects to the Shiplifi channels page.
 
-POST `/api/integrations/shopify-auth` with the authenticated merchant session:
+When a merchant starts from Shopify instead of Shiplifi, Shopify opens the app URL with a `shop` query. Shiplifi redirects that merchant to the client panel, keeps the `shop` value, and continues the same OAuth flow after the merchant logs in.
+
+Because the Shopify app version uses managed install (`Use legacy install flow = false`) and declares access scopes in Shopify app config, Shiplifi omits the OAuth `scope` query parameter by default. Set `SHOPIFY_SEND_OAUTH_SCOPE=true` only for a legacy/manual OAuth setup where Shopify app config is not managing scopes.
+
+The manual credential endpoint `POST /api/integrations/shopify-auth` and the configured custom-app endpoint `POST /api/integrations/shopify/connect-env` now return HTTP `410` unless `SHOPIFY_ALLOW_LEGACY_MANUAL_AUTH=true` is explicitly set.
+
+## API Endpoints
+
+- `POST /api/integrations/shopify/oauth/start`
+- `GET /api/integrations/shopify/oauth/callback`
+- `PUT /api/integrations/shopify/settings`
+- `POST /api/integrations/shopify/sync-orders`
+- `GET /api/integrations/shopify/test-connection`
+
+Example OAuth start payload:
 
 ```json
 {
-  "storeUrl": "your-store.myshopify.com",
-  "apiKey": "optional-client-id",
-  "apiSecretKey": "shopify-app-secret",
-  "adminApiAccessToken": "shpat_...",
+  "shop": "mystore.myshopify.com",
+  "returnTo": "/channels/connected"
+}
+```
+
+Example settings update payload:
+
+```json
+{
+  "storeId": "123456789",
   "settings": {
     "fulfillTrigger": "order_booked",
     "customerNotifyOnFulfill": "notify",
@@ -82,36 +152,36 @@ POST `/api/integrations/shopify-auth` with the authenticated merchant session:
 }
 ```
 
-## Credential Check
+## Verification Checklist
 
-Run the built-in mock proof:
-
-```bash
-npm run check:shopify-apis -- --mock
-```
-
-Run against a real Shopify store:
+Run local builds first:
 
 ```bash
-SHOPIFY_STORE_URL=your-store.myshopify.com \
-SHOPIFY_STORE=your-store.myshopify.com \
-SHOPIFY_ADMIN_API_ACCESS_TOKEN=shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
-SHOPIFY_ACCESS_TOKEN=shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
-npm run check:shopify-apis
+cd backend && npm run build
+npm run check:shopify-oauth -- --mock
+cd ../courier-cart-client && npm run build
 ```
 
-On PowerShell:
-
-```powershell
-$env:SHOPIFY_STORE_URL="your-store.myshopify.com"
-$env:SHOPIFY_STORE="your-store.myshopify.com"
-$env:SHOPIFY_ADMIN_API_ACCESS_TOKEN="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-$env:SHOPIFY_ACCESS_TOKEN="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-npm run check:shopify-apis
-```
-
-If the token does not have webhook scopes yet, run:
+On production, after the Shopify Dev Dashboard credentials are present, run:
 
 ```bash
-npm run check:shopify-apis -- --skip-webhooks
+cd /srv/shiplifi/current/backend
+NODE_ENV=production npm run check:shopify-oauth -- --require-public --shop=your-store.myshopify.com
 ```
+
+Then test with a real Shopify development store:
+
+1. Start the backend with public `API_URL`, Shopify client id, and Shopify client secret.
+2. Start the client with `VITE_API_URL` pointing to the backend `/api` base.
+3. Log in to Shiplifi as a merchant.
+4. Go to `/channels/connected`.
+5. Click Shopify, enter the `myshopify.com` domain, and approve the app in Shopify.
+6. Confirm the Shiplifi channels page shows the Shopify success toast and a connected store row.
+7. In Shopify, create a test order with a shipping address.
+8. Wait for the Shopify order webhook or click `Sync Orders` from Shiplifi.
+9. Confirm the order appears in Shiplifi B2C orders with customer/address data.
+10. Book a shipment from the Shiplifi panel.
+11. Confirm the shipment is created with a courier AWB/label.
+12. If auto fulfillment is enabled, confirm Shopify receives the fulfillment/status update.
+
+If order address fields are missing during step 9, re-check protected customer data approval and the app scopes in the Shopify Dev Dashboard.

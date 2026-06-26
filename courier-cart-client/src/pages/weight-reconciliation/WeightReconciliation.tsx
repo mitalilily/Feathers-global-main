@@ -257,7 +257,7 @@ export default function WeightReconciliation() {
       sx={{
         p: 1.6,
         borderRadius: 4,
-        bgcolor: alpha('#047b85', 0.06),
+        bgcolor: alpha('#E85500', 0.06),
         border: '1px solid rgba(217, 4, 22, 0.12)',
       }}
     >

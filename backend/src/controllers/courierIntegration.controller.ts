@@ -77,6 +77,7 @@ const buildServiceabilityOptions = (body: any): Record<string, any> => {
   }
 
   copyStringOption(['pickupName', 'pickup_name'], 'pickupName')
+  copyStringOption(['pickupPhone', 'pickup_phone'], 'pickupPhone')
   copyStringOption(['pickupAddress', 'pickup_address'], 'pickupAddress')
   copyStringOption(['pickupCity', 'pickup_city'], 'pickupCity')
   copyStringOption(['pickupState', 'pickup_state'], 'pickupState')
@@ -147,7 +148,13 @@ const buildServiceabilityOptions = (body: any): Record<string, any> => {
   return options
 }
 
-const SUPPORTED_B2C_FALLBACK_PROVIDERS = ['delhivery', 'ekart', 'xpressbees', 'shadowfax']
+const SUPPORTED_B2C_FALLBACK_PROVIDERS = [
+  'delhivery',
+  'ekart',
+  'xpressbees',
+  'shadowfax',
+  'amazon',
+]
 
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value)
@@ -161,16 +168,19 @@ const getOptionalNumber = (value: unknown): number | undefined => {
 }
 
 const getCourierBillingBaseAmount = (courier: any, paymentType?: string) => {
-  const forwardRate = courier?.localRates?.forward ?? {}
-  const explicitTotal = getOptionalNumber(forwardRate.total_charges ?? courier?.total_charges)
+  const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
+  const activeRate = isReverse
+    ? courier?.localRates?.rto ?? courier?.localRates?.forward ?? {}
+    : courier?.localRates?.forward ?? {}
+  const explicitTotal = getOptionalNumber(activeRate.total_charges ?? courier?.total_charges)
   if (explicitTotal !== undefined) return Math.max(0, explicitTotal)
 
-  const freight = getOptionalNumber(forwardRate.rate ?? courier?.rate ?? courier?.freight_charges) ?? 0
+  const freight = getOptionalNumber(activeRate.rate ?? courier?.rate ?? courier?.freight_charges) ?? 0
   const cod =
     String(paymentType || '').toLowerCase() === 'cod'
-      ? getOptionalNumber(forwardRate.cod_charges ?? courier?.cod_charges) ?? 0
+      ? getOptionalNumber(activeRate.cod_charges ?? courier?.cod_charges) ?? 0
       : 0
-  const other = getOptionalNumber(forwardRate.other_charges ?? courier?.other_charges) ?? 0
+  const other = getOptionalNumber(activeRate.other_charges ?? courier?.other_charges) ?? 0
   return Math.max(0, freight + cod + other)
 }
 
@@ -181,8 +191,10 @@ const applyGstToB2CCouriers = async (couriers: any[], paymentType?: string) => {
   const gstPercent = Number(paymentSettings.gstPercent ?? 0)
 
   return couriers.map((courier) => {
+    const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
+    const activeRateKey = isReverse ? 'rto' : 'forward'
     const breakup = calculateGstBreakup(getCourierBillingBaseAmount(courier, paymentType), gstPercent)
-    const forwardRate = courier?.localRates?.forward
+    const activeRate = courier?.localRates?.[activeRateKey]
     const taxFields = {
       gst_percent: breakup.gstPercent,
       gst_amount: breakup.gstAmount,
@@ -198,7 +210,7 @@ const applyGstToB2CCouriers = async (couriers: any[], paymentType?: string) => {
       localRates: courier?.localRates
         ? {
             ...courier.localRates,
-            forward: forwardRate ? { ...forwardRate, ...taxFields } : forwardRate,
+            [activeRateKey]: activeRate ? { ...activeRate, ...taxFields } : activeRate,
           }
         : courier?.localRates,
     }
@@ -220,6 +232,7 @@ const inferB2CFallbackProvider = (rate: typeof shippingRates.$inferSelect) => {
   if (name.includes('ekart')) return 'ekart'
   if (name.includes('xpress')) return 'xpressbees'
   if (name.includes('shadowfax')) return 'shadowfax'
+  if (name.includes('amazon')) return 'amazon'
   return ''
 }
 
@@ -661,10 +674,6 @@ export const fetchAvailableCouriers = async (req: Request, res: Response) => {
       breadth,
       height,
       shipment_type,
-      number_of_boxes,
-      numberOfBoxes,
-      pieceCount,
-      piece_count,
     } = req.body
     if (!origin || !destination) {
       return res.status(400).json({
@@ -695,7 +704,6 @@ export const fetchAvailableCouriers = async (req: Request, res: Response) => {
       length: Number(length),
       breadth: Number(breadth),
       height: Number(height),
-      numberOfBoxes: Number(number_of_boxes ?? numberOfBoxes ?? pieceCount ?? piece_count ?? 1),
       ...serviceabilityOptions,
     }
 
@@ -818,10 +826,6 @@ export const fetchAvailableCouriersToUser = async (req: Request, res: Response) 
       breadth,
       height,
       shipment_type,
-      number_of_boxes,
-      numberOfBoxes,
-      pieceCount,
-      piece_count,
     } = req.body
     if (!origin || !destination) {
       return res.status(400).json({
@@ -852,7 +856,6 @@ export const fetchAvailableCouriersToUser = async (req: Request, res: Response) 
       length: Number(length),
       breadth: Number(breadth),
       height: Number(height),
-      numberOfBoxes: Number(number_of_boxes ?? numberOfBoxes ?? pieceCount ?? piece_count ?? 1),
       ...serviceabilityOptions,
     }
 

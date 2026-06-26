@@ -184,6 +184,50 @@ const readText = (sources: unknown[], paths: string[][]) => toText(readFirst(sou
 
 const money = (value: number) => Number(value.toFixed(2))
 
+type ShipmentWeightUnit = 'grams' | 'kilograms'
+
+const formatCompactNumber = (value: number, maximumFractionDigits = 3) =>
+  value.toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  })
+
+const formatShipmentWeight = (value: unknown, sourceUnit: ShipmentWeightUnit) => {
+  const weight = toNumber(value)
+  if (weight === null) return null
+
+  const grams = sourceUnit === 'kilograms' ? weight * 1000 : weight
+  const displayGrams = Math.abs(grams) < 1000
+
+  if (displayGrams) {
+    return `${formatCompactNumber(Math.round(grams), 0)} gm`
+  }
+
+  return `${formatCompactNumber(grams / 1000, 3)} kg`
+}
+
+const resolveShipmentWeightUnit = (
+  sources: unknown[],
+  reason: string,
+): ShipmentWeightUnit => {
+  const shipmentType = String(
+    readText(sources, [
+      ['shipment_type'],
+      ['shipmentType'],
+      ['shipment_order_type'],
+      ['shipmentOrderType'],
+      ['order_category'],
+      ['orderCategory'],
+    ]) || '',
+  ).toLowerCase()
+
+  if (shipmentType === 'b2b') return 'kilograms'
+  if (shipmentType === 'b2c') return 'grams'
+  if (reason.includes('b2b')) return 'kilograms'
+
+  return 'grams'
+}
+
 const CLIENT_ORDER_FIELDS = [
   'id',
   'order_id',
@@ -298,6 +342,12 @@ export const buildWalletTransactionBreakup = (
     const text = toText(value)
     if (!text) return
     facts.push({ label, value: `${text}${suffix}` })
+  }
+
+  const addWeightFact = (label: string, value: unknown, sourceUnit: ShipmentWeightUnit) => {
+    const text = formatShipmentWeight(value, sourceUnit)
+    if (!text) return
+    facts.push({ label, value: text })
   }
 
   const addMoneyLine = (
@@ -461,11 +511,28 @@ export const buildWalletTransactionBreakup = (
   addFact('Shipment ID', readFirst(sources, [['shipment_id'], ['shipmentId']]))
   addFact('Courier', readFirst(sources, [['courier_name'], ['courier_partner'], ['integration_type']]))
   addFact('Payment type', paymentType ? paymentType.toUpperCase() : null)
-  addFact('Charged weight', readFirst(sources, [['charged_weight'], ['chargedWeight']]), ' kg')
-  addFact('Volumetric weight', readFirst(sources, [['volumetric_weight'], ['volumetricWeight']]), ' kg')
+  const shipmentWeightUnit = resolveShipmentWeightUnit(sources, reason)
+  addWeightFact(
+    'Charged weight',
+    readFirst(sources, [['charged_weight'], ['chargedWeight']]),
+    shipmentWeightUnit,
+  )
+  addWeightFact(
+    'Volumetric weight',
+    readFirst(sources, [['volumetric_weight'], ['volumetricWeight']]),
+    shipmentWeightUnit,
+  )
   addFact('Charged slabs', readFirst(sources, [['charged_slabs'], ['chargedSlabs']]))
-  addFact('Declared weight', readFirst(sources, [['declared_weight'], ['declaredWeight']]), ' kg')
-  addFact('Weight difference', readFirst(sources, [['weight_difference'], ['weightDifference']]), ' kg')
+  addWeightFact(
+    'Declared weight',
+    readFirst(sources, [['declared_weight'], ['declaredWeight']]),
+    shipmentWeightUnit,
+  )
+  addWeightFact(
+    'Weight difference',
+    readFirst(sources, [['weight_difference'], ['weightDifference']]),
+    shipmentWeightUnit,
+  )
 
   if (!masked) {
     addFact('Provider ref', readFirst(sources, [['provider_reference'], ['providerReference']]))

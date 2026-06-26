@@ -35,6 +35,8 @@ export const validateOnboardingFields = (
   if (step === 1) {
     const {
       firstName,
+      state,
+      city,
       lastName,
       companyName,
       email,
@@ -56,9 +58,7 @@ export const validateOnboardingFields = (
       errors.basicInfo.email = "Enter a valid email";
     }
 
-    if (!pincode?.trim()) {
-      errors.basicInfo.pincode = "Pincode is required";
-    } else if (!/^\d{6}$/.test(pincode)) {
+    if (pincode && !/^\d{6}$/.test(pincode)) {
       errors.basicInfo.pincode = "Pincode must be 6 digits";
     }
 
@@ -66,6 +66,10 @@ export const validateOnboardingFields = (
       errors.basicInfo.phone = "Phone number is required";
     } else if (!/^\d{10}$/.test(phone.replace(/\D/g, ""))) {
       errors.basicInfo.phone = "Enter a valid 10-digit phone number";
+    }
+    if (pincode && (!state || !city)) {
+      errors.basicInfo.pincode =
+        "Location not found. Maybe check your pincode?";
     }
   }
 

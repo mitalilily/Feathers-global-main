@@ -12,6 +12,7 @@ import {
   fetchShippingRates,
   updateDelhiveryCredentials,
   updateEkartCredentials,
+  updateAmazonCredentials,
   updateShadowfaxCredentials,
   updateXpressbeesAwbRange,
   updateXpressbeesCredentials,
@@ -166,6 +167,17 @@ export const useUpdateShadowfaxCredentials = () => {
 
   return useMutation({
     mutationFn: updateShadowfaxCredentials,
+    onSuccess: () => {
+      queryClient.invalidateQueries(['courierCredentials'])
+    },
+  })
+}
+
+export const useUpdateAmazonCredentials = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: updateAmazonCredentials,
     onSuccess: () => {
       queryClient.invalidateQueries(['courierCredentials'])
     },

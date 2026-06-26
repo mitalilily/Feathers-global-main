@@ -21,10 +21,25 @@ const buildServiceabilityOptions = (body: any): Record<string, any> => {
     options.pickupId = String(pickupIdRaw)
   }
 
+  copyStringOption(['pickupName', 'pickup_name'], 'pickupName')
+  copyStringOption(['pickupPhone', 'pickup_phone'], 'pickupPhone')
+  copyStringOption(['pickupAddress', 'pickup_address'], 'pickupAddress')
+  copyStringOption(['pickupCity', 'pickup_city'], 'pickupCity')
+  copyStringOption(['pickupState', 'pickup_state'], 'pickupState')
+  copyStringOption(['deliveryName', 'delivery_name'], 'deliveryName')
+  copyStringOption(['deliveryPhone', 'delivery_phone'], 'deliveryPhone')
+  copyStringOption(['deliveryAddress', 'delivery_address'], 'deliveryAddress')
+  copyStringOption(['deliveryCity', 'delivery_city'], 'deliveryCity')
+  copyStringOption(['deliveryState', 'delivery_state'], 'deliveryState')
   copyStringOption(['shadowfax_forward_mode', 'shadowfaxForwardMode'], 'shadowfax_forward_mode')
   copyStringOption(['shadowfax_service_mode', 'shadowfaxServiceMode'], 'shadowfax_service_mode')
 
-  if (body?.is_reverse === true || body?.is_reverse === 'true' || body?.isReverse === true) {
+  if (
+    body?.is_reverse === true ||
+    body?.is_reverse === 'true' ||
+    body?.isReverse === true ||
+    String(body?.payment_type || '').toLowerCase() === 'reverse'
+  ) {
     options.isReverse = true
   }
 

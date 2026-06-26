@@ -4,6 +4,7 @@ import { Box, Typography } from '@mui/material'
 import styles from './IntegrationsMarquee.module.css'
 
 const logosRow1 = [
+  '/logo/integrations/amazon.png',
   '/logo/integrations/aramex.webp',
   '/logo/integrations/bluedart.png',
   '/logo/integrations/delhivery.png',

@@ -63,292 +63,98 @@ ALTER TABLE shiplifi_b2b_additional_charges
 -- Note: Run these only if you have existing data to migrate
 
 -- Migrate awb_charge → awb_charges
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'awb_charge'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET awb_charges = COALESCE(awb_charge, '0')
-      WHERE awb_charge IS NOT NULL AND awb_charges = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET awb_charges = COALESCE(awb_charge, '0')
+WHERE awb_charge IS NOT NULL AND awb_charges = '0';
 
 -- Migrate holiday_pickup_charge → public_holiday_pickup_charge
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'holiday_pickup_charge'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET public_holiday_pickup_charge = COALESCE(holiday_pickup_charge, '0')
-      WHERE holiday_pickup_charge IS NOT NULL AND public_holiday_pickup_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET public_holiday_pickup_charge = COALESCE(holiday_pickup_charge, '0')
+WHERE holiday_pickup_charge IS NOT NULL AND public_holiday_pickup_charge = '0';
 
 -- Migrate fuel_surcharge_percent → fuel_surcharge_percentage
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'fuel_surcharge_percent'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET fuel_surcharge_percentage = COALESCE(fuel_surcharge_percent, '0')
-      WHERE fuel_surcharge_percent IS NOT NULL AND fuel_surcharge_percentage = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET fuel_surcharge_percentage = COALESCE(fuel_surcharge_percent, '0')
+WHERE fuel_surcharge_percent IS NOT NULL AND fuel_surcharge_percentage = '0';
 
 -- Migrate ODA fields
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('oda_charge_per_awb', 'oda_charge_per_kg')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET 
-        oda_charges = COALESCE(oda_charge_per_awb, '0'),
-        oda_per_kg_charge = COALESCE(oda_charge_per_kg, '0')
-      WHERE (oda_charge_per_awb IS NOT NULL OR oda_charge_per_kg IS NOT NULL)
-        AND oda_charges = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET 
+  oda_charges = COALESCE(oda_charge_per_awb, '0'),
+  oda_per_kg_charge = COALESCE(oda_charge_per_kg, '0')
+WHERE (oda_charge_per_awb IS NOT NULL OR oda_charge_per_kg IS NOT NULL)
+  AND oda_charges = '0';
 
 -- Migrate csd_charge → csd_delivery_charge
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'csd_charge'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET csd_delivery_charge = COALESCE(csd_charge, '0')
-      WHERE csd_charge IS NOT NULL AND csd_delivery_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET csd_delivery_charge = COALESCE(csd_charge, '0')
+WHERE csd_charge IS NOT NULL AND csd_delivery_charge = '0';
 
 -- Migrate time-specific fields
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('time_specific_delivery_charge_per_kg', 'time_specific_delivery_charge_per_awb')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET 
-        time_specific_delivery_charge = COALESCE(time_specific_delivery_charge_per_kg, '0'),
-        time_specific_method = COALESCE(time_specific_calculation_method, 'per_kg_or_500')
-      WHERE (time_specific_delivery_charge_per_kg IS NOT NULL OR time_specific_delivery_charge_per_awb IS NOT NULL)
-        AND time_specific_delivery_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET 
+  time_specific_delivery_charge = COALESCE(time_specific_delivery_charge_per_kg, '0'),
+  time_specific_method = COALESCE(time_specific_calculation_method, 'per_kg_or_500')
+WHERE (time_specific_delivery_charge_per_kg IS NOT NULL OR time_specific_delivery_charge_per_awb IS NOT NULL)
+  AND time_specific_delivery_charge = '0';
 
 -- Migrate mall delivery fields
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('mall_delivery_charge_per_kg', 'mall_delivery_charge_per_awb')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET 
-        mall_delivery_charge = COALESCE(mall_delivery_charge_per_kg, '0'),
-        mall_delivery_method = COALESCE(mall_calculation_method, 'per_kg_or_500')
-      WHERE (mall_delivery_charge_per_kg IS NOT NULL OR mall_delivery_charge_per_awb IS NOT NULL)
-        AND mall_delivery_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET 
+  mall_delivery_charge = COALESCE(mall_delivery_charge_per_kg, '0'),
+  mall_delivery_method = COALESCE(mall_calculation_method, 'per_kg_or_500')
+WHERE (mall_delivery_charge_per_kg IS NOT NULL OR mall_delivery_charge_per_awb IS NOT NULL)
+  AND mall_delivery_charge = '0';
 
 -- Migrate attempt charge fields
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('attempt_charge_per_kg', 'attempt_charge_per_awb')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET 
-        delivery_reattempt_charge = COALESCE(attempt_charge_per_kg, '0'),
-        delivery_reattempt_method = COALESCE(attempt_calculation_method, 'per_kg_or_500')
-      WHERE (attempt_charge_per_kg IS NOT NULL OR attempt_charge_per_awb IS NOT NULL)
-        AND delivery_reattempt_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET 
+  delivery_reattempt_charge = COALESCE(attempt_charge_per_kg, '0'),
+  delivery_reattempt_method = COALESCE(attempt_calculation_method, 'per_kg_or_500')
+WHERE (attempt_charge_per_kg IS NOT NULL OR attempt_charge_per_awb IS NOT NULL)
+  AND delivery_reattempt_charge = '0';
 
 -- Migrate demurrage fields
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('demurrage_per_awb_day', 'demurrage_per_kg_day')
-    GROUP BY table_name
-    HAVING COUNT(*) = 2
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET 
-        demurrage_charges = COALESCE(demurrage_per_awb_day, demurrage_per_kg_day, '0'),
-        demurrage_method = CASE 
-          WHEN demurrage_per_awb_day IS NOT NULL AND demurrage_per_awb_day > 0 THEN 'per_awb_day'
-          WHEN demurrage_per_kg_day IS NOT NULL AND demurrage_per_kg_day > 0 THEN 'per_kg_day'
-          ELSE 'per_awb_day'
-        END
-      WHERE (demurrage_per_awb_day IS NOT NULL OR demurrage_per_kg_day IS NOT NULL)
-        AND demurrage_charges = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET 
+  demurrage_charges = COALESCE(demurrage_per_awb_day, demurrage_per_kg_day, '0'),
+  demurrage_method = CASE 
+    WHEN demurrage_per_awb_day IS NOT NULL AND demurrage_per_awb_day > 0 THEN 'per_awb_day'
+    WHEN demurrage_per_kg_day IS NOT NULL AND demurrage_per_kg_day > 0 THEN 'per_kg_day'
+    ELSE 'per_awb_day'
+  END
+WHERE (demurrage_per_awb_day IS NOT NULL OR demurrage_per_kg_day IS NOT NULL)
+  AND demurrage_charges = '0';
 
 -- Migrate handling fields
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name IN ('handling_charge_lt_100', 'handling_charge_100_200', 'handling_charge_gt_200')
-    GROUP BY table_name
-    HAVING COUNT(*) = 3
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET 
-        handling_below_100_kg = COALESCE(handling_charge_lt_100, '0'),
-        handling_100_to_200_kg = COALESCE(handling_charge_100_200, '0'),
-        handling_above_200_kg = COALESCE(handling_charge_gt_200, '0')
-      WHERE (handling_charge_lt_100 IS NOT NULL OR handling_charge_100_200 IS NOT NULL OR handling_charge_gt_200 IS NOT NULL)
-        AND handling_below_100_kg = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET 
+  handling_below_100_kg = COALESCE(handling_charge_lt_100, '0'),
+  handling_100_to_200_kg = COALESCE(handling_charge_100_200, '0'),
+  handling_above_200_kg = COALESCE(handling_charge_gt_200, '0')
+WHERE (handling_charge_lt_100 IS NOT NULL OR handling_charge_100_200 IS NOT NULL OR handling_charge_gt_200 IS NOT NULL)
+  AND handling_below_100_kg = '0';
 
 -- Migrate insurance_percent → insurance_charge (if you want to preserve percentage as a value)
 -- Note: This is optional - insurance_charge is now a flat amount, not percentage
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'insurance_percent'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET insurance_charge = COALESCE(insurance_percent, '0')
-      WHERE insurance_percent IS NOT NULL AND insurance_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET insurance_charge = COALESCE(insurance_percent, '0')
+WHERE insurance_percent IS NOT NULL AND insurance_charge = '0';
 
 -- Migrate cod_flat/cod_percent → cod_charge (use flat as base, calculation happens in code)
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'cod_flat'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET cod_charge = COALESCE(cod_flat, '0')
-      WHERE cod_flat IS NOT NULL AND cod_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET cod_charge = COALESCE(cod_flat, '0')
+WHERE cod_flat IS NOT NULL AND cod_charge = '0';
 
 -- Migrate rov_flat/rov_percent → rov_charge (use flat as base, calculation happens in code)
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'rov_flat'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET rov_charge = COALESCE(rov_flat, '0')
-      WHERE rov_flat IS NOT NULL AND rov_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET rov_charge = COALESCE(rov_flat, '0')
+WHERE rov_flat IS NOT NULL AND rov_charge = '0';
 
 -- Migrate liability_limit → liability_charge
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'shiplifi_b2b_additional_charges'
-      AND column_name = 'liability_limit'
-  ) THEN
-    EXECUTE $sql$
-      UPDATE shiplifi_b2b_additional_charges
-      SET liability_charge = COALESCE(liability_limit, '0')
-      WHERE liability_limit IS NOT NULL AND liability_charge = '0'
-    $sql$;
-  END IF;
-END $$;
+UPDATE shiplifi_b2b_additional_charges
+SET liability_charge = COALESCE(liability_limit, '0')
+WHERE liability_limit IS NOT NULL AND liability_charge = '0';
 
 -- Step 3: Drop old columns (ONLY after verifying data migration worked correctly)
 -- WARNING: Backup your database before running these!

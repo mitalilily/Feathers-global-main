@@ -7,6 +7,7 @@ import { invoicePreferences } from '../schema/invoicePreferences'
 import { userProfiles } from '../schema/userProfile'
 import { users } from '../schema/users'
 import { sanitizeOrdersForCustomer } from '../../utils/orderSanitizer'
+import { getAmazonOrderLabelReference } from '../../utils/orderLabels'
 import { IOrderFilters, PaginationParams } from './shiprocket.service'
 import { generateLabelForOrder } from './generateCustomLabelService'
 import dayjs from 'dayjs'
@@ -58,6 +59,7 @@ export const getAllOrdersServiceAdmin = async ({
       fromDate: filters.fromDate,
       toDate: filters.toDate,
       search: filters.search,
+      pickupAlert: (filters as any).pickupAlert,
       sortOrder: filters.sortOrder,
     },
   })
@@ -175,11 +177,23 @@ export const regenerateOrderDocumentsServiceAdmin = async ({
   let newInvoiceKey: string | null = null
 
   if (regenerateLabel) {
-    const labelKey = await generateLabelForOrder(order, userId, db)
-    if (!labelKey || typeof labelKey !== 'string') {
-      throw new Error('Label regeneration failed')
+    const isAmazonOrder = String(order.integration_type || order.courier_partner || '')
+      .toLowerCase()
+      .includes('amazon')
+
+    if (isAmazonOrder) {
+      const labelKey = getAmazonOrderLabelReference(order)
+      if (!labelKey || typeof labelKey !== 'string') {
+        throw new Error('Amazon label regeneration failed because the provider label was not available')
+      }
+      newLabelKey = labelKey.trim()
+    } else {
+      const labelKey = await generateLabelForOrder(order, userId, db)
+      if (!labelKey || typeof labelKey !== 'string') {
+        throw new Error('Label regeneration failed')
+      }
+      newLabelKey = labelKey.trim()
     }
-    newLabelKey = labelKey.trim()
   }
 
   let generatedInvoiceData: { number: string; date: string; amount: number } | null = null

@@ -234,7 +234,7 @@ const getAmazonShipFromForPickup = async (req: any) => {
     pincode: warehouse.pincode,
     latitude: warehouse.latitude,
     longitude: warehouse.longitude,
-    companyName: warehouse.addressNickname || warehouse.contactName || 'Feather Global',
+    companyName: warehouse.addressNickname || warehouse.contactName || 'Shiplifi',
   })
 }
 

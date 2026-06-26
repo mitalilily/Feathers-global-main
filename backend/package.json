@@ -8,35 +8,29 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "check:rate-apis": "node -r ts-node/register src/scripts/checkRateCalculatorApis.ts",
-    "check:kyc-flow": "node -r ts-node/register src/scripts/checkKycFlow.ts",
     "check:amazon-shipping-apis": "node -r ts-node/register src/scripts/checkAmazonShippingApis.ts",
     "check:ekart-apis": "node -r ts-node/register src/scripts/checkEkartApis.ts",
     "check:shopify-apis": "node -r ts-node/register src/scripts/checkShopifyApis.ts",
     "check:woocommerce-apis": "node -r ts-node/register src/scripts/checkWooCommerceApis.ts",
     "check:xpressbees-apis": "node -r ts-node/register src/scripts/checkXpressbeesApis.ts",
     "check:shadowfax-apis": "node -r ts-node/register src/scripts/checkShadowfaxApis.ts",
+    "check:booking-wallet-gst": "tsx src/scripts/checkBookingWalletGstDebit.ts",
     "check:wallet-awb-link": "tsx src/scripts/checkWalletTransactionAwbLink.ts",
     "check:order-csv-actions": "tsx src/scripts/checkOrderCsvAndActions.ts",
+    "check:shopify-oauth": "node -r ts-node/register src/scripts/checkShopifyOAuth.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "migrate": "drizzle-kit push",
-    "migrate:bootstrap": "tsx src/scripts/runAllMigrations.ts",
     "seed:holidays": "ts-node src/scripts/seedHolidays.ts",
     "seed:holidays:year": "ts-node src/scripts/seedHolidays.ts",
-    "seed:locations": "ts-node src/scripts/seedLocations.ts locations.xlsx",
     "seed:delhivery-b2c": "ts-node src/scripts/seedDelhiveryB2CRatecard.ts",
     "seed:basic-b2c-ratecard": "ts-node src/scripts/seedBasicPlanB2CRatecard.ts",
     "seed:basic-provider-ratecards": "ts-node src/scripts/seedBasicProviderRateCards.ts",
-    "seed:ekart-shadowfax-couriers": "ts-node src/scripts/seedEkartShadowfaxCouriers.ts",
-    "seed:bootstrap": "ts-node src/scripts/seedBasicPlan.ts && ts-node src/scripts/assignBasicPlans.ts && ts-node src/scripts/seedAdmin.ts && ts-node src/scripts/seedLocations.ts locations.xlsx",
     "sync:basic-b2c-amazon-delhivery": "ts-node src/scripts/syncBasicB2CAmazonDelhiveryRates.ts",
     "sync:xpressbees-couriers": "ts-node src/scripts/syncXpressbeesCouriers.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "engines": {
-    "node": ">=20"
-  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.832.0",
     "@aws-sdk/s3-request-presigner": "^3.828.0",
@@ -68,8 +62,7 @@
     "tesseract.js": "^4.1.1",
     "twilio": "^5.7.0",
     "uuid": "^11.1.0",
-    "xlsx": "^0.18.5",
-    "typescript": "^5.8.3"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
@@ -87,6 +80,7 @@
     "drizzle-orm": "^0.44.2",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
-    "tsx": "^4.19.4"
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
   }
 }

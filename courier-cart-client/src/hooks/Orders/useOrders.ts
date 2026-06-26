@@ -97,12 +97,12 @@ interface Filters {
   status?: string
   sortBy?: 'created_at'
   sortOrder?: 'asc' | 'desc'
+  type?: string
   fromDate?: string
   toDate?: string
   search?: string
   warehouse?: string
   productQuery?: string
-  courier?: string
   fetchAll?: boolean
 }
 
@@ -225,14 +225,14 @@ export const useCreateReverseShipment = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mutationFn: (payload: any) => createReverseShipment(payload),
     onSuccess: () => {
-      toast.open({ message: 'Reverse shipment created', severity: 'success' })
+      toast.open({ message: 'Reverse pickup created', severity: 'success' })
       queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] })
       queryClient.invalidateQueries({ queryKey: ['orders'] })
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (error: any) => {
       const message =
-        error?.response?.data?.message || error?.message || 'Failed to create reverse shipment'
+        error?.response?.data?.message || error?.message || 'Failed to create reverse pickup'
       toast.open({ message, severity: 'error' })
     },
   })

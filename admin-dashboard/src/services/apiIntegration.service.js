@@ -65,8 +65,8 @@ export const shopifyIntegrationService = {
     return res.data
   },
 
-  connectManualStore: async (data = {}) => {
-    const res = await api.post(`${INTEGRATION_BASE}/shopify-auth`, data)
+  startOAuth: async (data = {}) => {
+    const res = await api.post(`${INTEGRATION_BASE}/shopify/oauth/start`, data)
     return res.data
   },
 

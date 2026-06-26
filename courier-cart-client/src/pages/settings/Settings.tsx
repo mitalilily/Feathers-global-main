@@ -81,7 +81,7 @@ const allSettings: SettingItem[] = [
   // Connections & routing
   {
     title: 'Connected channels',
-    description: 'Review store connections and manage how order sources flow into Feather Global.',
+    description: 'Review store connections and manage how order sources flow into Shiplifi.',
     key: '/channels/connected',
     icon: <FaLink />,
   },
@@ -115,7 +115,7 @@ function SettingTile({ item, onOpen }: { item: SettingItem; onOpen: () => void }
         transition: 'transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease',
         '&:hover': {
           transform: 'translateY(-2px)',
-          borderColor: alpha('#047b85', 0.24),
+          borderColor: alpha('#E85500', 0.24),
           boxShadow: '0 18px 34px rgba(17, 17, 19, 0.08)',
         },
       }}
@@ -128,9 +128,9 @@ function SettingTile({ item, onOpen }: { item: SettingItem; onOpen: () => void }
             borderRadius: 2,
             display: 'grid',
             placeItems: 'center',
-            color: '#047b85',
-            bgcolor: alpha('#047b85', 0.08),
-            border: `1px solid ${alpha('#047b85', 0.12)}`,
+            color: '#E85500',
+            bgcolor: alpha('#E85500', 0.08),
+            border: `1px solid ${alpha('#E85500', 0.12)}`,
           }}
         >
           {item.icon}

@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv'
 import { Request, Response } from 'express'
 import { OAuth2Client } from 'google-auth-library'
 import path from 'path'
+import twilio from 'twilio'
 import {
   clearUserEmailToken,
   clearUserOtpByEmail,
@@ -24,6 +25,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '../models/client'
 import { changeAdminPassword, loginAdmin } from '../models/services/adminAuth.service'
 import { employees } from '../schema/schema'
+import { sendVerificationEmail } from '../utils/emailSender'
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt'
 
 const env = process.env.NODE_ENV || 'development'
@@ -31,9 +33,19 @@ const env = process.env.NODE_ENV || 'development'
 // Load the correct .env file
 dotenv.config({ path: path.resolve(__dirname, `../.env.${env}`) })
 
+const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
+
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
+
+const sendSmsViaTwilio = async (phone: string, message: string) => {
+  await client.messages.create({
+    body: message,
+    from: process.env.TWILIO_PHONE_NUMBER!,
+    to: phone,
+  })
+}
 
 /* ------------------------------------------------------------------ */
 /* SILENT REFRESH                                                     */
@@ -192,12 +204,10 @@ export const requestOtp = async (req: Request, res: Response): Promise<any> => {
       })
     }
 
-    console.log(`[AUTH OTP] ${normalizedEmail}: ${otp}`)
+    // 2. Send OTP via email
+    await sendVerificationEmail(normalizedEmail, otp)
 
-    return res.json({
-      message: 'OTP generated successfully',
-      devOtp: otp,
-    })
+    return res.json({ message: 'OTP sent successfully to your email' })
   } catch (err) {
     console.error('Error in requestOtp:', err)
     return res.status(500).json({ error: 'Something went wrong while requesting OTP' })
@@ -491,8 +501,7 @@ export const googleOAuthLogin = async (req: Request, res: Response): Promise<any
 }
 
 export const adminLoginController = async (req: Request, res: Response) => {
-  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
-  const { password } = req.body
+  const { email, password } = req.body
 
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' })
 

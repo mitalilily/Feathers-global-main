@@ -25,7 +25,15 @@ import {
   useToast,
   VStack,
 } from '@chakra-ui/react'
-import { IconAdjustments, IconEye, IconMinus, IconPlus, IconWallet } from '@tabler/icons-react'
+import {
+  IconAdjustments,
+  IconDownload,
+  IconEye,
+  IconMinus,
+  IconPlus,
+  IconReportMoney,
+  IconWallet,
+} from '@tabler/icons-react'
 import StatusBadge from 'components/Badge/StatusBadge'
 import CustomDatePicker from 'components/Input/CustomDatePicker'
 import CustomModal from 'components/Modal/CustomModal'
@@ -34,8 +42,10 @@ import OrderDetailsModal from 'components/Tables/OrderDetailsModal'
 import TableFilters from 'components/Tables/TableFilters'
 import {
   useAdjustWalletBalance,
+  useAdminWalletMisReport,
   useAdminWallets,
   useAdminWalletTransactions,
+  useDownloadAdminWalletMisReportCsv,
 } from 'hooks/useWallet'
 import { useState } from 'react'
 import { useHistory } from 'react-router-dom/cjs/react-router-dom.min'
@@ -49,6 +59,107 @@ const walletFilterOptions = [
     placeholder: 'Email, Company Name, Brand, or Contact Person',
   },
 ]
+
+const walletMisTransactionAgainstOptions = [
+  'Forward Shipping charges including COD charges',
+  'wallet recharge',
+  'weight dispute charges',
+  'Penalty',
+  'Refund against order cancellation',
+  'COD adjustment against negative balance',
+  'other charges',
+  'Reverse shipping charges',
+  'Lost shipment reimbursement',
+  'credit card Chargeback',
+  'Credit note',
+].map((value) => ({ label: value, value }))
+
+const walletMisFilterOptions = [
+  {
+    key: 'search',
+    label: 'Search',
+    type: 'text',
+    placeholder: 'Customer, email, AWB, reason, or reference',
+  },
+  {
+    key: 'dateFrom',
+    label: 'Date From',
+    type: 'date',
+  },
+  {
+    key: 'dateTo',
+    label: 'Date To',
+    type: 'date',
+  },
+  {
+    key: 'type',
+    label: 'Transaction Type',
+    type: 'select',
+    placeholder: 'All Types',
+    options: [
+      { label: 'Credit', value: 'credit' },
+      { label: 'Debit', value: 'debit' },
+    ],
+  },
+  {
+    key: 'transactionAgainst',
+    label: 'Transaction Against',
+    type: 'select',
+    placeholder: 'All Categories',
+    options: walletMisTransactionAgainstOptions,
+  },
+  {
+    key: 'awb',
+    label: 'AWB',
+    type: 'text',
+    placeholder: 'Search AWB',
+  },
+  {
+    key: 'courier',
+    label: 'Courier',
+    type: 'text',
+    placeholder: 'Courier partner',
+  },
+  {
+    key: 'customerId',
+    label: 'Customer ID',
+    type: 'text',
+    placeholder: 'UUID',
+  },
+  {
+    key: 'minWeight',
+    label: 'Min Weight',
+    type: 'number',
+    placeholder: 'kg',
+  },
+  {
+    key: 'maxWeight',
+    label: 'Max Weight',
+    type: 'number',
+    placeholder: 'kg',
+  },
+  {
+    key: 'shipmentOnly',
+    label: 'Shipment Link',
+    type: 'select',
+    placeholder: 'All Transactions',
+    options: [{ label: 'Shipment-linked only', value: 'true' }],
+  },
+]
+
+const initialWalletMisFilters = {
+  search: '',
+  dateFrom: '',
+  dateTo: '',
+  type: '',
+  transactionAgainst: '',
+  awb: '',
+  courier: '',
+  customerId: '',
+  minWeight: '',
+  maxWeight: '',
+  shipmentOnly: '',
+}
 
 const WALLET_TRANSACTION_GST_PERCENT = 18
 
@@ -80,6 +191,11 @@ export default function AdminWallets() {
     onOpen: onTransactionDetailsOpen,
     onClose: onTransactionDetailsClose,
   } = useDisclosure()
+  const {
+    isOpen: isWalletMisOpen,
+    onOpen: onWalletMisOpen,
+    onClose: onWalletMisClose,
+  } = useDisclosure()
 
   // Transactions modal state
   const [transactionsPage, setTransactionsPage] = useState(1)
@@ -89,6 +205,9 @@ export default function AdminWallets() {
   const [transactionDateTo, setTransactionDateTo] = useState(null)
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [selectedTransactionOrder, setSelectedTransactionOrder] = useState(null)
+  const [walletMisPage, setWalletMisPage] = useState(1)
+  const [walletMisLimit] = useState(50)
+  const [walletMisFilters, setWalletMisFilters] = useState(initialWalletMisFilters)
 
   // Adjust wallet form
   const [adjustForm, setAdjustForm] = useState({
@@ -118,10 +237,26 @@ export default function AdminWallets() {
     isTransactionsOpen && !!selectedUserId,
   )
 
+  const walletMisParams = {
+    page: walletMisPage,
+    limit: walletMisLimit,
+    ...Object.fromEntries(
+      Object.entries(walletMisFilters).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+    ),
+  }
+
+  const { data: walletMisData, isLoading: walletMisLoading } = useAdminWalletMisReport(
+    walletMisParams,
+    isWalletMisOpen,
+  )
+
   const adjustMutation = useAdjustWalletBalance()
+  const walletMisExportMutation = useDownloadAdminWalletMisReportCsv()
 
   const wallets = walletsData?.data || []
   const totalCount = walletsData?.totalCount || 0
+  const walletMisRows = walletMisData?.data || []
+  const walletMisTotalCount = walletMisData?.totalCount || 0
 
   const handleSortByChange = (e) => {
     setSortBy(e)
@@ -171,6 +306,44 @@ export default function AdminWallets() {
   const handleCloseOrderDetails = () => {
     onOrderDetailsClose()
     setSelectedTransactionOrder(null)
+  }
+
+  const handleOpenWalletMis = () => {
+    setWalletMisPage(1)
+    onWalletMisOpen()
+  }
+
+  const handleWalletMisExport = async () => {
+    try {
+      const { blob, filename } = await walletMisExportMutation.mutateAsync({
+        ...walletMisParams,
+        page: 1,
+        limit: 5000,
+      })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      toast({
+        status: 'success',
+        title: 'Wallet MIS exported',
+        description: 'The report download has started.',
+        duration: 3000,
+        isClosable: true,
+      })
+    } catch (error) {
+      toast({
+        status: 'error',
+        title: 'Export failed',
+        description: error.response?.data?.message || 'Failed to export wallet MIS report',
+        duration: 5000,
+        isClosable: true,
+      })
+    }
   }
 
   const handleAdjustWallet = (wallet) => {
@@ -490,6 +663,16 @@ export default function AdminWallets() {
         perPage={limit}
         setPerPage={setLimit}
         title="Wallets Management"
+        titleActions={
+          <Button
+            size="sm"
+            colorScheme="teal"
+            leftIcon={<IconReportMoney size={16} />}
+            onClick={handleOpenWalletMis}
+          >
+            Wallet MIS Report
+          </Button>
+        }
         data={wallets}
         captions={captions}
         columnKeys={columnKeys}
@@ -557,6 +740,153 @@ export default function AdminWallets() {
           updatedAt: (value) => <Text fontSize="sm">{formatDate(value)}</Text>,
         }}
       />
+
+      {/* Wallet MIS Report Modal */}
+      <CustomModal
+        isOpen={isWalletMisOpen}
+        onClose={onWalletMisClose}
+        size="6xl"
+        title={
+          <VStack align="start" spacing={1}>
+            <HStack>
+              <IconReportMoney size={24} />
+              <Text>Wallet MIS Report</Text>
+            </HStack>
+            <Text fontSize="sm" color="gray.500" fontWeight="normal">
+              Consolidated wallet transactions across all customers
+            </Text>
+          </VStack>
+        }
+        footer={<Button onClick={onWalletMisClose}>Close</Button>}
+      >
+        <VStack spacing={4} align="stretch">
+          <TableFilters
+            filters={walletMisFilterOptions}
+            values={walletMisFilters}
+            onApply={(finalFilters) => {
+              setWalletMisFilters({ ...initialWalletMisFilters, ...finalFilters })
+              setWalletMisPage(1)
+            }}
+            actions={[
+              {
+                label: 'Export CSV',
+                icon: <IconDownload size={16} />,
+                colorScheme: 'teal',
+                variant: 'solid',
+                onClick: handleWalletMisExport,
+                isLoading: walletMisExportMutation.isPending,
+                loadingText: 'Exporting',
+              },
+            ]}
+          />
+
+          {walletMisLoading ? (
+            <VStack spacing={4} align="stretch">
+              <Skeleton height="40px" />
+              <SkeletonText mt="4" noOfLines={6} spacing="4" />
+            </VStack>
+          ) : (
+            <TableContainer>
+              <Table variant="simple" size="sm">
+                <Thead>
+                  <Tr>
+                    <Th>Customer Name</Th>
+                    <Th>Customer id</Th>
+                    <Th>transaction Date</Th>
+                    <Th>wallet transaction Amount</Th>
+                    <Th>Transaction against</Th>
+                    <Th>transaction type</Th>
+                    <Th>AWB</Th>
+                    <Th>Courier partner name</Th>
+                    <Th>Weight</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {walletMisRows.length > 0 ? (
+                    walletMisRows.map((row) => (
+                      <Tr key={row.id}>
+                        <Td>
+                          <VStack align="start" spacing={0}>
+                            <Text fontWeight="600" fontSize="sm">
+                              {row.customerName || '-'}
+                            </Text>
+                            {row.customerEmail && (
+                              <Text fontSize="xs" color="gray.500">
+                                {row.customerEmail}
+                              </Text>
+                            )}
+                          </VStack>
+                        </Td>
+                        <Td>
+                          <Text fontSize="xs" fontFamily="mono">
+                            {row.customerId || '-'}
+                          </Text>
+                        </Td>
+                        <Td>{formatDate(row.transactionDate)}</Td>
+                        <Td
+                          fontWeight="bold"
+                          color={row.transactionType === 'CREDIT' ? 'green.500' : 'red.500'}
+                        >
+                          {formatBalance(row.walletTransactionAmount)}
+                        </Td>
+                        <Td>{row.transactionAgainst || '-'}</Td>
+                        <Td>
+                          <StatusBadge
+                            status={row.transactionType || '-'}
+                            type={row.transactionType === 'CREDIT' ? 'success' : 'error'}
+                          />
+                        </Td>
+                        <Td>
+                          <Text fontSize="xs" fontFamily="mono">
+                            {row.awb || '-'}
+                          </Text>
+                        </Td>
+                        <Td>{row.courierPartnerName || '-'}</Td>
+                        <Td>{row.weight || '-'}</Td>
+                      </Tr>
+                    ))
+                  ) : (
+                    <Tr>
+                      <Td colSpan={9} textAlign="center" py={8}>
+                        <Text color="gray.500">No MIS transactions found</Text>
+                      </Td>
+                    </Tr>
+                  )}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          )}
+
+          {walletMisTotalCount > walletMisLimit && (
+            <Flex justify="space-between" align="center" flexWrap="wrap" gap={3}>
+              <Text fontSize="sm" color="gray.500">
+                Showing {walletMisLimit * (walletMisPage - 1) + 1} to{' '}
+                {Math.min(walletMisLimit * walletMisPage, walletMisTotalCount)} of{' '}
+                {walletMisTotalCount} transactions
+              </Text>
+              <HStack>
+                <Button
+                  size="sm"
+                  onClick={() => setWalletMisPage((p) => Math.max(1, p - 1))}
+                  isDisabled={walletMisPage === 1}
+                >
+                  Previous
+                </Button>
+                <Text fontSize="sm">
+                  Page {walletMisPage} of {Math.ceil(walletMisTotalCount / walletMisLimit)}
+                </Text>
+                <Button
+                  size="sm"
+                  onClick={() => setWalletMisPage((p) => p + 1)}
+                  isDisabled={walletMisPage >= Math.ceil(walletMisTotalCount / walletMisLimit)}
+                >
+                  Next
+                </Button>
+              </HStack>
+            </Flex>
+          )}
+        </VStack>
+      </CustomModal>
 
       {/* Transactions Modal */}
       <CustomModal

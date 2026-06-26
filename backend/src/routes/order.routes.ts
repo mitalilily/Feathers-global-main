@@ -14,15 +14,14 @@ import {
   trackOrderController,
 } from '../controllers/order.controller'
 import { requireAuth } from '../middlewares/requireAuth'
-import { requireKycVerified } from '../middlewares/requireKycVerified'
 
 const router = Router()
 
 // POST /b2c/shipment
-router.post('/b2c/create', requireAuth, requireKycVerified, createB2CShipmentController)
-router.post('/b2c/bulk-create', requireAuth, requireKycVerified, createB2CBulkShipmentController)
-router.post('/b2c/:orderId/book-courier', requireAuth, requireKycVerified, bookExistingB2COrderController)
-router.post('/b2b/create', requireAuth, requireKycVerified, createB2BShipmentController)
+router.post('/b2c/create', requireAuth, createB2CShipmentController)
+router.post('/b2c/bulk-create', requireAuth, createB2CBulkShipmentController)
+router.post('/b2c/:orderId/book-courier', requireAuth, bookExistingB2COrderController)
+router.post('/b2b/create', requireAuth, createB2BShipmentController)
 router.get('/check-order-number', requireAuth, checkOrderNumberAvailabilityController)
 router.get('/b2c/list', requireAuth, getB2COrdersController)
 router.get('/b2b/list', requireAuth, getB2BOrdersController)
