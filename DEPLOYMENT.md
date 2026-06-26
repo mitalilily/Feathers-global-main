@@ -1,11 +1,11 @@
-# Shiplifi deployment
+# Feathers Global deployment
 
 This repository is set up to deploy:
 
 - `landing/` as a static Vite site served by Nginx
-- `courier-cart-client/` as the app frontend served on `app.shiplifi.com`
-- `admin-dashboard/` as the admin frontend served on `admin.shiplifi.com`
-- `backend/` as a Node.js API managed by PM2 on port `5003` and exposed on `api.shiplifi.com`
+- `courier-cart-client/` as the app frontend served on `client.fgship.in`
+- `admin-dashboard/` as the admin frontend served on the Feathers Global admin host
+- `backend/` as a Node.js API managed by PM2 on port `5003` and exposed on `api.fgship.in`
 
 Key production files:
 
@@ -14,13 +14,19 @@ Key production files:
 
 Expected VPS layout:
 
-- `/srv/shiplifi/current/landing`
-- `/srv/shiplifi/current/courier-cart-client`
-- `/srv/shiplifi/current/admin-dashboard`
-- `/srv/shiplifi/current/backend`
+- `/srv/feathers-global/current/landing`
+- `/srv/feathers-global/current/courier-cart-client`
+- `/srv/feathers-global/current/admin-dashboard`
+- `/srv/feathers-global/current/backend`
 
 The backend reads `backend/.env.production`, which should stay on the server and not be committed to Git.
 GitHub Actions deployment should preserve that file on the VPS.
+
+GitHub Actions deploy secrets can use either the Feathers Global names or the legacy Shiplifi names:
+
+- `FGSHIP_HOST` or `FEATHERS_GLOBAL_HOST` or `SHIPLIFI_HOST`
+- `FGSHIP_USER` or `FEATHERS_GLOBAL_USER` or `SHIPLIFI_USER`
+- `FGSHIP_SSH_PRIVATE_KEY` or `FEATHERS_GLOBAL_SSH_PRIVATE_KEY` or `SHIPLIFI_SSH_PRIVATE_KEY`
 
 Shopify OAuth deployment needs these GitHub Actions secrets:
 

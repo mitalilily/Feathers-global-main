@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="/srv/shiplifi/current"
+APP_ROOT="${APP_ROOT:-$(pwd -P)}"
 export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
-BUILD_SWAP_FILE="${BUILD_SWAP_FILE:-/swapfile-shiplifi-build}"
+APP_SLUG="$(basename "$APP_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
+BUILD_SWAP_FILE="${BUILD_SWAP_FILE:-/swapfile-${APP_SLUG}-build}"
 BUILD_SWAP_SIZE="${BUILD_SWAP_SIZE:-4G}"
+DEPLOY_PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL:-https://api.fgship.in/api}"
+DEPLOY_PUBLIC_SOCKET_URL="${DEPLOY_PUBLIC_SOCKET_URL:-https://api.fgship.in}"
 
 fresh_npm_ci() {
   rm -rf node_modules
@@ -134,9 +137,11 @@ else
   npm install --legacy-peer-deps --force
 fi
 cat > .env.production <<'EOF'
-REACT_APP_API_BASE_URL=https://api.shiplifi.com/api
-REACT_APP_SOCKET_URL=https://api.shiplifi.com
+REACT_APP_API_BASE_URL=__DEPLOY_PUBLIC_API_URL__
+REACT_APP_SOCKET_URL=__DEPLOY_PUBLIC_SOCKET_URL__
 EOF
+sed -i "s#__DEPLOY_PUBLIC_API_URL__#${DEPLOY_PUBLIC_API_URL}#g" .env.production
+sed -i "s#__DEPLOY_PUBLIC_SOCKET_URL__#${DEPLOY_PUBLIC_SOCKET_URL}#g" .env.production
 cp .env.production .env
 cp .env.production .env.local
 if [ -z "${NODE_OPTIONS:-}" ]; then

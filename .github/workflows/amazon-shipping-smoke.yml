@@ -19,18 +19,36 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST || secrets.SHIPLIFI_HOST }}
+      DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER || secrets.SHIPLIFI_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY || secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
+      DEPLOY_APP_ROOT: /srv/feathers-global/current
 
     steps:
+      - name: Validate smoke-test secrets
+        run: |
+          missing=()
+          [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST or SHIPLIFI_HOST")
+          [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER or SHIPLIFI_USER")
+          [ -n "${DEPLOY_SSH_PRIVATE_KEY}" ] || missing+=("FGSHIP_SSH_PRIVATE_KEY or FEATHERS_GLOBAL_SSH_PRIVATE_KEY or SHIPLIFI_SSH_PRIVATE_KEY")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required GitHub Actions secrets:\n' >&2
+            printf ' - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ env.DEPLOY_SSH_PRIVATE_KEY }}
 
       - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
           for attempt in 1 2 3 4 5; do
-            if ssh-keyscan -T 10 -H "${{ secrets.SHIPLIFI_HOST }}" >> ~/.ssh/known_hosts; then
+            if ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts; then
               exit 0
             fi
             echo "ssh-keyscan attempt ${attempt} failed; retrying..."
@@ -43,7 +61,7 @@ jobs:
           ORIGIN_POSTAL_CODE: ${{ inputs.origin_postal_code }}
           DESTINATION_POSTAL_CODE: ${{ inputs.destination_postal_code }}
         run: |
-          cat <<'PY' | ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "cd /srv/shiplifi/current/backend && ORIGIN_POSTAL_CODE='$ORIGIN_POSTAL_CODE' DESTINATION_POSTAL_CODE='$DESTINATION_POSTAL_CODE' python3 -"
+          cat <<'PY' | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "cd ${DEPLOY_APP_ROOT}/backend && ORIGIN_POSTAL_CODE='$ORIGIN_POSTAL_CODE' DESTINATION_POSTAL_CODE='$DESTINATION_POSTAL_CODE' python3 -"
           from pathlib import Path
           from urllib import parse, request, error
           from datetime import datetime, timezone
@@ -215,7 +233,7 @@ jobs:
         env:
           BACKEND_LOG_LINES: ${{ inputs.backend_log_lines }}
         run: |
-          ssh "${{ secrets.SHIPLIFI_USER }}@${{ secrets.SHIPLIFI_HOST }}" "LINES='${BACKEND_LOG_LINES:-300}' bash -s" <<'SH'
+          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "LINES='${BACKEND_LOG_LINES:-300}' bash -s" <<'SH'
           set -euo pipefail
           lines="${LINES:-300}"
           case "$lines" in
@@ -224,7 +242,7 @@ jobs:
           if [ "$lines" -gt 1000 ]; then
             lines=1000
           fi
-          pm2 logs shiplifi-backend --lines "$lines" --nostream 2>/dev/null \
+          pm2 logs feathers-global-backend --lines "$lines" --nostream 2>/dev/null \
             | grep -E 'ShipmentCreate|AmazonShipping|Amazon Shipping|Error creating B2C|shipping/v2/shipments' \
             | tail -n "$lines" || true
           SH
