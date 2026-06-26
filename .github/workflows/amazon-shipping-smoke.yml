@@ -242,7 +242,9 @@ jobs:
           if [ "$lines" -gt 1000 ]; then
             lines=1000
           fi
-          pm2 logs feathers-global-backend --lines "$lines" --nostream 2>/dev/null \
-            | grep -E 'ShipmentCreate|AmazonShipping|Amazon Shipping|Error creating B2C|shipping/v2/shipments' \
+          {
+            pm2 logs feathers-global-backend --lines "$lines" --nostream 2>/dev/null ||
+            pm2 logs shiplifi-backend --lines "$lines" --nostream 2>/dev/null
+          } | grep -E 'ShipmentCreate|AmazonShipping|Amazon Shipping|Error creating B2C|shipping/v2/shipments' \
             | tail -n "$lines" || true
           SH

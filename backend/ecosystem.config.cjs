@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'shiplifi-backend',
-      cwd: '/srv/shiplifi/current/backend',
+      cwd: __dirname,
       script: 'dist/index.js',
       instances: 1,
       exec_mode: 'fork',
