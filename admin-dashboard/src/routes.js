@@ -17,83 +17,81 @@ import {
   IconTruck,
   IconUser,
 } from '@tabler/icons-react'
-import { FaMoneyBill } from 'react-icons/fa'
-import { MdAccountBalanceWallet } from 'react-icons/md'
-import { RiScales3Line } from 'react-icons/ri'
-
-// Components
 import { lazy, Suspense } from 'react'
 import { BsCreditCard2Back } from 'react-icons/bs'
 import { CiCalculator1 } from 'react-icons/ci'
+import { FaMoneyBill } from 'react-icons/fa'
 import { IoLocation } from 'react-icons/io5'
-import { MdGavel } from 'react-icons/md'
+import { MdAccountBalanceWallet, MdGavel } from 'react-icons/md'
+import { RiScales3Line } from 'react-icons/ri'
 import { AdminRoute } from 'views/Auth/AdminRoute'
-import SignIn from 'views/Auth/SignIn'
-import AdminBillingInvoices from 'views/Billing/AdminBillingInvoices'
-import AdminBillingPreferences from 'views/Billing/AdminBillingPreferences'
-import AdminCodRemittancePage from 'views/CodRemittance/AdminCodRemittancePage'
-import Couriers from 'views/Couriers/Couriers'
-import CourierCredentials from 'views/Couriers/CourierCredentials'
-import ServiceProviders from 'views/Couriers/ServiceProviders'
-import Dashboard from 'views/Dashboard/Dashboard'
-import DeveloperLogs from 'views/Developer/DeveloperLogs'
-import ApiIntegration from 'views/Integrations/ApiIntegration'
-import AdminNdr from 'views/Ops/AdminNdr'
-import AdminRto from 'views/Ops/AdminRto'
-import AdminNotificationsPage from 'views/Notifications/AdminNotificationsPage'
-import Orders from 'views/Orders/Orders'
-import PlanManagement from 'views/PlanManagement/PlanManagement'
-import ServiceabilityPage from 'views/Serviceability/ServiceabilityPage'
-import PaymentOptionsSettings from 'views/Settings/PaymentOptionsSettings'
-import AdminChangePassword from 'views/Settings/AdminChangePassword'
-import AboutUsEditor from 'views/Support/AboutUsEditor'
-import AdminTicketDashboard from 'views/Support/AdminTicketsDashboard'
-import OrderTrackingPage from 'views/Tools/OrderTrackingPage'
-import RateCalculatorPage from 'views/Tools/RateCalculatorPage'
-import UserDetails from 'views/UsersManagement/UserDetails'
-import UsersManagementPage from 'views/UsersManagement/UsersManagementPage'
-import AdminWallets from 'views/Wallets/AdminWallets'
-import AdminDisputeManagement from 'views/WeightReconciliation/AdminDisputeManagement'
-import AdminWeightReconciliationDashboard from 'views/WeightReconciliation/AdminWeightReconciliationDashboard'
-import ZoneMappingsPage from 'views/Zones/ZoneMappingsPage'
 
-// Lazy load pricing management pages
+const SignIn = lazy(() => import('views/Auth/SignIn'))
+const AdminBillingInvoices = lazy(() => import('views/Billing/AdminBillingInvoices'))
+const AdminBillingPreferences = lazy(() => import('views/Billing/AdminBillingPreferences'))
+const AdminCodRemittancePage = lazy(() => import('views/CodRemittance/AdminCodRemittancePage'))
+const Couriers = lazy(() => import('views/Couriers/Couriers'))
+const CourierCredentials = lazy(() => import('views/Couriers/CourierCredentials'))
+const ServiceProviders = lazy(() => import('views/Couriers/ServiceProviders'))
+const Dashboard = lazy(() => import('views/Dashboard/Dashboard'))
+const DeveloperLogs = lazy(() => import('views/Developer/DeveloperLogs'))
+const ApiIntegration = lazy(() => import('views/Integrations/ApiIntegration'))
+const AdminNdr = lazy(() => import('views/Ops/AdminNdr'))
+const AdminRto = lazy(() => import('views/Ops/AdminRto'))
+const AdminNotificationsPage = lazy(() => import('views/Notifications/AdminNotificationsPage'))
+const Orders = lazy(() => import('views/Orders/Orders'))
+const PlanManagement = lazy(() => import('views/PlanManagement/PlanManagement'))
 const B2BPricingManagement = lazy(() => import('views/Pricing/B2BPricingManagement'))
 const B2CPricingManagement = lazy(() => import('views/Pricing/B2CPricingManagement'))
-const HolidayManagement = lazy(() => import('views/B2B/HolidayManagement'))
+const ServiceabilityPage = lazy(() => import('views/Serviceability/ServiceabilityPage'))
+const PaymentOptionsSettings = lazy(() => import('views/Settings/PaymentOptionsSettings'))
+const AdminChangePassword = lazy(() => import('views/Settings/AdminChangePassword'))
+const AboutUsEditor = lazy(() => import('views/Support/AboutUsEditor'))
+const AdminTicketDashboard = lazy(() => import('views/Support/AdminTicketsDashboard'))
+const OrderTrackingPage = lazy(() => import('views/Tools/OrderTrackingPage'))
+const RateCalculatorPage = lazy(() => import('views/Tools/RateCalculatorPage'))
+const UserDetails = lazy(() => import('views/UsersManagement/UserDetails'))
+const UsersManagementPage = lazy(() => import('views/UsersManagement/UsersManagementPage'))
+const AdminWallets = lazy(() => import('views/Wallets/AdminWallets'))
+const AdminDisputeManagement = lazy(
+  () => import('views/WeightReconciliation/AdminDisputeManagement'),
+)
+const AdminWeightReconciliationDashboard = lazy(
+  () => import('views/WeightReconciliation/AdminWeightReconciliationDashboard'),
+)
+const ZoneMappingsPage = lazy(() => import('views/Zones/ZoneMappingsPage'))
 
-// ------------------ ROUTES ------------------
+const RouteFallback = ({ label = 'Loading...' }) => <div>{label}</div>
+
+const withAdminRoute = (Component, label = 'Loading...') => () => (
+  <AdminRoute>
+    <Suspense fallback={<RouteFallback label={label} />}>
+      <Component />
+    </Suspense>
+  </AdminRoute>
+)
+
+const withPublicRoute = (Component, label = 'Loading...') => () => (
+  <Suspense fallback={<RouteFallback label={label} />}>
+    <Component />
+  </Suspense>
+)
 
 const dashRoutes = [
-  // ========== DASHBOARD ==========
-  // Dashboard (home page)
   {
     path: '/dashboard',
     name: 'Dashboard',
     icon: <IconDashboard size={20} />,
-    component: () => (
-      <AdminRoute>
-        <Dashboard />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(Dashboard, 'Loading dashboard...'),
     layout: '/admin',
   },
-
-  // ========== CORE OPERATIONS ==========
-  // Orders (most frequently used)
   {
     path: '/orders',
     name: 'Orders',
     icon: <IconPackageExport />,
-    component: () => (
-      <AdminRoute>
-        <Orders />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(Orders, 'Loading orders...'),
     layout: '/admin',
   },
-
-  // Operations (NDR, RTO)
   {
     category: true,
     name: 'Operations',
@@ -105,38 +103,22 @@ const dashRoutes = [
         path: '/ops/ndr',
         name: 'NDR',
         icon: <IconAlertTriangle />,
-        component: () => (
-          <AdminRoute>
-            <AdminNdr />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminNdr, 'Loading NDR...'),
         layout: '/admin',
       },
       {
         path: '/ops/rto',
         name: 'RTO',
         icon: <IconArrowBackUp />,
-        component: () => (
-          <AdminRoute>
-            <AdminRto />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminRto, 'Loading RTO...'),
         layout: '/admin',
       },
-      // Pickups UI removed; cancellation is available from Orders or API
     ],
   },
-
-  // ========== USER & BUSINESS MANAGEMENT ==========
-  // Users Management
   {
     path: '/users-management/:id',
     name: 'User Details',
-    component: () => (
-      <AdminRoute>
-        <UserDetails />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(UserDetails, 'Loading user details...'),
     layout: '/admin',
     show: false,
   },
@@ -144,41 +126,24 @@ const dashRoutes = [
     path: '/users-management',
     name: 'Users Management',
     icon: <IconUser size={20} />,
-    component: () => (
-      <AdminRoute>
-        <UsersManagementPage />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(UsersManagementPage, 'Loading users...'),
     layout: '/admin',
   },
   {
     path: '/notifications',
     name: 'Notifications',
     icon: <IconBell size={20} />,
-    component: () => (
-      <AdminRoute>
-        <AdminNotificationsPage />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(AdminNotificationsPage, 'Loading notifications...'),
     layout: '/admin',
     show: false,
   },
-
-  // Plan Management
   {
     path: '/plans',
     name: 'Plan Management',
     icon: <IconStar size={19} />,
-    component: () => (
-      <AdminRoute>
-        <PlanManagement />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(PlanManagement, 'Loading plans...'),
     layout: '/admin',
   },
-
-  // ========== SHIPPING & LOGISTICS ==========
-  // Shipping Management (Couriers + Rate Card + Serviceability + Zones)
   {
     category: true,
     name: 'Shipping Management',
@@ -189,43 +154,27 @@ const dashRoutes = [
         path: '/couriers',
         name: 'Couriers',
         icon: <IconTruck />,
-        component: () => (
-          <AdminRoute>
-            <Couriers />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(Couriers, 'Loading couriers...'),
         layout: '/admin',
       },
       {
         path: '/courier-credentials',
         name: 'Courier Credentials',
         icon: <IconKey />,
-        component: () => (
-          <AdminRoute>
-            <CourierCredentials />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(CourierCredentials, 'Loading courier credentials...'),
         layout: '/admin',
       },
       {
         path: '/service-providers',
         name: 'Service Providers',
         icon: <IconTruck />,
-        component: () => (
-          <AdminRoute>
-            <ServiceProviders />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(ServiceProviders, 'Loading service providers...'),
         layout: '/admin',
       },
       {
         path: '/zones-mappings/:zoneId',
         name: 'Zone Mappings',
-        component: () => (
-          <AdminRoute>
-            <ZoneMappingsPage />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(ZoneMappingsPage, 'Loading zone mappings...'),
         layout: '/admin',
         show: false,
       },
@@ -233,45 +182,25 @@ const dashRoutes = [
         path: '/serviceability',
         name: 'Serviceability',
         icon: <IoLocation />,
-        component: () => (
-          <AdminRoute>
-            <ServiceabilityPage />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(ServiceabilityPage, 'Loading serviceability...'),
         layout: '/admin',
       },
-
       {
         path: '/pricing/b2b',
         name: 'B2B',
         icon: <BsCreditCard2Back />,
-        component: () => (
-          <AdminRoute>
-            <Suspense fallback={<div>Loading B2B...</div>}>
-              <B2BPricingManagement />
-            </Suspense>
-          </AdminRoute>
-        ),
+        component: withAdminRoute(B2BPricingManagement, 'Loading B2B pricing...'),
         layout: '/admin',
       },
       {
         path: '/pricing/b2c',
         name: 'B2C',
         icon: <BsCreditCard2Back />,
-        component: () => (
-          <AdminRoute>
-            <Suspense fallback={<div>Loading B2C...</div>}>
-              <B2CPricingManagement />
-            </Suspense>
-          </AdminRoute>
-        ),
+        component: withAdminRoute(B2CPricingManagement, 'Loading B2C pricing...'),
         layout: '/admin',
       },
     ],
   },
-
-  // ========== FINANCIAL ==========
-  // Billing (Invoices, COD Remittance, Wallet)
   {
     category: true,
     path: '/billing',
@@ -284,50 +213,32 @@ const dashRoutes = [
         path: '/billing-invoices',
         name: 'Invoices',
         icon: <MdAccountBalanceWallet />,
-        component: () => (
-          <AdminRoute>
-            <AdminBillingInvoices />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminBillingInvoices, 'Loading invoices...'),
         layout: '/admin',
       },
       {
         path: '/billing-preferences',
         name: 'Billing Preferences',
         icon: <IconAdjustments />,
-        component: () => (
-          <AdminRoute>
-            <AdminBillingPreferences />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminBillingPreferences, 'Loading billing preferences...'),
         layout: '/admin',
       },
       {
         path: '/cod-remittance',
         name: 'COD Remittance',
         icon: <MdAccountBalanceWallet />,
-        component: () => (
-          <AdminRoute>
-            <AdminCodRemittancePage />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminCodRemittancePage, 'Loading COD remittance...'),
         layout: '/admin',
       },
       {
         path: '/wallet',
         name: 'Wallet',
         icon: <IconCoinRupee />,
-        component: () => (
-          <AdminRoute>
-            <AdminWallets />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminWallets, 'Loading wallet...'),
         layout: '/admin',
       },
     ],
   },
-
-  // Reconciliation (Weight Discrepancies, Disputes)
   {
     category: true,
     name: 'Reconciliation',
@@ -339,10 +250,9 @@ const dashRoutes = [
         path: '/weight-reconciliation',
         name: 'Weight Discrepancies',
         icon: <RiScales3Line />,
-        component: () => (
-          <AdminRoute>
-            <AdminWeightReconciliationDashboard />
-          </AdminRoute>
+        component: withAdminRoute(
+          AdminWeightReconciliationDashboard,
+          'Loading weight reconciliation...',
         ),
         layout: '/admin',
       },
@@ -350,18 +260,11 @@ const dashRoutes = [
         path: '/dispute-management',
         name: 'Dispute Management',
         icon: <MdGavel />,
-        component: () => (
-          <AdminRoute>
-            <AdminDisputeManagement />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(AdminDisputeManagement, 'Loading disputes...'),
         layout: '/admin',
       },
     ],
   },
-
-  // ========== TOOLS & UTILITIES ==========
-  // Tools (Rate Calculator, Order Tracking)
   {
     category: true,
     path: '/tools',
@@ -374,151 +277,65 @@ const dashRoutes = [
         path: '/rate-calculator',
         name: 'Rate Calculator',
         icon: <CiCalculator1 />,
-        component: () => (
-          <AdminRoute>
-            <RateCalculatorPage />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(RateCalculatorPage, 'Loading rate calculator...'),
         layout: '/admin',
       },
       {
         path: '/order-tracking',
         name: 'Order Tracking',
         icon: <IconTrack />,
-        component: () => (
-          <AdminRoute>
-            <OrderTrackingPage />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(OrderTrackingPage, 'Loading order tracking...'),
         layout: '/admin',
       },
       {
         path: '/api-integration',
         name: 'API Integration',
         icon: <IconKey size={20} />,
-        component: () => (
-          <AdminRoute>
-            <ApiIntegration />
-          </AdminRoute>
-        ),
+        component: withAdminRoute(ApiIntegration, 'Loading API integrations...'),
         layout: '/admin',
       },
     ],
   },
-
-  // ========== CONTENT & SUPPORT ==========
-  // Blogs
-  // {
-  //   category: true,
-  //   name: 'Blogs',
-  //   state: 'blogsCollapse',
-  //   icon: <FaBlog />,
-  //   views: [
-  //     {
-  //       path: '/blogs',
-  //       name: 'All Blogs',
-  //       icon: <FaBloggerB />,
-  //       component: () => (
-  //         <AdminRoute>
-  //           <Blogs />
-  //         </AdminRoute>
-  //       ),
-  //       layout: '/admin',
-  //     },
-  //     {
-  //       path: '/create-blog',
-  //       name: 'Create Blog',
-  //       icon: <MdCreate />,
-  //       component: () => (
-  //         <AdminRoute>
-  //           <CreateBlog />
-  //         </AdminRoute>
-  //       ),
-  //       layout: '/admin',
-  //     },
-  //     {
-  //       path: '/create-blog/:id',
-  //       name: 'Edit Blog',
-  //       component: () => (
-  //         <AdminRoute>
-  //           <CreateBlog />
-  //         </AdminRoute>
-  //       ),
-  //       layout: '/admin',
-  //       show: false,
-  //     },
-  //   ],
-  // },
-
-  // Support
-  // Place the more specific route first so it doesn't get shadowed by `/support`
   {
     path: '/about-us',
     name: 'About Us Page',
     icon: <IconInfoCircle />,
-    component: () => (
-      <AdminRoute>
-        <AboutUsEditor />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(AboutUsEditor, 'Loading About Us editor...'),
     layout: '/admin',
   },
-
   {
     path: '/support',
     name: 'Support',
     icon: <IconHelpCircle />,
-    component: () => (
-      <AdminRoute>
-        <AdminTicketDashboard />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(AdminTicketDashboard, 'Loading support...'),
     layout: '/admin',
   },
-
-  // ========== SETTINGS ==========
   {
     path: '/settings/payment-options',
     name: 'Payment Options',
     icon: <IconSettings />,
-    component: () => (
-      <AdminRoute>
-        <PaymentOptionsSettings />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(PaymentOptionsSettings, 'Loading payment options...'),
     layout: '/admin',
   },
   {
     path: '/settings/change-password',
     name: 'Change Password',
     icon: <IconKey />,
-    component: () => (
-      <AdminRoute>
-        <AdminChangePassword />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(AdminChangePassword, 'Loading password settings...'),
     layout: '/admin',
   },
-
   {
     path: '/developer',
     name: 'Developer',
     icon: <IconTools size={20} />,
-    component: () => (
-      <AdminRoute>
-        <DeveloperLogs />
-      </AdminRoute>
-    ),
+    component: withAdminRoute(DeveloperLogs, 'Loading developer logs...'),
     layout: '/admin',
   },
-
-  // ========== AUTH ==========
-  // Auth (hidden from sidebar)
   {
     path: '/signin',
     name: 'Sign In',
     icon: <IconLogin2 />,
-    component: SignIn,
+    component: withPublicRoute(SignIn, 'Loading sign in...'),
     layout: '/auth',
     show: false,
   },
