@@ -1,5 +1,6 @@
 // AppRoutes.tsx
 import { lazy, Suspense } from 'react'
+import { Box } from '@mui/material'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import RequireAuth from '../components/auth/wrapper/RequireAuth'
 import RequireOnboard from '../components/auth/wrapper/RequireOnboard'
