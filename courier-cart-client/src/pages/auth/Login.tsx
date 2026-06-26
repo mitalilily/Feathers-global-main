@@ -1,6 +1,7 @@
 // pages/auth/Login.tsx
 import { Navigate, useLocation } from "react-router-dom";
 import LoginForm from "../../components/auth/LoginForm";
+import FullScreenLoader from "../../components/UI/loader/FullScreenLoader";
 import { useAuth } from "../../context/auth/AuthContext";
 
 export default function Login() {
@@ -13,7 +14,7 @@ export default function Login() {
       : "/home";
 
   // optional global loader while figuring out status
-  if (loading) return null;
+  if (loading) return <FullScreenLoader />;
 
   if (isAuthenticated) {
     // not finished onboarding → push them to questions

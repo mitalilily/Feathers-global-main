@@ -25,7 +25,7 @@ import TableSkeleton from '../../UI/table/TableSkeleton'
 import StatusChip from '../../UI/chip/StatusChip'
 import { type OrderForReverse, type ReverseFlowRouteState } from './reverseFlow'
 
-const SUPPORTED_REVERSE_CARRIERS = new Set(['delhivery', 'shadowfax', 'xpressbees'])
+const SUPPORTED_REVERSE_CARRIERS = new Set(['delhivery', 'shadowfax', 'xpressbees', 'ekart'])
 
 const defaultFilters = {
   search: '',
@@ -132,7 +132,7 @@ export default function ReversePickupForm() {
     {
       label: 'Reverse-ready',
       value: reverseReadyOrders.length.toLocaleString('en-IN'),
-      hint: 'Supported by Delhivery, Shadowfax, Xpressbees',
+      hint: 'Supported by Delhivery, Ekart, Shadowfax, Xpressbees',
     },
     {
       label: 'Pickup addresses',
@@ -453,13 +453,14 @@ export default function ReversePickupForm() {
                   Supported carriers
                 </Typography>
                 <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 1 }}>
-                  {['Delhivery', 'Xpressbees', 'Shadowfax'].map((carrier) => (
+                  {['Delhivery', 'Ekart', 'Xpressbees', 'Shadowfax'].map((carrier) => (
                     <Chip key={carrier} label={carrier} size="small" sx={{ fontWeight: 700 }} />
                   ))}
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
-                  Only Delhivery, Shadowfax, and Xpressbees are enabled for reverse pickup in
-                  this flow because the repo supports reverse shipment creation for those carriers.
+                  Only Delhivery, Ekart, Shadowfax, and Xpressbees are enabled for reverse
+                  pickup in this flow because the repo supports reverse shipment creation for
+                  those carriers.
                 </Typography>
               </CardContent>
             </Card>
