@@ -60,6 +60,16 @@ export type EkartTrackResponse = {
   order_number?: string
 }
 
+type EkartLaneAvailabilityOverride = {
+  expiresAt: number
+  reason: string
+}
+
+const EKART_LANE_OVERRIDE_TTL_MS = Math.max(
+  60 * 1000,
+  Number(process.env.EKART_LANE_OVERRIDE_TTL_MS || 6 * 60 * 60 * 1000),
+)
+
 export class EkartService {
   private baseApi: string = process.env.EKART_BASE_API || EKART_ELITE_BASE_URL
   private baseAuth: string = process.env.EKART_BASE_AUTH || EKART_ELITE_BASE_URL
@@ -70,6 +80,7 @@ export class EkartService {
   private token: string | null = null
   private tokenExpiry: number | null = null
   private static cachedConfig: EkartConfig | null | undefined
+  private static laneAvailabilityOverrides = new Map<string, EkartLaneAvailabilityOverride>()
 
   private log(prefix: string, details: any) {
     console.log(`[Ekart] ${prefix}`, details)
@@ -256,6 +267,102 @@ export class EkartService {
     const digits = String(value ?? '').replace(/\D/g, '')
     if (!digits) return fallback
     return Number(digits.slice(0, 6))
+  }
+
+  private normalizeLanePin(value: any) {
+    const digits = String(value ?? '').replace(/\D/g, '')
+    return digits ? digits.slice(0, 6) : ''
+  }
+
+  private normalizeLanePaymentType(value: any) {
+    const normalized = String(value ?? '').trim().toLowerCase()
+    if (normalized === 'cod') return 'cod'
+    if (normalized === 'reverse' || normalized === 'pickup') return 'reverse'
+    return 'prepaid'
+  }
+
+  private getLaneAvailabilityOverrideKey(params: {
+    pickupPincode?: any
+    dropPincode?: any
+    paymentType?: any
+  }) {
+    const pickupPincode = this.normalizeLanePin(params.pickupPincode)
+    const dropPincode = this.normalizeLanePin(params.dropPincode)
+    if (!pickupPincode || !dropPincode) return ''
+    return `${pickupPincode}:${dropPincode}:${this.normalizeLanePaymentType(params.paymentType)}`
+  }
+
+  private getLaneAvailabilityOverride(params: {
+    pickupPincode?: any
+    dropPincode?: any
+    paymentType?: any
+  }) {
+    const key = this.getLaneAvailabilityOverrideKey(params)
+    if (!key) return null
+
+    const entry = EkartService.laneAvailabilityOverrides.get(key)
+    if (!entry) return null
+
+    if (entry.expiresAt <= Date.now()) {
+      EkartService.laneAvailabilityOverrides.delete(key)
+      return null
+    }
+
+    return { key, ...entry }
+  }
+
+  private setLaneAvailabilityOverride(
+    params: {
+      pickupPincode?: any
+      dropPincode?: any
+      paymentType?: any
+    },
+    reason: string,
+  ) {
+    const key = this.getLaneAvailabilityOverrideKey(params)
+    if (!key) return
+
+    const normalizedReason = this.extractErrorMessage({ message: reason }, 'Ekart lane unavailable')
+    EkartService.laneAvailabilityOverrides.set(key, {
+      reason: normalizedReason,
+      expiresAt: Date.now() + EKART_LANE_OVERRIDE_TTL_MS,
+    })
+
+    this.log('Lane availability override stored', {
+      key,
+      reason: normalizedReason,
+      ttl_ms: EKART_LANE_OVERRIDE_TTL_MS,
+    })
+  }
+
+  private maybeCacheLaneAvailabilityFailure(err: any, originalPayload: any, shipmentPayload: any) {
+    const reason = this.extractErrorMessage(err, '')
+    if (
+      !/drop pincode .* not serviceable|pickup pincode .* not serviceable|non[-\s]?serviceable pincode/i.test(
+        reason,
+      )
+    ) {
+      return
+    }
+
+    this.setLaneAvailabilityOverride(
+      {
+        pickupPincode:
+          shipmentPayload?.pickup?.pincode ??
+          shipmentPayload?.pickup_location?.pin ??
+          originalPayload?.pickup?.pincode,
+        dropPincode:
+          shipmentPayload?.drop?.pincode ??
+          shipmentPayload?.drop_location?.pin ??
+          originalPayload?.consignee?.pincode,
+        paymentType:
+          shipmentPayload?.paymentType ??
+          shipmentPayload?.payment_mode ??
+          originalPayload?.payment_type ??
+          originalPayload?.payment_mode,
+      },
+      reason,
+    )
   }
 
   private normalizeUrl(value: any) {
@@ -675,6 +782,37 @@ export class EkartService {
     codAmount?: string
     invoiceAmount: string
   }) {
+    const laneOverride = this.getLaneAvailabilityOverride({
+      pickupPincode: payload.pickupPincode,
+      dropPincode: payload.dropPincode,
+      paymentType: payload.paymentType,
+    })
+    if (laneOverride) {
+      this.log('Serviceability blocked by lane override', {
+        pickup: payload.pickupPincode,
+        drop: payload.dropPincode,
+        paymentType: payload.paymentType,
+        reason: laneOverride.reason,
+      })
+
+      const normalizedPaymentType = this.normalizeLanePaymentType(payload.paymentType)
+      return {
+        serviceable: false,
+        availability: {
+          message: laneOverride.reason,
+          lane_override: true,
+        },
+        records: [],
+        codAvailable: normalizedPaymentType !== 'cod',
+        prepaidAvailable: normalizedPaymentType !== 'prepaid',
+        tat: null,
+        raw: {
+          lane_override: true,
+          reason: laneOverride.reason,
+        },
+      }
+    }
+
     const token = await this.getAccessToken()
     const baseUrls = this.getServiceabilityBaseUrls()
     const endpoints = this.getServiceabilityEndpoints()
@@ -1117,6 +1255,7 @@ export class EkartService {
               response: retryErr?.response?.data || null,
               message: retryErr?.message || retryErr,
             })
+            this.maybeCacheLaneAvailabilityFailure(retryErr, payload, normalizedPayload)
 
             throw new HttpError(
               Number(retryErr?.response?.status || 502),
@@ -1131,6 +1270,7 @@ export class EkartService {
         })
       }
 
+      this.maybeCacheLaneAvailabilityFailure(err, payload, normalizedPayload)
       throw new HttpError(
         Number(err?.response?.status || 502),
         this.extractErrorMessage(err, 'Ekart shipment creation failed'),
