@@ -82,6 +82,10 @@ export class EkartService {
   private static cachedConfig: EkartConfig | null | undefined
   private static laneAvailabilityOverrides = new Map<string, EkartLaneAvailabilityOverride>()
 
+  static clearCachedConfig() {
+    EkartService.cachedConfig = undefined
+  }
+
   private log(prefix: string, details: any) {
     console.log(`[Ekart] ${prefix}`, details)
   }
@@ -695,8 +699,23 @@ export class EkartService {
     return fallback
   }
 
+  private hasAuthCredentials(source?: Partial<EkartConfig> | null) {
+    return [source?.clientId, source?.username, source?.password].every(
+      (value) => String(value ?? '').trim().length > 0,
+    )
+  }
+
   private async ensureConfigLoaded() {
-    if (EkartService.cachedConfig === undefined) {
+    const shouldRefreshCachedConfig =
+      EkartService.cachedConfig === undefined ||
+      (!this.hasAuthCredentials(EkartService.cachedConfig) &&
+        !this.hasAuthCredentials({
+          clientId: this.clientId,
+          username: this.username,
+          password: this.password,
+        }))
+
+    if (shouldRefreshCachedConfig) {
       EkartService.cachedConfig = await getEffectiveCourierConfig<EkartConfig>('ekart', 'b2c')
     }
     const cfg = EkartService.cachedConfig

@@ -21,6 +21,7 @@ import { fetchAvailableCouriersWithRatesAdmin } from '../../models/services/ship
 import { courier_credentials } from '../../models/schema/courierCredentials'
 import { couriers } from '../../models/schema/couriers'
 import { getAllZones } from '../../models/services/zone.service'
+import { EkartService } from '../../models/services/couriers/ekart.service'
 import { XpressbeesService } from '../../models/services/couriers/xpressbees.service'
 import { ShadowfaxService } from '../../models/services/couriers/shadowfax.service'
 import {
@@ -770,6 +771,8 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         webhookSecret: hasWebhookSecret ? webhookSecret : '',
       })
     }
+
+    EkartService.clearCachedConfig()
 
     const [saved] = await db
       .select({
