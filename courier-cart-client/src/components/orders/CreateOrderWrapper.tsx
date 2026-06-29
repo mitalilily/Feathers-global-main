@@ -35,6 +35,13 @@ const CreateOrderWrapper = () => {
     }
   }
 
+  const pageTitle =
+    activeTab === 'b2c'
+      ? pickupMode === 'reverse'
+        ? 'Create Reverse Order'
+        : 'Create Order'
+      : 'Create B2B Order'
+
   return (
     <Container
       maxWidth={false}
@@ -71,7 +78,7 @@ const CreateOrderWrapper = () => {
           }}
         >
           <Typography variant="body2" fontWeight={700} color="text.primary">
-            Create Order
+            {pageTitle}
           </Typography>
           <Tabs
             value={activeTab}

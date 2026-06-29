@@ -5,44 +5,57 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
+  Divider,
+  FormControlLabel,
   Grid,
+  MenuItem,
+  Paper,
   Stack,
-  Tooltip,
+  TextField,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { FilterBar, type FilterField } from '../../FilterBar'
-import { useB2COrdersByUser, useCreateReverseShipment } from '../../../hooks/Orders/useOrders'
+import { quoteReverse } from '../../../api/returns'
+import { fetchWalletBalance } from '../../../api/wallet.api'
 import { usePickupAddresses } from '../../../hooks/Pickup/usePickupAddresses'
-import { useKycVerification } from '../../../hooks/User/useKycVerification'
-import type { B2COrder, HydratedPickup } from '../../../types/generic.types'
-import ManualReversePickupDialog from './ManualReversePickupDialog'
-import ReverseOrderFlowCard from './ReverseOrderFlowCard'
-import DataTable, { type Column } from '../../UI/table/DataTable'
-import TableSkeleton from '../../UI/table/TableSkeleton'
-import StatusChip from '../../UI/chip/StatusChip'
-import { type OrderForReverse, type ReverseFlowRouteState } from './reverseFlow'
+import { useB2COrdersByUser, useCreateReverseShipment } from '../../../hooks/Orders/useOrders'
+import type { B2COrder, HydratedPickup, IAddress } from '../../../types/generic.types'
+import { type ReverseFlowRouteState } from './reverseFlow'
 
-const SUPPORTED_REVERSE_CARRIERS = new Set(['delhivery', 'shadowfax', 'xpressbees', 'ekart'])
+const SUPPORTED_REVERSE_CARRIERS = new Set(['delhivery', 'shadowfax', 'xpressbees', 'ekart', 'amazon'])
 
-const defaultFilters = {
-  search: '',
-  courier: '',
-  fromDate: '',
-  toDate: '',
+type ReverseItem = {
+  name: string
+  sku: string
+  price: number
+  qty: number
+  maxQty: number
+  hsn: string
+  discount: number
+  taxRate: number
 }
 
-const courierOptions = [
-  { label: 'All couriers', value: '' },
-  { label: 'Delhivery', value: 'delhivery' },
-  { label: 'Shadowfax', value: 'shadowfax' },
-  { label: 'Xpressbees', value: 'xpressbees' },
-  { label: 'Ekart', value: 'ekart' },
+const packageTypes = ['Document', 'Packet', 'Box', 'Bag']
+const reverseReasons = [
+  'Customer return',
+  'Damaged item',
+  'Wrong item delivered',
+  'Size or fit issue',
+  'Pickup failed earlier',
+  'Other',
 ]
 
-const formatDate = (value?: string | null) => {
+const toTitleCase = (value: string) =>
+  value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ')
+
+const formatOrderDate = (value?: string | null) => {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return String(value)
@@ -53,531 +66,817 @@ const formatDate = (value?: string | null) => {
   })
 }
 
-const formatAddress = (pickup?: HydratedPickup | null) => {
-  if (!pickup?.pickup) return 'No pickup address configured'
-  const parts = [
-    pickup.pickup.addressLine1,
-    pickup.pickup.addressLine2,
-    pickup.pickup.city,
-    pickup.pickup.state,
-    pickup.pickup.pincode,
-  ]
-    .filter(Boolean)
-    .map((item) => String(item).trim())
-
-  return parts.join(', ')
+const normalizeWeightToGrams = (weight: number | null | undefined) => {
+  const numeric = Number(weight ?? 0)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 500
+  return numeric > 50 ? Math.round(numeric) : Math.round(numeric * 1000)
 }
+
+const slugifyReason = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+const toOrderItems = (order: B2COrder | null): ReverseItem[] =>
+  Array.isArray(order?.products)
+    ? order.products.map((item, index) => ({
+        name: String(item?.productName || `Item ${index + 1}`),
+        sku: String(item?.sku || 'NA'),
+        price: Number(item?.price || 0),
+        qty: Math.max(1, Number(item?.quantity || 1)),
+        maxQty: Math.max(1, Number(item?.quantity || 1)),
+        hsn: String(item?.hsnCode || ''),
+        discount: Number(item?.discount || 0),
+        taxRate: Number(item?.taxRate || 0),
+      }))
+    : []
+
+const getReturnAddress = (pickup: HydratedPickup | null | undefined): IAddress | null =>
+  pickup ? (pickup.isRTOSame || !pickup.rto ? pickup.pickup : pickup.rto || pickup.pickup) : null
+
+const getReturnLabel = (pickup: HydratedPickup) => {
+  const address = getReturnAddress(pickup)
+  return (
+    address?.addressNickname ||
+    pickup.pickup?.addressNickname ||
+    address?.contactName ||
+    pickup.pickup?.contactName ||
+    'Return location'
+  )
+}
+
+const formatAddress = (address?: IAddress | null) =>
+  [address?.addressLine1, address?.addressLine2, address?.city, address?.state, address?.pincode]
+    .filter(Boolean)
+    .map((part) => String(part).trim())
+    .join(', ')
 
 export default function ReversePickupForm() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const { checkKycBeforeAction } = useKycVerification()
-  const [page, setPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
-  const [filters, setFilters] = useState(defaultFilters)
-  const [selectedOrder, setSelectedOrder] = useState<B2COrder | null>(null)
-  const [manualReverseOpen, setManualReverseOpen] = useState(false)
-  const createReverseShipment = useCreateReverseShipment()
-  const { data: pickupResponse } = usePickupAddresses()
   const routeState = (location.state || {}) as ReverseFlowRouteState
   const sourceOrderId = searchParams.get('sourceOrderId')
+  const createReverseShipment = useCreateReverseShipment()
+  const { data: pickupResponse } = usePickupAddresses({ isPickupEnabled: 'active' as unknown as boolean })
+  const pickupAddresses = (pickupResponse?.pickupAddresses || []) as HydratedPickup[]
+  const primaryPickup = pickupAddresses.find((pickup) => pickup.isPrimary) || pickupAddresses[0] || null
 
-  const { data, isLoading, isFetching } = useB2COrdersByUser(page, rowsPerPage, {
-    status: 'delivered',
-    courier: filters.courier || undefined,
-    search: filters.search || undefined,
-    fromDate: filters.fromDate || undefined,
-    toDate: filters.toDate || undefined,
+  const [orderQuery, setOrderQuery] = useState('')
+  const deferredOrderQuery = useDeferredValue(orderQuery.trim())
+  const [itemSearch, setItemSearch] = useState('')
+  const [selectedOrder, setSelectedOrder] = useState<B2COrder | null>(null)
+  const [selectedReturnPickupId, setSelectedReturnPickupId] = useState('')
+  const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerEmail, setCustomerEmail] = useState('')
+  const [customerAddress, setCustomerAddress] = useState('')
+  const [customerCity, setCustomerCity] = useState('')
+  const [customerState, setCustomerState] = useState('')
+  const [customerPincode, setCustomerPincode] = useState('')
+  const [items, setItems] = useState<ReverseItem[]>([])
+  const [reason, setReason] = useState(reverseReasons[0])
+  const [notes, setNotes] = useState('')
+  const [fragile, setFragile] = useState(false)
+  const [packageType, setPackageType] = useState('Box')
+  const [shippingMode, setShippingMode] = useState('surface')
+  const [weightGrams, setWeightGrams] = useState(500)
+  const [lengthCm, setLengthCm] = useState(10)
+  const [breadthCm, setBreadthCm] = useState(10)
+  const [heightCm, setHeightCm] = useState(10)
+  const [quoteState, setQuoteState] = useState({
+    loading: false,
+    error: '',
+    rate: 0,
+    wallet: 0,
+    eddDays: null as number | null,
+    oda: false,
   })
 
-  const orders = (data?.orders || []) as B2COrder[]
-  const reverseReadyOrders = useMemo(
-    () =>
-      orders.filter((order) =>
-        SUPPORTED_REVERSE_CARRIERS.has(String(order.integration_type || '').toLowerCase()),
-      ),
-    [orders],
+  const { data: deliveredOrdersResponse, isLoading: searchingOrders } = useB2COrdersByUser(1, 8, {
+    status: 'delivered',
+    search: deferredOrderQuery.length >= 3 ? deferredOrderQuery : undefined,
+  })
+
+  const matchingOrders = useMemo(
+    () => ((deliveredOrdersResponse?.orders || []) as B2COrder[]),
+    [deliveredOrdersResponse?.orders],
   )
-  const pickupAddresses = (pickupResponse?.pickupAddresses || []) as HydratedPickup[]
-  const primaryPickup = pickupAddresses.find((address) => address.isPrimary) || pickupAddresses[0]
-  const pickupMissing = pickupAddresses.length === 0
+
+  const selectedReturnPickup = useMemo(
+    () =>
+      pickupAddresses.find((pickup) => pickup.pickupId === selectedReturnPickupId || pickup.id === selectedReturnPickupId) ||
+      primaryPickup,
+    [pickupAddresses, primaryPickup, selectedReturnPickupId],
+  )
+
+  const selectedReturnAddress = useMemo(
+    () => getReturnAddress(selectedReturnPickup),
+    [selectedReturnPickup],
+  )
+
+  const providerKey = String(selectedOrder?.integration_type || '').trim().toLowerCase()
+  const isProviderSupported = !selectedOrder || SUPPORTED_REVERSE_CARRIERS.has(providerKey)
+
+  const filteredItems = useMemo(() => {
+    const normalizedSearch = itemSearch.trim().toLowerCase()
+    if (!normalizedSearch) return items
+    return items.filter(
+      (item) =>
+        item.name.toLowerCase().includes(normalizedSearch) || item.sku.toLowerCase().includes(normalizedSearch),
+    )
+  }, [itemSearch, items])
+
+  const totalSelectedUnits = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.qty || 0), 0),
+    [items],
+  )
+
+  const selectedOrderSummary = useMemo(
+    () =>
+      selectedOrder
+        ? {
+            id: String(selectedOrder.id),
+            orderNumber: selectedOrder.order_number,
+            awb: selectedOrder.awb_number || '-',
+            created: formatOrderDate(selectedOrder.order_date || selectedOrder.created_at),
+          }
+        : null,
+    [selectedOrder],
+  )
+
+  const hydrateFromOrder = (order: B2COrder) => {
+    setSelectedOrder(order)
+    setOrderQuery(order.order_number || String(order.id))
+    setCustomerName(order.buyer_name || '')
+    setCustomerPhone(order.buyer_phone || '')
+    setCustomerEmail(order.buyer_email || '')
+    setCustomerAddress(order.address || '')
+    setCustomerCity(order.city || '')
+    setCustomerState(order.state || '')
+    setCustomerPincode(order.pincode || '')
+    setItems(toOrderItems(order))
+    setWeightGrams(normalizeWeightToGrams(order.weight))
+    setLengthCm(Number(order.length || 10))
+    setBreadthCm(Number(order.breadth || 10))
+    setHeightCm(Number(order.height || 10))
+    setShippingMode(String((order as unknown as { shipping_mode?: string })?.shipping_mode || 'surface').toLowerCase())
+    setItemSearch('')
+    if (primaryPickup && !selectedReturnPickupId) {
+      setSelectedReturnPickupId(primaryPickup.pickupId)
+    }
+  }
 
   useEffect(() => {
-    if (!routeState.reverseOrder) return
-    setSelectedOrder((current) => {
-      if (current && String(current.id) === String(routeState.reverseOrder?.id)) {
-        return current
-      }
-      return routeState.reverseOrder as B2COrder
-    })
+    if (primaryPickup && !selectedReturnPickupId) {
+      setSelectedReturnPickupId(primaryPickup.pickupId)
+    }
+  }, [primaryPickup, selectedReturnPickupId])
+
+  useEffect(() => {
+    if (routeState.reverseOrder) {
+      hydrateFromOrder(routeState.reverseOrder as B2COrder)
+    }
   }, [routeState.reverseOrder])
 
   useEffect(() => {
     if (!sourceOrderId) return
-    const matchedOrder = orders.find((order) => String(order.id) === sourceOrderId)
-    if (!matchedOrder) return
-    setSelectedOrder((current) => {
-      if (current && String(current.id) === sourceOrderId) return current
-      return matchedOrder
-    })
-  }, [orders, sourceOrderId])
+    const matched = matchingOrders.find((order) => String(order.id) === String(sourceOrderId))
+    if (matched) {
+      hydrateFromOrder(matched)
+    }
+  }, [matchingOrders, sourceOrderId])
 
-  const summaryCards = [
-    {
-      label: 'Delivered orders',
-      value: Number(data?.totalCount || 0).toLocaleString('en-IN'),
-      hint: 'Eligible base for reverse creation',
-    },
-    {
-      label: 'Reverse-ready',
-      value: reverseReadyOrders.length.toLocaleString('en-IN'),
-      hint: 'Supported by Delhivery, Ekart, Shadowfax, Xpressbees',
-    },
-    {
-      label: 'Pickup addresses',
-      value: pickupAddresses.length.toLocaleString('en-IN'),
-      hint: pickupMissing ? 'Add one before creating reverse' : 'Primary warehouse available',
-    },
-    {
-      label: 'Unsupported',
-      value: Math.max(0, orders.length - reverseReadyOrders.length).toLocaleString('en-IN'),
-      hint: 'Reverse is restricted to supported carriers only',
-    },
-  ]
+  useEffect(() => {
+    if (!selectedOrder || !selectedReturnAddress || !isProviderSupported) {
+      setQuoteState((current) => ({
+        ...current,
+        rate: 0,
+        error: selectedOrder && !isProviderSupported ? 'Reverse pickup is not supported for this courier.' : '',
+      }))
+      return
+    }
 
-  const filterFields: FilterField[] = [
-    {
-      name: 'search',
-      label: 'Search',
-      type: 'text',
-      placeholder: 'Order number, buyer, AWB',
-    },
-    {
-      name: 'courier',
-      label: 'Courier',
-      type: 'select',
-      options: courierOptions,
-    },
-    {
-      name: 'fromDate',
-      label: 'From Date',
-      type: 'date',
-    },
-    {
-      name: 'toDate',
-      label: 'To Date',
-      type: 'date',
-    },
-  ]
+    let cancelled = false
 
-  const columns: Column<B2COrder>[] = [
-    {
-      id: 'order_number',
-      label: 'Order',
-      minWidth: 180,
-      render: (value, row) => (
-        <Stack spacing={0.35}>
-          <Typography sx={{ fontWeight: 800, color: '#111827', fontSize: '0.88rem' }}>
-            {String(value || row.id)}
-          </Typography>
-          <Typography sx={{ color: '#6B7280', fontSize: '0.76rem' }}>
-            Created {formatDate(row.created_at)}
-          </Typography>
-        </Stack>
-      ),
-    },
-    {
-      id: 'buyer_name',
-      label: 'Customer',
-      minWidth: 180,
-      render: (value, row) => (
-        <Stack spacing={0.35}>
-          <Typography sx={{ fontWeight: 700, color: '#111827', fontSize: '0.84rem' }}>
-            {String(value || '-')}
-          </Typography>
-          <Typography sx={{ color: '#6B7280', fontSize: '0.76rem' }}>
-            {row.buyer_phone || '-'}
-          </Typography>
-        </Stack>
-      ),
-    },
-    {
-      id: 'integration_type',
-      label: 'Courier',
-      minWidth: 150,
-      render: (value) => {
-        const courier = String(value || '').toLowerCase()
-        const supported = SUPPORTED_REVERSE_CARRIERS.has(courier)
-        return (
-          <Stack spacing={0.5} alignItems="flex-start">
-            <Chip
-              label={String(value || '-').toUpperCase()}
-              size="small"
-              sx={{
-                fontWeight: 700,
-                bgcolor: supported ? 'rgba(4, 123, 133, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                color: supported ? '#047b85' : '#B91C1C',
-              }}
-            />
-            <Typography sx={{ color: '#6B7280', fontSize: '0.74rem' }}>
-              {supported ? 'Reverse supported' : 'Reverse blocked'}
-            </Typography>
-          </Stack>
-        )
-      },
-    },
-    {
-      id: 'pincode',
-      label: 'Route',
-      minWidth: 170,
-      render: (_, row) => (
-        <Stack spacing={0.35}>
-          <Typography sx={{ fontWeight: 700, color: '#111827', fontSize: '0.82rem' }}>
-            {row.pincode || '-'}
-          </Typography>
-          <Typography sx={{ color: '#6B7280', fontSize: '0.74rem' }}>
-            Customer {'->'} {primaryPickup?.pickup?.pincode || 'warehouse'}
-          </Typography>
-        </Stack>
-      ),
-    },
-    {
-      id: 'order_status',
-      label: 'Status',
-      minWidth: 140,
-      render: (value) => (
-        <StatusChip status="success" label={String(value || 'delivered').replace(/_/g, ' ')} />
-      ),
-    },
-    {
-      id: 'id',
-      label: 'Action',
-      align: 'right',
-      minWidth: 160,
-      showCellTooltip: false,
-      render: (_, row) => {
-        const courier = String(row.integration_type || '').toLowerCase()
-        const supported = SUPPORTED_REVERSE_CARRIERS.has(courier)
-        const hasPickup =
-          Boolean(row.pickup_details?.address || row.pickup_details?.warehouse_name) ||
-          Boolean(primaryPickup?.pickup?.addressLine1)
+    const loadQuote = async () => {
+      try {
+        setQuoteState((current) => ({ ...current, loading: true, error: '' }))
+        const [quoteResponse, walletResponse] = await Promise.all([
+          quoteReverse({
+            orderId: String(selectedOrder.id),
+            weightGrams,
+            package_length: lengthCm,
+            package_breadth: breadthCm,
+            package_height: heightCm,
+            shipping_mode: shippingMode,
+          }),
+          fetchWalletBalance(),
+        ])
 
-        return (
-          <Stack direction="row" justifyContent="flex-end">
-            <Tooltip
-              title={
-                !supported
-                  ? 'Reverse pickup is not supported for this courier yet.'
-                  : !hasPickup
-                    ? 'Pickup details are missing for this order.'
-                    : 'Create reverse pickup'
-              }
-            >
-              <span>
-                <Button
-                  size="small"
-                  variant="contained"
-                  disabled={!supported || !hasPickup}
-                  onClick={() =>
-                    checkKycBeforeAction(() => {
-                      const nextParams = new URLSearchParams(searchParams)
-                      nextParams.set('sourceOrderId', String(row.id))
-                      navigate(
-                        {
-                          pathname: location.pathname,
-                          search: nextParams.toString() ? `?${nextParams.toString()}` : '',
-                        },
-                        {
-                          replace: true,
-                          state: {
-                            ...routeState,
-                            reverseOrder: row as unknown as ReverseFlowRouteState['reverseOrder'],
-                          } satisfies ReverseFlowRouteState,
-                        },
-                      )
-                      setSelectedOrder(row)
-                    })
-                  }
-                  sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
-                >
-                  Open Reverse Flow
-                </Button>
-              </span>
-            </Tooltip>
-          </Stack>
-        )
-      },
-    },
-  ]
+        if (cancelled) return
 
-  const selectedReverseOrder = selectedOrder
-    ? ({
-        ...selectedOrder,
-        id: String(selectedOrder.id),
-      } as OrderForReverse)
-    : null
+        setQuoteState({
+          loading: false,
+          error: '',
+          rate: Number(quoteResponse?.quote?.rate || 0),
+          wallet: Number(walletResponse?.data?.balance || 0),
+          eddDays: quoteResponse?.quote?.eddDays ?? null,
+          oda: Boolean(quoteResponse?.quote?.oda),
+        })
+      } catch (error: unknown) {
+        if (cancelled) return
+        const errorRecord = error as {
+          response?: { data?: { message?: string } }
+          message?: string
+        }
+        const message =
+          error && typeof error === 'object' && 'response' in error
+            ? errorRecord?.response?.data?.message || errorRecord?.message || 'Failed to get reverse quote'
+            : error instanceof Error
+              ? error.message
+              : 'Failed to get reverse quote'
+        setQuoteState((current) => ({
+          ...current,
+          loading: false,
+          error: message,
+          rate: 0,
+        }))
+      }
+    }
 
-  const resetSelectedOrder = () => {
+    loadQuote()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedOrder, selectedReturnAddress, weightGrams, lengthCm, breadthCm, heightCm, shippingMode, isProviderSupported])
+
+  const handleSelectOrder = (order: B2COrder) => {
     const nextParams = new URLSearchParams(searchParams)
-    nextParams.delete('sourceOrderId')
+    nextParams.set('sourceOrderId', String(order.id))
     navigate(
       {
         pathname: location.pathname,
-        search: nextParams.toString() ? `?${nextParams.toString()}` : '',
+        search: `?${nextParams.toString()}`,
       },
-      { replace: true },
+        {
+          replace: true,
+          state: {
+            ...routeState,
+            reverseOrder: order as unknown as ReverseFlowRouteState['reverseOrder'],
+          } satisfies ReverseFlowRouteState,
+        },
+      )
+    hydrateFromOrder(order)
+  }
+
+  const updateItemQty = (index: number, nextQty: number) => {
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              qty: Math.max(0, Math.min(item.maxQty, Number.isFinite(nextQty) ? nextQty : item.qty)),
+            }
+          : item,
+      ),
     )
-    setSelectedOrder(null)
+  }
+
+  const estimatedWalletDebit = Number((quoteState.rate * 1.18).toFixed(2))
+  const hasInsufficientBalance =
+    estimatedWalletDebit > 0 && Number.isFinite(quoteState.wallet) && estimatedWalletDebit > quoteState.wallet
+
+  const canSubmit =
+    Boolean(selectedOrder) &&
+    Boolean(selectedReturnAddress?.pincode) &&
+    isProviderSupported &&
+    totalSelectedUnits > 0 &&
+    weightGrams >= 50 &&
+    lengthCm > 0 &&
+    breadthCm > 0 &&
+    heightCm > 0 &&
+    !quoteState.loading &&
+    !quoteState.error &&
+    quoteState.rate > 0 &&
+    !hasInsufficientBalance &&
+    !createReverseShipment.isPending
+
+  const handleSubmit = () => {
+    if (!selectedOrder || !selectedReturnPickup || !selectedReturnAddress) return
+
+    const orderItems = items
+      .filter((item) => item.qty > 0)
+      .map((item) => ({
+        name: item.name,
+        sku: item.sku,
+        qty: item.qty,
+        price: item.price,
+        hsn: item.hsn,
+        discount: item.discount,
+        tax_rate: item.taxRate,
+      }))
+
+    if (!orderItems.length) return
+
+    const returnContactName =
+      selectedReturnAddress.contactName ||
+      selectedReturnAddress.addressNickname ||
+      selectedReturnPickup.pickup?.contactName ||
+      'Return Desk'
+
+    const tags = [
+      fragile ? 'fragile_reverse' : '',
+      reason ? `reverse_reason=${slugifyReason(reason)}` : '',
+    ]
+      .filter(Boolean)
+      .join(',')
+
+    createReverseShipment.mutate(
+      {
+        original_order_id: String(selectedOrder.id),
+        order_number: `${selectedOrder.order_number || String(selectedOrder.id)}-R`,
+        payment_type: 'reverse',
+        order_amount: 0,
+        order_date: new Date().toISOString(),
+        package_weight: Number((weightGrams / 1000).toFixed(3)),
+        package_length: lengthCm,
+        package_breadth: breadthCm,
+        package_height: heightCm,
+        package_type: packageType,
+        shipping_mode: shippingMode,
+        shipping_charges: quoteState.rate,
+        prepaid_amount: 0,
+        is_rto_different: 'no',
+        discount: 0,
+        integration_type: selectedOrder.integration_type,
+        transaction_fee: 0,
+        gift_wrap: 0,
+        request_auto_pickup: 'Yes',
+        pickup_location_id: selectedReturnPickup.pickupId,
+        notes,
+        fragile,
+        consignee: {
+          name: returnContactName,
+          address: selectedReturnAddress.addressLine1 || '',
+          address_2: selectedReturnAddress.addressLine2 || '',
+          city: selectedReturnAddress.city || '',
+          state: selectedReturnAddress.state || '',
+          pincode: selectedReturnAddress.pincode || '',
+          email: selectedReturnAddress.contactEmail || '',
+          phone: selectedReturnAddress.contactPhone || '',
+        },
+        pickup: {
+          warehouse_name: customerName || 'Customer Pickup',
+          address: customerAddress,
+          city: customerCity,
+          state: customerState,
+          pincode: customerPincode,
+          phone: customerPhone,
+          name: customerName,
+        },
+        rto: {
+          warehouse_name: getReturnLabel(selectedReturnPickup),
+          address: selectedReturnAddress.addressLine1 || '',
+          address_2: selectedReturnAddress.addressLine2 || '',
+          city: selectedReturnAddress.city || '',
+          state: selectedReturnAddress.state || '',
+          pincode: selectedReturnAddress.pincode || '',
+          phone: selectedReturnAddress.contactPhone || '',
+          name: returnContactName,
+        },
+        order_items: orderItems,
+        tags,
+      },
+      {
+        onSuccess: () => {
+          if (location.pathname === '/orders/create') {
+            navigate('/orders/list?status=pending')
+          }
+        },
+      },
+    )
   }
 
   return (
-    <Stack spacing={2} sx={{ minHeight: 0 }}>
-      <Alert
-        severity="info"
-        sx={{ borderRadius: 3, alignItems: 'flex-start' }}
-        action={
-          <Button
-            size="small"
-            onClick={() => navigate('/settings/manage_pickups')}
-            sx={{ textTransform: 'none', fontWeight: 800 }}
-          >
-            Manage pickups
-          </Button>
-        }
-      >
-        <AlertTitle>Reverse pickup flow</AlertTitle>
-        Reverse shipments pick up the parcel from the customer and move it through the carrier
-        network to your configured pickup or return address. Quality check is carrier-specific and
-        can happen at pickup or at a hub, so the panel only enables carriers that support reverse
-        shipments in this flow.
+    <Stack spacing={1.5} sx={{ minHeight: 0 }}>
+      <Alert severity="info" sx={{ borderRadius: 3 }}>
+        <AlertTitle>Manual DTO flow</AlertTitle>
+        Reverse shipments are created from an already delivered forward order. Search by order ID,
+        AWB, or reference number, then review customer, return location, item quantities, and box
+        details before manifesting the reverse pickup.
       </Alert>
 
-      {pickupMissing ? (
-        <Alert severity="warning" sx={{ borderRadius: 3 }}>
-          No pickup address is configured yet. The reverse flow can still be reviewed here, but
-          adding a pickup address will make warehouse handoff and return handling clearer.
+      <Grid container spacing={1.5}>
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid #E5E7EB', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+            <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+              <Grid container spacing={1.5}>
+                <Grid size={{ xs: 12, xl: 7 }}>
+                  <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 0.9 }}>Order ID</Typography>
+                  <TextField
+                    fullWidth
+                    value={orderQuery}
+                    onChange={(event) => setOrderQuery(event.target.value)}
+                    placeholder="Enter Order ID / Reference Number"
+                    helperText="Use a delivered forward order number, AWB, or source reference."
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, xl: 5 }}>
+                  <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 0.9 }}>
+                    Customer and Return Location
+                  </Typography>
+                  <TextField
+                    select
+                    fullWidth
+                    value={selectedReturnPickupId}
+                    onChange={(event) => setSelectedReturnPickupId(event.target.value)}
+                    placeholder="Select Return Location"
+                    helperText="Choose where the reverse shipment should be delivered."
+                  >
+                    {pickupAddresses.map((pickup) => (
+                      <MenuItem key={pickup.id} value={pickup.pickupId}>
+                        {getReturnLabel(pickup)}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+              </Grid>
+
+              {selectedOrderSummary ? (
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    mt: 1.5,
+                    p: 1.4,
+                    borderRadius: 2.5,
+                    borderColor: 'rgba(37, 99, 235, 0.22)',
+                    bgcolor: 'rgba(239, 246, 255, 0.72)',
+                  }}
+                >
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={1}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', md: 'center' }}
+                  >
+                    <Stack spacing={0.4}>
+                      <Typography sx={{ fontWeight: 800, color: '#0F172A' }}>
+                        Source order: {selectedOrderSummary.orderNumber}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        AWB {selectedOrderSummary.awb} | Delivered order date {selectedOrderSummary.created}
+                      </Typography>
+                    </Stack>
+                    <Chip
+                      label={toTitleCase(String(selectedOrder?.integration_type || '-'))}
+                      size="small"
+                      sx={{
+                        fontWeight: 700,
+                        bgcolor: isProviderSupported ? 'rgba(22, 163, 74, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                        color: isProviderSupported ? '#166534' : '#B91C1C',
+                      }}
+                    />
+                  </Stack>
+                </Paper>
+              ) : null}
+
+              {deferredOrderQuery.length >= 3 && !selectedOrder && matchingOrders.length > 0 ? (
+                <Stack spacing={0.9} sx={{ mt: 1.5 }}>
+                  {matchingOrders.map((order) => (
+                    <Paper
+                      key={order.id}
+                      variant="outlined"
+                      sx={{
+                        p: 1.15,
+                        borderRadius: 2,
+                        borderColor: 'rgba(148, 163, 184, 0.35)',
+                      }}
+                    >
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        spacing={1}
+                        justifyContent="space-between"
+                        alignItems={{ xs: 'flex-start', md: 'center' }}
+                      >
+                        <Stack spacing={0.35}>
+                          <Typography sx={{ fontWeight: 700, color: '#111827' }}>
+                            {order.order_number}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {order.buyer_name} | {order.city}, {order.state} - {order.pincode}
+                          </Typography>
+                        </Stack>
+                        <Button
+                          variant="outlined"
+                          onClick={() => handleSelectOrder(order)}
+                          sx={{ textTransform: 'none', fontWeight: 700 }}
+                        >
+                          Use Order
+                        </Button>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : null}
+
+              {deferredOrderQuery.length >= 3 && !selectedOrder && !searchingOrders && matchingOrders.length === 0 ? (
+                <Alert severity="warning" sx={{ mt: 1.5, borderRadius: 2.5 }}>
+                  No delivered forward order matched that ID or reference.
+                </Alert>
+              ) : null}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid #E5E7EB', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+            <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+              <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 1.1 }}>Box Details</Typography>
+              <Stack spacing={1.25}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Chip label="Box 1" size="small" sx={{ fontWeight: 700 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    Single-box manifest in current flow
+                  </Typography>
+                </Stack>
+
+                <TextField select label="Package Type" value={packageType} onChange={(event) => setPackageType(event.target.value)}>
+                  {packageTypes.map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {option}
+                    </MenuItem>
+                  ))}
+                </TextField>
+
+                <TextField select label="Shipping Mode" value={shippingMode} onChange={(event) => setShippingMode(event.target.value)}>
+                  <MenuItem value="surface">Surface</MenuItem>
+                  <MenuItem value="express">Express</MenuItem>
+                </TextField>
+
+                <Grid container spacing={1}>
+                  <Grid size={{ xs: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="L"
+                      type="number"
+                      value={lengthCm}
+                      onChange={(event) => setLengthCm(Number(event.target.value || 0))}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="B"
+                      type="number"
+                      value={breadthCm}
+                      onChange={(event) => setBreadthCm(Number(event.target.value || 0))}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="H"
+                      type="number"
+                      value={heightCm}
+                      onChange={(event) => setHeightCm(Number(event.target.value || 0))}
+                    />
+                  </Grid>
+                </Grid>
+
+                <TextField
+                  label="Package Weight (gm)"
+                  type="number"
+                  value={weightGrams}
+                  onChange={(event) => setWeightGrams(Number(event.target.value || 0))}
+                  helperText="Reverse quote uses this weight along with the entered dimensions."
+                />
+
+                <Divider />
+
+                <Stack spacing={0.65}>
+                  <Typography variant="body2" color="text.secondary">
+                    Reverse freight
+                  </Typography>
+                  <Typography sx={{ fontSize: '1.4rem', fontWeight: 900, color: '#0F172A' }}>
+                    Rs. {quoteState.rate.toFixed(2)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Estimated wallet debit with GST: Rs. {estimatedWalletDebit.toFixed(2)}
+                  </Typography>
+                  <Typography variant="body2" color={hasInsufficientBalance ? 'error.main' : 'text.secondary'}>
+                    Wallet balance: Rs. {quoteState.wallet.toFixed(2)}
+                  </Typography>
+                  {quoteState.eddDays !== null ? (
+                    <Typography variant="body2" color="text.secondary">
+                      Estimated return delivery: {quoteState.eddDays} days
+                    </Typography>
+                  ) : null}
+                  {quoteState.oda ? (
+                    <Typography variant="body2" color="warning.main">
+                      ODA area detected for this reverse route.
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={1.5}>
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid #E5E7EB', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+            <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+              <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 1.1 }}>Item Details</Typography>
+              <TextField
+                fullWidth
+                placeholder="Enter at least 3 letters to search by product name / SKU code"
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                sx={{ mb: 1.5 }}
+              />
+
+              {filteredItems.length > 0 ? (
+                <Stack spacing={1}>
+                  {filteredItems.map((item) => {
+                    const sourceIndex = items.findIndex(
+                      (candidate) => candidate.name === item.name && candidate.sku === item.sku,
+                    )
+
+                    return (
+                      <Paper key={`${item.sku}-${item.name}`} variant="outlined" sx={{ p: 1.2, borderRadius: 2 }}>
+                        <Grid container spacing={1} alignItems="center">
+                          <Grid size={{ xs: 12, md: 5 }}>
+                            <Typography sx={{ fontWeight: 700, color: '#111827' }}>{item.name}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              SKU {item.sku} | Max qty {item.maxQty}
+                            </Typography>
+                          </Grid>
+                          <Grid size={{ xs: 6, md: 3 }}>
+                            <TextField
+                              fullWidth
+                              label="Quantity"
+                              type="number"
+                              value={item.qty}
+                              onChange={(event) => updateItemQty(sourceIndex, Number(event.target.value || 0))}
+                              inputProps={{ min: 0, max: item.maxQty }}
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 6, md: 4 }}>
+                            <Typography sx={{ fontWeight: 700, color: '#111827' }}>
+                              Rs. {Number(item.price || 0).toFixed(2)}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              HSN {item.hsn || '-'}
+                            </Typography>
+                          </Grid>
+                        </Grid>
+                      </Paper>
+                    )
+                  })}
+                </Stack>
+              ) : (
+                <Box
+                  sx={{
+                    py: 5,
+                    borderRadius: 2.5,
+                    border: '1px dashed #CBD5E1',
+                    bgcolor: '#F8FAFC',
+                    textAlign: 'center',
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 700, color: '#475569' }}>
+                    {selectedOrder ? 'No matching items found' : 'No source order selected yet'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
+                    Select a delivered order to preload the returnable items.
+                  </Typography>
+                </Box>
+              )}
+
+              <FormControlLabel
+                sx={{ mt: 1.2 }}
+                control={<Checkbox checked={fragile} onChange={(event) => setFragile(event.target.checked)} />}
+                label="My package contains fragile items"
+              />
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid #E5E7EB', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+            <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+              <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 1.1 }}>Customer Pickup Details</Typography>
+              <Stack spacing={1.1}>
+                <TextField label="Customer Name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+                <TextField label="Customer Phone" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+                <TextField label="Customer Email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} />
+                <TextField label="Address" value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} multiline minRows={2} />
+                <Grid container spacing={1}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField fullWidth label="City" value={customerCity} onChange={(event) => setCustomerCity(event.target.value)} />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField fullWidth label="State" value={customerState} onChange={(event) => setCustomerState(event.target.value)} />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField fullWidth label="Pincode" value={customerPincode} onChange={(event) => setCustomerPincode(event.target.value)} />
+                  </Grid>
+                </Grid>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      <Grid container spacing={1.5}>
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid #E5E7EB', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+            <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+              <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 1.1 }}>Other Details</Typography>
+              <Stack spacing={1.15}>
+                <TextField select label="Reason for Return" value={reason} onChange={(event) => setReason(event.target.value)}>
+                  {reverseReasons.map((option) => (
+                    <MenuItem key={option} value={option}>
+                      {option}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Notes for field executive"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  multiline
+                  minRows={3}
+                  placeholder="Add pickup instructions, landmark notes, or return-specific guidance."
+                />
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Card sx={{ borderRadius: 3, border: '1px solid #E5E7EB', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+            <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
+              <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 1 }}>Return Destination</Typography>
+              {selectedReturnAddress ? (
+                <Stack spacing={0.7}>
+                  <Typography sx={{ fontWeight: 700, color: '#111827' }}>
+                    {getReturnLabel(selectedReturnPickup as HydratedPickup)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatAddress(selectedReturnAddress) || 'Return address is incomplete'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Contact: {selectedReturnAddress.contactName || '-'} | {selectedReturnAddress.contactPhone || '-'}
+                  </Typography>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Add a pickup or RTO location before creating reverse orders.
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {!isProviderSupported && selectedOrder ? (
+        <Alert severity="error" sx={{ borderRadius: 2.5 }}>
+          Reverse pickup is not supported for {toTitleCase(selectedOrder.integration_type)} yet.
         </Alert>
       ) : null}
 
-      {selectedReverseOrder ? (
-        <ReverseOrderFlowCard
-          order={selectedReverseOrder}
-          isSubmitting={createReverseShipment.isPending}
-          onBack={resetSelectedOrder}
-          onConfirm={(payload) => {
-            createReverseShipment.mutate(payload, {
-              onSuccess: () => {
-                resetSelectedOrder()
-              },
-            })
-          }}
-        />
+      {hasInsufficientBalance ? (
+        <Alert severity="error" sx={{ borderRadius: 2.5 }}>
+          Insufficient wallet balance. Required Rs. {estimatedWalletDebit.toFixed(2)}, available Rs.{' '}
+          {quoteState.wallet.toFixed(2)}.
+        </Alert>
       ) : null}
 
-      <Grid container spacing={1.5}>
-        {summaryCards.map((card) => (
-          <Grid key={card.label} size={{ xs: 12, sm: 6, xl: 3 }}>
-            <Card
-              sx={{
-                height: '100%',
-                borderRadius: 3,
-                border: '1px solid rgba(4, 123, 133, 0.12)',
-                boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
-              }}
-            >
-              <CardContent sx={{ py: 2.1, px: 2.2 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-                  {card.label}
-                </Typography>
-                <Typography
-                  variant="h4"
-                  sx={{ mt: 0.6, fontWeight: 900, color: '#111827', letterSpacing: '-0.03em' }}
-                >
-                  {card.value}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.4 }}>
-                  {card.hint}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      {quoteState.error ? (
+        <Alert severity="warning" sx={{ borderRadius: 2.5 }}>
+          {quoteState.error}
+        </Alert>
+      ) : null}
 
-      <Grid container spacing={1.5}>
-        <Grid size={{ xs: 12, xl: 3 }}>
-          <Stack spacing={1.5}>
-            <Card
-              sx={{
-                borderRadius: 3,
-                border: '1px solid rgba(4, 123, 133, 0.12)',
-                boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
-              }}
-            >
-              <CardContent sx={{ py: 2.1, px: 2.2 }}>
-                <Typography variant="overline" sx={{ color: '#047b85', fontWeight: 900 }}>
-                  Pickup Setup
-                </Typography>
-                <Typography sx={{ fontWeight: 800, color: '#111827', mt: 0.6 }}>
-                  {primaryPickup?.pickup?.addressNickname ||
-                    primaryPickup?.pickup?.contactName ||
-                    'Primary pickup not found'}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
-                  {formatAddress(primaryPickup)}
-                </Typography>
-                {primaryPickup?.rto ? (
-                  <Box sx={{ mt: 1.25 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>
-                      RTO address
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {primaryPickup.rto.addressLine1}, {primaryPickup.rto.city},{' '}
-                      {primaryPickup.rto.state} - {primaryPickup.rto.pincode}
-                    </Typography>
-                  </Box>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            <Card
-              sx={{
-                borderRadius: 3,
-                border: '1px solid rgba(4, 123, 133, 0.12)',
-                boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
-              }}
-            >
-              <CardContent sx={{ py: 2.1, px: 2.2 }}>
-                <Typography variant="overline" sx={{ color: '#047b85', fontWeight: 900 }}>
-                  Supported carriers
-                </Typography>
-                <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 1 }}>
-                  {['Delhivery', 'Ekart', 'Xpressbees', 'Shadowfax'].map((carrier) => (
-                    <Chip key={carrier} label={carrier} size="small" sx={{ fontWeight: 700 }} />
-                  ))}
-                </Stack>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2 }}>
-                  Only Delhivery, Ekart, Shadowfax, and Xpressbees are enabled for reverse
-                  pickup in this flow because the repo supports reverse shipment creation for
-                  those carriers.
-                </Typography>
-              </CardContent>
-            </Card>
-
-            <Card
-              sx={{
-                borderRadius: 3,
-                border: '1px solid rgba(4, 123, 133, 0.12)',
-                boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
-              }}
-            >
-              <CardContent sx={{ py: 2.1, px: 2.2 }}>
-                <Typography variant="overline" sx={{ color: '#047b85', fontWeight: 900 }}>
-                  Manual reverse entry
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
-                  Enter a reverse pickup manually when the delivered order is not listed in the
-                  table. You can provide an original order ID for auto-quoting or set the reverse
-                  shipping charge directly.
-                </Typography>
-                <Button
-                  variant="contained"
-                  onClick={() =>
-                    checkKycBeforeAction(() => {
-                      setManualReverseOpen(true)
-                    })
-                  }
-                  sx={{ mt: 1.5, textTransform: 'none', fontWeight: 800, borderRadius: 2 }}
-                >
-                  Open Manual Form
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card
-              sx={{
-                borderRadius: 3,
-                border: '1px solid rgba(4, 123, 133, 0.12)',
-                boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
-              }}
-            >
-              <CardContent sx={{ py: 2.1, px: 2.2 }}>
-                <Typography variant="overline" sx={{ color: '#047b85', fontWeight: 900 }}>
-                  Reverse notes
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
-                  Quality check is carrier-specific. Some couriers can inspect at pickup, some at
-                  hub, and some skip QC completely. The quote dialog will still validate your
-                  wallet balance before confirming the shipment.
-                </Typography>
-              </CardContent>
-            </Card>
-          </Stack>
-        </Grid>
-
-        <Grid size={{ xs: 12, xl: 9 }}>
-          <Stack spacing={1.5}>
-            <FilterBar
-              fields={filterFields}
-              onApply={(applied) => {
-                setFilters(applied)
-                setPage(1)
-              }}
-              defaultValues={defaultFilters}
-              mode="button"
-              buttonLabel="Filters"
-              appliedCount={Object.values(filters).filter(Boolean).length}
-            />
-
-            {isLoading && !data ? (
-              <TableSkeleton title="Loading reverse pickup orders" />
-            ) : (
-              <Box
-                sx={{
-                  borderRadius: 3,
-                  border: '1px solid rgba(4, 123, 133, 0.12)',
-                  overflow: 'hidden',
-                  bgcolor: '#fff',
-                  boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)',
-                }}
-              >
-                <DataTable<B2COrder>
-                  rows={orders}
-                  columns={columns}
-                  loading={isFetching}
-                  loadingLabel="Refreshing reverse pickup orders..."
-                  emptyMessage="No delivered orders are available for reverse pickup."
-                  pagination
-                  currentPage={page - 1}
-                  defaultRowsPerPage={rowsPerPage}
-                  totalCount={data?.totalCount || 0}
-                  onPageChange={(newPage) => setPage(newPage + 1)}
-                  onRowsPerPageChange={(newLimit) => {
-                    setRowsPerPage(newLimit)
-                    setPage(1)
-                  }}
-                />
-              </Box>
-            )}
-          </Stack>
-        </Grid>
-      </Grid>
-
-      <ManualReversePickupDialog
-        open={manualReverseOpen}
-        onClose={() => setManualReverseOpen(false)}
-        defaultPickup={primaryPickup}
-        defaultIntegrationType="delhivery"
-        isSubmitting={createReverseShipment.isPending}
-        onSubmit={(payload) => {
-          createReverseShipment.mutate(payload, {
-            onSuccess: () => {
-              setManualReverseOpen(false)
-            },
-          })
-        }}
-      />
+      <Stack direction="row" justifyContent="flex-end" spacing={1.25}>
+        <Button variant="outlined" onClick={() => navigate(-1)} sx={{ textTransform: 'none', fontWeight: 700 }}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          sx={{ textTransform: 'none', fontWeight: 800, px: 2.5 }}
+        >
+          {createReverseShipment.isPending ? 'Creating Reverse Order...' : 'Create & Manifest Reverse Order'}
+        </Button>
+      </Stack>
     </Stack>
   )
 }

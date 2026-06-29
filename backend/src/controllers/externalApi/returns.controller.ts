@@ -14,6 +14,19 @@ import { getOrderLabelReference } from '../../utils/orderLabels'
 const getOriginalOrderId = (body: Record<string, any>) =>
   String(body?.original_order_id || body?.order_id || body?.orderId || '').trim()
 
+const getReverseQuoteOverrides = (body: Record<string, any>) => ({
+  weightGrams:
+    body?.weightGrams != null && body?.weightGrams !== ''
+      ? Number(body.weightGrams)
+      : body?.package_weight != null && body?.package_weight !== ''
+        ? Number(body.package_weight) * 1000
+        : undefined,
+  lengthCm: Number(body?.package_length),
+  breadthCm: Number(body?.package_breadth),
+  heightCm: Number(body?.package_height),
+  shippingMode: typeof body?.shipping_mode === 'string' ? body.shipping_mode : undefined,
+})
+
 /**
  * Create a return order (reverse pickup)
  * POST /api/v1/returns
@@ -40,7 +53,11 @@ export const createReturnOrderController = async (req: any, res: Response) => {
     }
 
     await assertReversePickupAllowed(originalOrderId, userId)
-    const quote = await quoteReverseForOrder(originalOrderId, Number(body?.package_weight), userId)
+    const quote = await quoteReverseForOrder(
+      originalOrderId,
+      getReverseQuoteOverrides(body),
+      userId,
+    )
     const reverseCharge = Number(quote.rate || 0)
     if (!Number.isFinite(reverseCharge) || reverseCharge <= 0) {
       return res.status(400).json({
@@ -131,7 +148,15 @@ export const getReturnQuoteController = async (req: any, res: Response) => {
       })
     }
 
-    const { orderId, weightGrams } = req.query as { orderId?: string; weightGrams?: string }
+    const { orderId, weightGrams, package_length, package_breadth, package_height, shipping_mode } =
+      req.query as {
+        orderId?: string
+        weightGrams?: string
+        package_length?: string
+        package_breadth?: string
+        package_height?: string
+        shipping_mode?: string
+      }
 
     if (!orderId) {
       return res.status(400).json({
@@ -144,7 +169,13 @@ export const getReturnQuoteController = async (req: any, res: Response) => {
     await assertReversePickupAllowed(orderId, userId)
     const quote = await quoteReverseForOrder(
       orderId,
-      weightGrams ? Number(weightGrams) : undefined,
+      {
+        weightGrams: weightGrams ? Number(weightGrams) : undefined,
+        lengthCm: package_length ? Number(package_length) : undefined,
+        breadthCm: package_breadth ? Number(package_breadth) : undefined,
+        heightCm: package_height ? Number(package_height) : undefined,
+        shippingMode: shipping_mode,
+      },
       userId,
     )
 

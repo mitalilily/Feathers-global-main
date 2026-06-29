@@ -9,6 +9,19 @@ import {
 const getOriginalOrderId = (body: Record<string, any>) =>
   String(body?.original_order_id || body?.order_id || body?.orderId || '').trim()
 
+const getReverseQuoteOverrides = (body: Record<string, any>) => ({
+  weightGrams:
+    body?.weightGrams != null && body?.weightGrams !== ''
+      ? Number(body.weightGrams)
+      : body?.package_weight != null && body?.package_weight !== ''
+        ? Number(body.package_weight) * 1000
+        : undefined,
+  lengthCm: Number(body?.package_length),
+  breadthCm: Number(body?.package_breadth),
+  heightCm: Number(body?.package_height),
+  shippingMode: typeof body?.shipping_mode === 'string' ? body.shipping_mode : undefined,
+})
+
 export const createReversePickup = async (req: any, res: Response) => {
   try {
     const userId = req.user?.sub
@@ -21,7 +34,11 @@ export const createReversePickup = async (req: any, res: Response) => {
     }
 
     await assertReversePickupAllowed(originalOrderId, userId)
-    const quote = await quoteReverseForOrder(originalOrderId, Number(body?.package_weight), userId)
+    const quote = await quoteReverseForOrder(
+      originalOrderId,
+      getReverseQuoteOverrides(body),
+      userId,
+    )
     const reverseCharge = Number(quote.rate || 0)
     if (!Number.isFinite(reverseCharge) || reverseCharge <= 0) {
       return res.status(400).json({
@@ -55,15 +72,12 @@ export const quoteReverse = async (req: any, res: Response) => {
     const userId = req.user?.sub
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' })
 
-    const { orderId, weightGrams } = req.body
+    const body = req.body || {}
+    const { orderId } = body
     if (!orderId) return res.status(400).json({ success: false, message: 'orderId required' })
 
     await assertReversePickupAllowed(String(orderId), userId)
-    const quote = await quoteReverseForOrder(
-      String(orderId),
-      weightGrams ? Number(weightGrams) : undefined,
-      userId,
-    )
+    const quote = await quoteReverseForOrder(String(orderId), getReverseQuoteOverrides(body), userId)
     return res.json({ success: true, quote })
   } catch (e: any) {
     return res.status(400).json({ success: false, message: e.message })

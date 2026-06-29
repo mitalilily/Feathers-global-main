@@ -263,15 +263,38 @@ const normalizeOrderWeightToGrams = (value: unknown, fallback = 500) => {
 
 export async function quoteReverseForOrder(
   orderId: string,
-  _overrideWeightGrams?: number,
+  overrides?:
+    | {
+        weightGrams?: number
+        lengthCm?: number
+        breadthCm?: number
+        heightCm?: number
+        shippingMode?: string | null
+      }
+    | undefined,
   userId?: string,
 ) {
   // 1) Fetch order and resolve courier
   const order = await getOriginalOrderForReversePickup(orderId, userId)
   if (!order) throw new Error('Order not found')
 
-  // Always trust server-stored order weight; ignore any client override
-  const weightGrams = normalizeOrderWeightToGrams(order.weight)
+  const weightGrams =
+    Number.isFinite(Number(overrides?.weightGrams)) && Number(overrides?.weightGrams) > 0
+      ? Math.max(1, Math.round(Number(overrides?.weightGrams)))
+      : normalizeOrderWeightToGrams(order.weight)
+  const lengthCm =
+    Number.isFinite(Number(overrides?.lengthCm)) && Number(overrides?.lengthCm) > 0
+      ? Number(overrides?.lengthCm)
+      : Number(order.length ?? 0)
+  const breadthCm =
+    Number.isFinite(Number(overrides?.breadthCm)) && Number(overrides?.breadthCm) > 0
+      ? Number(overrides?.breadthCm)
+      : Number(order.breadth ?? 0)
+  const heightCm =
+    Number.isFinite(Number(overrides?.heightCm)) && Number(overrides?.heightCm) > 0
+      ? Number(overrides?.heightCm)
+      : Number(order.height ?? 0)
+  const shippingMode = normalizeText(overrides?.shippingMode || (order as any)?.shipping_mode) || null
   const reverseDestPincode = order?.pickup_details?.pincode || order.pincode
 
   let resolvedCourierId = order.courier_id ? Number(order.courier_id) : undefined
@@ -319,7 +342,7 @@ export async function quoteReverseForOrder(
         zoneId: zoneRow.id,
         courierId: resolvedCourierId,
         serviceProvider: provider || null,
-        mode: order.shipping_mode ?? null,
+        mode: shippingMode,
         type: 'rto',
       })
     : []
@@ -337,9 +360,9 @@ export async function quoteReverseForOrder(
   const selected = rates[0]
   const quote = computeB2CRateCardCharge({
     actual_weight_g: weightGrams,
-    length_cm: Number(order.length ?? 0),
-    width_cm: Number(order.breadth ?? 0),
-    height_cm: Number(order.height ?? 0),
+    length_cm: lengthCm,
+    width_cm: breadthCm,
+    height_cm: heightCm,
     rateCard: selected,
     selected_max_slab_weight: order.selected_max_slab_weight ?? null,
   })
@@ -357,6 +380,10 @@ export async function quoteReverseForOrder(
     rate,
     currency: 'INR',
     weightGrams,
+    lengthCm,
+    breadthCm,
+    heightCm,
+    shippingMode,
     zoneId: zoneRow.id,
     zoneCode,
     courierId: resolvedCourierId,
