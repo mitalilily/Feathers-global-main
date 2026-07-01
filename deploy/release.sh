@@ -11,6 +11,18 @@ DEPLOY_PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL:-https://api.fgship.in/api}"
 DEPLOY_PUBLIC_SOCKET_URL="${DEPLOY_PUBLIC_SOCKET_URL:-https://api.fgship.in}"
 PM2_BIN="${PM2_BIN:-$(command -v pm2 || true)}"
 
+repair_pm2_install() {
+  if ! command -v npm >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo env PATH="$PATH" bash -lc 'umask 022 && npm install -g pm2'
+  else
+    env PATH="$PATH" bash -lc 'umask 022 && npm install -g pm2'
+  fi
+}
+
 if [ -z "$PM2_BIN" ]; then
   for candidate in /usr/bin/pm2 /usr/local/bin/pm2; do
     if [ -x "$candidate" ]; then
@@ -21,6 +33,18 @@ if [ -z "$PM2_BIN" ]; then
 fi
 
 if [ -z "$PM2_BIN" ]; then
+  echo "pm2 not found; attempting automatic install."
+  repair_pm2_install || true
+  PM2_BIN="$(command -v pm2 || true)"
+fi
+
+if [ -n "$PM2_BIN" ] && ! "$PM2_BIN" -v >/dev/null 2>&1; then
+  echo "pm2 exists but is not runnable; attempting repair."
+  repair_pm2_install || true
+  PM2_BIN="$(command -v pm2 || true)"
+fi
+
+if [ -z "$PM2_BIN" ] || ! "$PM2_BIN" -v >/dev/null 2>&1; then
   echo "pm2 command not found in PATH or common install locations." >&2
   exit 127
 fi
