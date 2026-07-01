@@ -14,11 +14,14 @@ export async function createRechargeOrder(payload: {
 export async function confirmRecharge({
   orderId,
   paymentId,
+  signature,
 }: {
   orderId: string
   paymentId: string
+  signature: string
 }) {
-  await axiosInstance.post('/payments/wallet/confirm', { orderId, paymentId })
+  const res = await axiosInstance.post('/payments/wallet/confirm', { orderId, paymentId, signature })
+  return res.data
 }
 
 export const fetchWalletBalance = async (): Promise<{

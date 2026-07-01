@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import { createWalletOrder, markTopupProcessing } from '../models/services/walletTopupService'
+import { confirmVerifiedPayment, createWalletOrder } from '../models/services/walletTopupService'
 import { getPaymentOptions } from '../models/services/paymentOptions.service'
 
 export const createTopup = async (req: Request, res: Response): Promise<any> => {
@@ -34,13 +34,27 @@ export const createTopup = async (req: Request, res: Response): Promise<any> => 
     res.status(201).json(data)
   } catch (err) {
     console.error('Razorpay top-up error:', err)
-    res.status(500).json({ error: 'Top-up failed' })
+    res.status((err as any)?.statusCode || 500).json({
+      error: (err as any)?.message || 'Top-up failed',
+    })
   }
 }
 
 export const confirmFromClient = async (req: Request, res: Response) => {
-  const { orderId, paymentId } = req.body
-  // Optional: lookup payment via Razorpay REST here
-  await markTopupProcessing(orderId, paymentId)
-  res.json({ ok: true })
+  const { orderId, paymentId, signature } = req.body
+  const userId = (req as any).user?.sub
+
+  if (!orderId || !paymentId || !signature) {
+    return res.status(400).json({ error: 'Missing Razorpay payment confirmation details' })
+  }
+
+  try {
+    const result = await confirmVerifiedPayment({ orderId, paymentId, signature, userId })
+    return res.json(result)
+  } catch (err: any) {
+    console.error('Razorpay confirmation error:', err)
+    return res.status(err?.statusCode || 500).json({
+      error: err?.message || 'Payment confirmation failed',
+    })
+  }
 }

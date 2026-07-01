@@ -70,6 +70,10 @@ export const useRechargeWallet = () =>
         throw new Error('Invalid Razorpay order response')
       }
 
+      if (!window.Razorpay) {
+        throw new Error('Razorpay Checkout failed to load. Please refresh and try again.')
+      }
+
       // Initialize Razorpay Checkout
       const options_razorpay: RazorpayCheckoutOptions = {
         key: orderData.key,
@@ -86,6 +90,7 @@ export const useRechargeWallet = () =>
             await confirmRecharge({
               orderId: response.razorpay_order_id,
               paymentId: response.razorpay_payment_id,
+              signature: response.razorpay_signature,
             })
             // Reload page to show updated balance
             window.location.reload()

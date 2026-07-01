@@ -1,5 +1,11 @@
 import { and, eq, or, sql } from 'drizzle-orm'
-import { razorpay } from '../../utils/razorpay'
+import {
+  assertRazorpayConfigured,
+  razorpay,
+  razorpayCheckoutKeyId,
+  razorpayMerchantId,
+  verifyCheckoutSignature,
+} from '../../utils/razorpay'
 import { db } from '../client'
 import { wallets, walletTopups } from '../schema/wallet'
 import { users } from '../schema/users'
@@ -13,6 +19,14 @@ const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
 
 /* helper */
+const toPaise = (amount: number | string) => Math.round(Number(amount) * 100)
+
+const httpError = (message: string, statusCode = 400) => {
+  const error = new Error(message) as Error & { statusCode: number }
+  error.statusCode = statusCode
+  return error
+}
+
 export async function walletOfUser(userId: string, tx: any = db) {
   const executor = tx ?? db
   const [wallet] = await executor.select().from(wallets).where(eq(wallets.userId, userId)).limit(1)
@@ -51,20 +65,24 @@ export async function createWalletOrder(
   amount: number,
   details: { name: string; email: string; phone: string },
 ) {
-  const wallet = await walletOfUser(userId)
+  assertRazorpayConfigured()
+
+  const wallet = await getOrCreateWalletOfUser(userId)
 
   // Generate unique order ID
   const orderId = `wallet_${Date.now()}_${Math.floor(Math.random() * 1000)}`
 
   // Create Razorpay order
   const razorpayOrder = await razorpay.orders.create({
-    amount: Math.round(amount * 100), // Convert to paise
+    amount: toPaise(amount),
     currency: wallet.currency ?? 'INR',
+    payment_capture: true,
     receipt: orderId,
     notes: {
       userId,
       walletId: wallet.id,
       type: 'wallet_recharge',
+      ...(razorpayMerchantId ? { merchantId: razorpayMerchantId } : {}),
     },
   })
 
@@ -77,19 +95,13 @@ export async function createWalletOrder(
     status: 'created',
   })
 
-  // Get the correct key based on mode (same logic as razorpay.ts)
-  const MODE: 'test' | 'live' =
-    (process.env.RAZORPAY_MODE as 'test' | 'live') ??
-    (process.env.NODE_ENV === 'production' ? 'live' : 'test')
-  const keyId = MODE === 'live' ? process.env.RAZORPAY_KEY_ID_PROD! : process.env.RAZORPAY_KEY_ID!
-
   // Return Razorpay order details for frontend
   return {
     orderId: razorpayOrder.id,
     amount: razorpayOrder.amount,
     currency: razorpayOrder.currency,
-    key: keyId,
-    name: 'Shiplifi',
+    key: razorpayCheckoutKeyId,
+    name: 'Feather Global',
     description: 'Wallet Recharge',
     prefill: {
       name: details.name,
@@ -97,7 +109,7 @@ export async function createWalletOrder(
       contact: details.phone,
     },
     theme: {
-      color: '#4b8e40',
+      color: '#047b85',
     },
   }
 }
@@ -169,4 +181,76 @@ export async function markTopupProcessing(orderId: string, paymentId: string) {
       updatedAt: new Date(),
     })
     .where(and(eq(walletTopups.gatewayOrderId, orderId), eq(walletTopups.status, 'created')))
+}
+
+export async function confirmVerifiedPayment(params: {
+  orderId: string
+  paymentId: string
+  signature: string
+  userId: string
+}) {
+  assertRazorpayConfigured()
+
+  const { orderId, paymentId, signature, userId } = params
+
+  if (!verifyCheckoutSignature(orderId, paymentId, signature)) {
+    throw httpError('Invalid Razorpay payment signature', 400)
+  }
+
+  const [row] = await db
+    .select({
+      topup: walletTopups,
+      wallet: wallets,
+    })
+    .from(walletTopups)
+    .innerJoin(wallets, eq(walletTopups.walletId, wallets.id))
+    .where(and(eq(walletTopups.gatewayOrderId, orderId), eq(wallets.userId, userId)))
+    .limit(1)
+
+  if (!row) {
+    throw httpError('Wallet top-up order not found', 404)
+  }
+
+  if (row.topup.status === 'success') {
+    return { ok: true, status: 'success', alreadyProcessed: true }
+  }
+
+  const expectedAmount = toPaise(row.topup.amount)
+  const expectedCurrency = (row.topup.currency ?? 'INR').toUpperCase()
+  let payment: any = await razorpay.payments.fetch(paymentId)
+
+  if (!payment || payment.id !== paymentId || payment.order_id !== orderId) {
+    throw httpError('Razorpay payment does not match this wallet top-up order', 400)
+  }
+
+  if (Number(payment.amount) !== expectedAmount) {
+    throw httpError('Razorpay payment amount mismatch', 400)
+  }
+
+  if (String(payment.currency || '').toUpperCase() !== expectedCurrency) {
+    throw httpError('Razorpay payment currency mismatch', 400)
+  }
+
+  if (payment.status === 'authorized') {
+    payment = await razorpay.payments.capture(paymentId, expectedAmount, expectedCurrency)
+  }
+
+  if (payment.status === 'captured') {
+    await confirmSuccess(orderId, paymentId, Number(payment.amount))
+    return { ok: true, status: 'success', paymentStatus: payment.status }
+  }
+
+  if (payment.status === 'failed') {
+    await confirmFailure(orderId, paymentId, payment.error_description || 'Razorpay payment failed')
+    throw httpError(payment.error_description || 'Razorpay payment failed', 402)
+  }
+
+  await markTopupProcessing(orderId, paymentId)
+
+  return {
+    ok: false,
+    status: 'processing',
+    paymentStatus: payment.status,
+    message: 'Payment is not captured yet. Wallet will be credited when Razorpay confirms capture.',
+  }
 }
