@@ -1,6 +1,6 @@
 import { io, type Socket } from 'socket.io-client'
 
-const DEFAULT_RAILWAY_API_URL = 'https://feathers-global-main-production.up.railway.app/api'
+const DEFAULT_PRODUCTION_API_URL = 'https://api.fgship.in/api'
 
 const resolveApiBaseUrl = () => {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL
@@ -12,7 +12,7 @@ const resolveApiBaseUrl = () => {
     }
   }
 
-  return DEFAULT_RAILWAY_API_URL
+  return DEFAULT_PRODUCTION_API_URL
 }
 
 const resolveSocketUrl = () => {
@@ -27,7 +27,7 @@ const resolveSocketUrl = () => {
     }
   }
 
-  return DEFAULT_RAILWAY_API_URL.replace(/\/api\/?$/, '')
+  return DEFAULT_PRODUCTION_API_URL.replace(/\/api\/?$/, '')
 }
 
 let socket: Socket | null = null
