@@ -27,6 +27,14 @@ GitHub Actions deploy secrets can use either the Feathers Global names or the le
 - `FGSHIP_HOST` or `FEATHERS_GLOBAL_HOST` or `SHIPLIFI_HOST`
 - `FGSHIP_USER` or `FEATHERS_GLOBAL_USER` or `SHIPLIFI_USER`
 - `FGSHIP_SSH_PRIVATE_KEY` or `FEATHERS_GLOBAL_SSH_PRIVATE_KEY` or `SHIPLIFI_SSH_PRIVATE_KEY`
+- `FGSHIP_PASSWORD` or `FEATHERS_GLOBAL_PASSWORD` or `SHIPLIFI_PASSWORD` as a fallback when the runner cannot load the SSH private key
+
+The deploy workflow prefers a valid unencrypted OpenSSH private key, but it can fall back to password auth if the key secret is missing or malformed.
+If you use a key, store the full private key with its original newlines, including the `BEGIN ... PRIVATE KEY` and `END ... PRIVATE KEY` lines.
+If the secret was pasted as a single line with literal `\n` characters, the workflow will try to normalize that automatically before falling back to password auth.
+Optional repository variable:
+
+- `DEPLOY_RUNTIME_USER` defaults to `deploy` and controls which Linux user runs `deploy/release.sh` on the VPS
 
 Shopify OAuth deployment needs these GitHub Actions secrets:
 

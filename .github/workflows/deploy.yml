@@ -17,26 +17,25 @@ jobs:
       DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST || secrets.SHIPLIFI_HOST }}
       DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER || secrets.SHIPLIFI_USER }}
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY || secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
+      DEPLOY_PASSWORD: ${{ secrets.FGSHIP_PASSWORD || secrets.FEATHERS_GLOBAL_PASSWORD || secrets.SHIPLIFI_PASSWORD }}
       DEPLOY_APP_ROOT: /srv/feathers-global/current
       DEPLOY_PUBLIC_API_URL: https://api.fgship.in/api
       DEPLOY_PUBLIC_SOCKET_URL: https://api.fgship.in
       DEPLOY_SHOPIFY_OAUTH_SUCCESS_URL: https://client.fgship.in/channels/connected
+      DEPLOY_RUNTIME_USER: ${{ vars.DEPLOY_RUNTIME_USER || 'deploy' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
 
       - name: Validate deploy secrets
         run: |
           missing=()
           [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST or SHIPLIFI_HOST")
           [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER or SHIPLIFI_USER")
-          [ -n "${DEPLOY_SSH_PRIVATE_KEY}" ] || missing+=("FGSHIP_SSH_PRIVATE_KEY or FEATHERS_GLOBAL_SSH_PRIVATE_KEY or SHIPLIFI_SSH_PRIVATE_KEY")
+          if [ -z "${DEPLOY_SSH_PRIVATE_KEY}" ] && [ -z "${DEPLOY_PASSWORD}" ]; then
+            missing+=("FGSHIP_SSH_PRIVATE_KEY / FEATHERS_GLOBAL_SSH_PRIVATE_KEY / SHIPLIFI_SSH_PRIVATE_KEY or FGSHIP_PASSWORD / FEATHERS_GLOBAL_PASSWORD / SHIPLIFI_PASSWORD")
+          fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required GitHub Actions secrets:\n' >&2
@@ -44,52 +43,113 @@ jobs:
             exit 1
           fi
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ env.DEPLOY_SSH_PRIVATE_KEY }}
-
-      - name: Add server to known_hosts
+      - name: Install SSH tooling
         run: |
-          mkdir -p ~/.ssh
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Configure deploy SSH
+        run: |
+          mkdir -p ~/.ssh "${RUNNER_TEMP}/bin"
           chmod 700 ~/.ssh
           touch ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-          cat >> ~/.ssh/config <<'EOF'
-          Host *
+
+          cat > ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
             StrictHostKeyChecking accept-new
             UserKnownHostsFile ~/.ssh/known_hosts
             ServerAliveInterval 30
             ServerAliveCountMax 3
           EOF
-          chmod 600 ~/.ssh/config
 
-          for attempt in 1 2 3 4 5; do
-            if ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null; then
-              exit 0
+          auth_mode=''
+          if [ -n "${DEPLOY_SSH_PRIVATE_KEY}" ]; then
+            normalized_key="${DEPLOY_SSH_PRIVATE_KEY}"
+            if [[ "${normalized_key}" == \"*\" && "${normalized_key}" == *\" ]]; then
+              normalized_key="${normalized_key:1:-1}"
+            elif [[ "${normalized_key}" == \'*\' && "${normalized_key}" == *\' ]]; then
+              normalized_key="${normalized_key:1:-1}"
             fi
-            echo "ssh-keyscan attempt ${attempt} failed; retrying..."
-            sleep 3
-          done
+            if [[ "${normalized_key}" != *$'\n'* && "${normalized_key}" == *\\n* ]]; then
+              echo "Normalizing newline-escaped SSH private key secret."
+              normalized_key="${normalized_key//\\r/}"
+              normalized_key="${normalized_key//\\n/$'\n'}"
+            fi
 
-          echo "ssh-keyscan did not return a key; continuing with StrictHostKeyChecking=accept-new."
+            printf '%s' "${normalized_key}" | tr -d '\r' > ~/.ssh/deploy_key
+            printf '\n' >> ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+
+            if ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+              cat >> ~/.ssh/config <<'EOF'
+            IdentitiesOnly yes
+            IdentityFile ~/.ssh/deploy_key
+          EOF
+              auth_mode='key'
+            elif [ -n "${DEPLOY_PASSWORD}" ]; then
+              echo "SSH private key secret is invalid; falling back to password authentication."
+              rm -f ~/.ssh/deploy_key
+            else
+              echo "::error::SSH private key secret is invalid. Use an unencrypted OpenSSH private key with the original newlines, or set FGSHIP_PASSWORD."
+              exit 1
+            fi
+          fi
+
+          if [ -z "${auth_mode}" ]; then
+            auth_mode='password'
+          fi
+
+          chmod 600 ~/.ssh/config
+          ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          cat > "${RUNNER_TEMP}/bin/dep-ssh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "${DEPLOY_AUTH_MODE:-}" = "password" ]; then
+            SSHPASS="${DEPLOY_PASSWORD:?}" exec sshpass -e ssh deploy-target "$@"
+          fi
+          exec ssh deploy-target "$@"
+          EOF
+          chmod +x "${RUNNER_TEMP}/bin/dep-ssh"
+
+          cat > "${RUNNER_TEMP}/bin/dep-rsync" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "${DEPLOY_AUTH_MODE:-}" = "password" ]; then
+            SSHPASS="${DEPLOY_PASSWORD:?}" exec sshpass -e rsync -e "ssh" "$@"
+          fi
+          exec rsync "$@"
+          EOF
+          chmod +x "${RUNNER_TEMP}/bin/dep-rsync"
+
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          echo "DEPLOY_AUTH_MODE=${auth_mode}" >> "${GITHUB_ENV}"
 
       - name: Prepare server deploy directory
         run: |
-          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "
-            set -e
-            sudo install -d -o deploy -g deploy -m 2775 ${DEPLOY_APP_ROOT}
-            sudo chown -R deploy:deploy ${DEPLOY_APP_ROOT}
-            sudo find ${DEPLOY_APP_ROOT} -path '*/node_modules' -prune -o -type d -exec chmod 2775 {} +
-            sudo find ${DEPLOY_APP_ROOT} -path '*/node_modules' -prune -o -type f -exec chmod u+rw,g+rw {} +
-            if [ -f ${DEPLOY_APP_ROOT}/backend/.env.production ]; then
-              sudo chmod 0600 ${DEPLOY_APP_ROOT}/backend/.env.production
-            fi
-          "
+          dep-ssh "DEPLOY_APP_ROOT='${DEPLOY_APP_ROOT}' DEPLOY_RUNTIME_USER='${DEPLOY_RUNTIME_USER}' DEPLOY_LOGIN_USER='${DEPLOY_USER}' bash -s" <<'SH'
+          set -euo pipefail
+          runtime_user="${DEPLOY_RUNTIME_USER:-deploy}"
+          if ! id -u "${runtime_user}" >/dev/null 2>&1; then
+            runtime_user="${DEPLOY_LOGIN_USER}"
+          fi
+          runtime_group="$(id -gn "${runtime_user}" 2>/dev/null || echo "${runtime_user}")"
+
+          sudo install -d -m 2775 "${DEPLOY_APP_ROOT}"
+          sudo chown -R "${runtime_user}:${runtime_group}" "${DEPLOY_APP_ROOT}" || sudo chown -R "${runtime_user}" "${DEPLOY_APP_ROOT}"
+          sudo find "${DEPLOY_APP_ROOT}" -path '*/node_modules' -prune -o -type d -exec chmod 2775 {} +
+          sudo find "${DEPLOY_APP_ROOT}" -path '*/node_modules' -prune -o -type f -exec chmod u+rw,g+rw {} +
+          if [ -f "${DEPLOY_APP_ROOT}/backend/.env.production" ]; then
+            sudo chmod 0600 "${DEPLOY_APP_ROOT}/backend/.env.production"
+          fi
+          SH
 
       - name: Sync project to server
         run: |
-          rsync -az --delete \
+          dep-rsync -az --delete \
             --no-owner \
             --no-group \
             --no-perms \
@@ -106,7 +166,7 @@ jobs:
             --exclude 'landing/dist' \
             --exclude 'courier-cart-client/dist' \
             --exclude 'admin-dashboard/build' \
-            ./ "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_APP_ROOT}/"
+            ./ "deploy-target:${DEPLOY_APP_ROOT}/"
 
       - name: Sync backend Amazon env
         env:
@@ -120,7 +180,7 @@ jobs:
             exit 0
           fi
 
-          python3 - <<'PY' | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "cd ${DEPLOY_APP_ROOT}/backend && umask 077 && python3 -"
+          python3 - <<'PY' | dep-ssh "cd ${DEPLOY_APP_ROOT}/backend && umask 077 && python3 -"
           import os
 
           token = os.environ["AMAZON_SHIPPING_REFRESH_TOKEN"]
@@ -185,7 +245,7 @@ jobs:
             exit 0
           fi
 
-          python3 - <<'PY' | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "cd ${DEPLOY_APP_ROOT}/backend && umask 077 && python3 -"
+          python3 - <<'PY' | dep-ssh "cd ${DEPLOY_APP_ROOT}/backend && umask 077 && python3 -"
           import os
 
           client_id = os.environ["SHOPIFY_CLIENT_ID"]
@@ -262,13 +322,13 @@ jobs:
             exit 0
           fi
 
-          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" \
+          dep-ssh \
             "cd ${DEPLOY_APP_ROOT}/backend && NODE_ENV=production npm run check:shopify-oauth -- --require-public --shop=shiplifi-oauth-smoke.myshopify.com"
 
       - name: Backfill Amazon LWA env from DB
         continue-on-error: true
         run: |
-          cat <<'NODE' | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "cd ${DEPLOY_APP_ROOT}/backend && node -"
+          cat <<'NODE' | dep-ssh "cd ${DEPLOY_APP_ROOT}/backend && node -"
           const fs = require('fs')
           const path = require('path')
           const dotenv = require('dotenv')
@@ -371,7 +431,7 @@ jobs:
       - name: Verify Amazon LWA env
         continue-on-error: true
         run: |
-          cat <<'PY' | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "cd ${DEPLOY_APP_ROOT}/backend && python3 -"
+          cat <<'PY' | dep-ssh "cd ${DEPLOY_APP_ROOT}/backend && python3 -"
           from pathlib import Path
           from urllib import parse, request, error
           import hashlib
@@ -448,12 +508,43 @@ jobs:
 
       - name: Deploy on server
         run: |
-          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "
-            set -e
-            sudo chown -R deploy:deploy ${DEPLOY_APP_ROOT}
-            sudo -u deploy -H bash -lc 'export PM2_HOME=/home/deploy/.pm2 APP_ROOT="${DEPLOY_APP_ROOT}" DEPLOY_PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL}" DEPLOY_PUBLIC_SOCKET_URL="${DEPLOY_PUBLIC_SOCKET_URL}"; cd "${DEPLOY_APP_ROOT}" && chmod +x deploy/release.sh && ./deploy/release.sh'
-          "
+          dep-ssh "DEPLOY_APP_ROOT='${DEPLOY_APP_ROOT}' DEPLOY_PUBLIC_API_URL='${DEPLOY_PUBLIC_API_URL}' DEPLOY_PUBLIC_SOCKET_URL='${DEPLOY_PUBLIC_SOCKET_URL}' DEPLOY_RUNTIME_USER='${DEPLOY_RUNTIME_USER}' DEPLOY_LOGIN_USER='${DEPLOY_USER}' bash -s" <<'SH'
+          set -euo pipefail
+          if ! command -v node >/dev/null 2>&1 || ! command -v nginx >/dev/null 2>&1 || ! command -v pm2 >/dev/null 2>&1; then
+            sudo APP_ROOT="${DEPLOY_APP_ROOT}" DEPLOY_USER="${DEPLOY_RUNTIME_USER:-deploy}" bash "${DEPLOY_APP_ROOT}/deploy/setup-vps.sh"
+            exit 0
+          fi
+
+          run_user="${DEPLOY_RUNTIME_USER:-deploy}"
+          if ! id -u "${run_user}" >/dev/null 2>&1; then
+            run_user="${DEPLOY_LOGIN_USER}"
+          fi
+
+          run_group="$(id -gn "${run_user}" 2>/dev/null || echo "${run_user}")"
+          run_home="$(getent passwd "${run_user}" | cut -d: -f6)"
+          if [ -z "${run_home}" ]; then
+            run_home="${HOME}"
+          fi
+
+          sudo chown -R "${run_user}:${run_group}" "${DEPLOY_APP_ROOT}" || sudo chown -R "${run_user}" "${DEPLOY_APP_ROOT}"
+          sudo chmod +x "${DEPLOY_APP_ROOT}/deploy/release.sh"
+          sudo -u "${run_user}" -H env \
+            PM2_HOME="${run_home}/.pm2" \
+            APP_ROOT="${DEPLOY_APP_ROOT}" \
+            DEPLOY_PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL}" \
+            DEPLOY_PUBLIC_SOCKET_URL="${DEPLOY_PUBLIC_SOCKET_URL}" \
+            bash -lc 'cd "$APP_ROOT" && ./deploy/release.sh'
+          SH
 
       - name: Mark deployed commit
         run: |
-          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "printf '%s\n' '${{ github.sha }}' | sudo tee ${DEPLOY_APP_ROOT}/.deployed_commit >/dev/null && sudo chown deploy:deploy ${DEPLOY_APP_ROOT}/.deployed_commit"
+          dep-ssh "DEPLOY_APP_ROOT='${DEPLOY_APP_ROOT}' DEPLOY_RUNTIME_USER='${DEPLOY_RUNTIME_USER}' DEPLOY_LOGIN_USER='${DEPLOY_USER}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'SH'
+          set -euo pipefail
+          owner="${DEPLOY_RUNTIME_USER:-deploy}"
+          if ! id -u "${owner}" >/dev/null 2>&1; then
+            owner="${DEPLOY_LOGIN_USER}"
+          fi
+          owner_group="$(id -gn "${owner}" 2>/dev/null || echo "${owner}")"
+          printf '%s\n' "${DEPLOY_SHA}" | sudo tee "${DEPLOY_APP_ROOT}/.deployed_commit" >/dev/null
+          sudo chown "${owner}:${owner_group}" "${DEPLOY_APP_ROOT}/.deployed_commit" || sudo chown "${owner}" "${DEPLOY_APP_ROOT}/.deployed_commit"
+          SH
