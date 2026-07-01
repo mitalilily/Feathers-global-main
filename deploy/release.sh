@@ -3,11 +3,27 @@ set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-$(pwd -P)}"
 export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 APP_SLUG="$(basename "$APP_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
 BUILD_SWAP_FILE="${BUILD_SWAP_FILE:-/swapfile-${APP_SLUG}-build}"
 BUILD_SWAP_SIZE="${BUILD_SWAP_SIZE:-4G}"
 DEPLOY_PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL:-https://api.fgship.in/api}"
 DEPLOY_PUBLIC_SOCKET_URL="${DEPLOY_PUBLIC_SOCKET_URL:-https://api.fgship.in}"
+PM2_BIN="${PM2_BIN:-$(command -v pm2 || true)}"
+
+if [ -z "$PM2_BIN" ]; then
+  for candidate in /usr/bin/pm2 /usr/local/bin/pm2; do
+    if [ -x "$candidate" ]; then
+      PM2_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$PM2_BIN" ]; then
+  echo "pm2 command not found in PATH or common install locations." >&2
+  exit 127
+fi
 
 fresh_npm_ci() {
   rm -rf node_modules
@@ -95,8 +111,8 @@ const client = new Client({
 NODE
 NODE_ENV=production npm run seed:basic-provider-ratecards
 npm run build
-NODE_ENV=production PORT=5003 pm2 startOrReload ecosystem.config.cjs
-pm2 save
+NODE_ENV=production PORT=5003 "$PM2_BIN" startOrReload ecosystem.config.cjs
+"$PM2_BIN" save
 
 cd "$APP_ROOT/landing"
 fresh_npm_ci
