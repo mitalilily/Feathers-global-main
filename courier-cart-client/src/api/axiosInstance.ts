@@ -2,7 +2,7 @@
 import axios from 'axios'
 import { clearAuthTokens, getAuthTokens, setAuthTokens } from './tokenVault'
 
-const DEFAULT_RAILWAY_API_URL = 'https://feathers-global-main-production.up.railway.app/api'
+const DEFAULT_PRODUCTION_API_URL = 'https://api.fgship.in/api'
 
 const resolveDefaultApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
@@ -12,7 +12,7 @@ const resolveDefaultApiBaseUrl = () => {
     }
   }
 
-  return DEFAULT_RAILWAY_API_URL
+  return DEFAULT_PRODUCTION_API_URL
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || resolveDefaultApiBaseUrl()).replace(/\/+$/, '')

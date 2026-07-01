@@ -135,7 +135,11 @@ const client = new Client({
 NODE
 NODE_ENV=production npm run seed:basic-provider-ratecards
 npm run build
-NODE_ENV=production PORT=5003 "$PM2_BIN" startOrReload ecosystem.config.cjs
+BACKEND_PORT="$(
+  node -e "require('dotenv').config({ path: '.env.production' }); process.stdout.write(process.env.PORT || '5013')"
+)"
+echo "Starting backend on port ${BACKEND_PORT}"
+NODE_ENV=production PORT="$BACKEND_PORT" "$PM2_BIN" startOrReload ecosystem.config.cjs --update-env
 "$PM2_BIN" save
 
 cd "$APP_ROOT/landing"
