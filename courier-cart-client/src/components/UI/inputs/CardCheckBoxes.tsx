@@ -9,7 +9,7 @@ import {
 } from '@mui/material'
 import { useState } from 'react'
 
-const BRAND_GREEN = '#4b8e40'
+const BRAND_GREEN = '#047b85'
 
 interface CardCheckboxProps {
   label: string;

@@ -34,6 +34,7 @@ import OrdersLineChart from 'components/Charts/OrdersLineChart'
 import RevenueBarChart from 'components/Charts/RevenueBarChart'
 import { useDashboardStats } from 'hooks/useDashboardStats'
 import { useHistory } from 'react-router-dom'
+import { BRAND } from '../../../constants/brand'
 
 const formatCurrency = (amount) =>
   new Intl.NumberFormat('en-IN', {
@@ -70,8 +71,6 @@ export default function Dashboard() {
   const geographic = stats.geographic || {}
   const users = stats.users || {}
   const charts = stats.charts || {}
-  const merchantAccountAlerts = alerts.merchantAccounts || {}
-  const shipmentPickupAlerts = alerts.shipmentPickups || {}
 
   const topCouriers = Object.entries(couriers.performance || {})
     .map(([name, value]) => ({
@@ -82,95 +81,6 @@ export default function Dashboard() {
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 4)
-  const actionSections = [
-    {
-      title: 'Merchant Account Alerts',
-      items: [
-        {
-          title: 'Account pending for approval',
-          value: toNum(merchantAccountAlerts.accountPendingApproval),
-          note: 'Merchant accounts waiting for admin approval',
-          route: '/admin/users-management?approved=false',
-          colorScheme: 'orange',
-          icon: <IconUsers size={16} />,
-        },
-        {
-          title: 'New signup, docs not uploaded',
-          value: toNum(merchantAccountAlerts.documentsNotUploaded),
-          note: 'KYC has not been submitted yet',
-          route: '/admin/users-management?kycStatus=pending',
-          colorScheme: 'red',
-          icon: <IconAlertTriangle size={16} />,
-        },
-        {
-          title: 'Partial documents uploaded',
-          value: toNum(merchantAccountAlerts.partialDocumentsUploaded),
-          note: 'Some required KYC files are still pending',
-          route: '/admin/users-management?kycStatus=verification_in_progress',
-          colorScheme: 'yellow',
-          icon: <IconUsers size={16} />,
-        },
-        {
-          title: 'Documents missing',
-          value: toNum(merchantAccountAlerts.documentsMissing),
-          note: 'Required merchant documents are incomplete',
-          route: '/admin/users-management?kycStatus=pending',
-          colorScheme: 'purple',
-          icon: <IconAlertTriangle size={16} />,
-        },
-      ],
-    },
-    {
-      title: 'Shipment Pickup Alerts',
-      items: [
-        {
-          title: 'Pending for pickup',
-          value: toNum(shipmentPickupAlerts.pendingForPickup),
-          note: 'Booked shipments still awaiting pickup scan',
-          route: '/admin/orders?pickupAlert=pending_for_pickup',
-          colorScheme: 'blue',
-          icon: <IconTruck size={16} />,
-        },
-        {
-          title: 'Pickup not scheduled',
-          value: toNum(shipmentPickupAlerts.pickupNotScheduled),
-          note: 'Pickup slot missing or scheduling failed',
-          route: '/admin/orders?pickupAlert=not_scheduled',
-          colorScheme: 'red',
-          icon: <IconPackageExport size={16} />,
-        },
-      ],
-    },
-    {
-      title: 'Support & Reconciliation',
-      items: [
-        {
-          title: 'Open Tickets',
-          value: toNum(alerts.openTickets),
-          note: toNum(alerts.overdueTickets) ? `${toNum(alerts.overdueTickets)} overdue` : 'Support triage',
-          route: '/admin/support',
-          colorScheme: 'red',
-          icon: <IconAlertTriangle size={16} />,
-        },
-        {
-          title: 'Pending KYC',
-          value: toNum(alerts.pendingKyc),
-          note: 'Verification queue',
-          route: '/admin/users-management?kycStatus=verification_in_progress',
-          colorScheme: 'orange',
-          icon: <IconUsers size={16} />,
-        },
-        {
-          title: 'Weight Disputes',
-          value: toNum(alerts.weightDiscrepancies),
-          note: 'Review reconciliation',
-          route: '/admin/weight-reconciliation',
-          colorScheme: 'blue',
-          icon: <IconAlertTriangle size={16} />,
-        },
-      ],
-    },
-  ]
 
   if (isLoading) {
     return (
@@ -203,7 +113,7 @@ export default function Dashboard() {
       <Container maxW="full" pt={{ base: '120px', md: '75px' }} px={{ base: 4, md: 6 }}>
         <Box mb={6}>
           <PageHeader
-            eyebrow="Shiplifi Admin"
+            eyebrow={`${BRAND.name} Admin`}
             title="Control tower for operations, support and revenue"
             description="Track today's shipment flow, courier performance, support risk and cash movement from one focused view."
             meta={[
@@ -284,65 +194,50 @@ export default function Dashboard() {
               <Text fontSize="sm" color={textSecondary} mt={1}>Operational items needing attention</Text>
             </CardHeader>
             <CardBody p={5} pt={2}>
-              <VStack spacing={4} align="stretch">
-                {actionSections.map((section) => (
-                  <Box key={section.title}>
-                    <Text
-                      mb={2}
-                      fontSize="xs"
-                      fontWeight="800"
-                      color={textSecondary}
-                      letterSpacing="0.45px"
-                      textTransform="uppercase"
-                    >
-                      {section.title}
-                    </Text>
-                    <VStack spacing={2.5} align="stretch">
-                      {section.items.map((item) => (
-                        <Flex
-                          key={item.title}
-                          p={3.5}
-                          borderRadius="12px"
-                          borderWidth="1px"
-                          borderColor={`${item.colorScheme}.200`}
-                          bg={`${item.colorScheme}.50`}
-                          justify="space-between"
-                          align="center"
-                          cursor="pointer"
-                          onClick={() => history.push(item.route)}
-                          _hover={{ transform: 'translateY(-1px)' }}
-                          transition="all 0.2s"
-                          gap={3}
-                        >
-                          <HStack spacing={3} minW={0}>
-                            <Flex
-                              w="30px"
-                              h="30px"
-                              align="center"
-                              justify="center"
-                              borderRadius="10px"
-                              bg="white"
-                              color={`${item.colorScheme}.600`}
-                              flexShrink={0}
-                            >
-                              {item.icon}
-                            </Flex>
-                            <Box minW={0}>
-                              <Text fontSize="sm" fontWeight="700" color={textPrimary}>
-                                {item.title}
-                              </Text>
-                              <Text fontSize="xs" color={textSecondary}>
-                                {item.note}
-                              </Text>
-                            </Box>
-                          </HStack>
-                          <Badge colorScheme={item.colorScheme} borderRadius="full" flexShrink={0}>
-                            {item.value}
-                          </Badge>
-                        </Flex>
-                      ))}
-                    </VStack>
-                  </Box>
+              <VStack spacing={3} align="stretch">
+                {[
+                  {
+                    title: 'Open Tickets',
+                    value: toNum(alerts.openTickets),
+                    note: toNum(alerts.overdueTickets) ? `${toNum(alerts.overdueTickets)} overdue` : 'Support triage',
+                    route: '/admin/support',
+                    colorScheme: 'red',
+                  },
+                  {
+                    title: 'Pending KYC',
+                    value: toNum(alerts.pendingKyc),
+                    note: 'Verification queue',
+                    route: '/admin/users-management',
+                    colorScheme: 'orange',
+                  },
+                  {
+                    title: 'Weight Disputes',
+                    value: toNum(alerts.weightDiscrepancies),
+                    note: 'Review reconciliation',
+                    route: '/admin/weight-reconciliation',
+                    colorScheme: 'blue',
+                  },
+                ].map((item) => (
+                  <Flex
+                    key={item.title}
+                    p={3.5}
+                    borderRadius="12px"
+                    borderWidth="1px"
+                    borderColor={`${item.colorScheme}.200`}
+                    bg={`${item.colorScheme}.50`}
+                    justify="space-between"
+                    align="center"
+                    cursor="pointer"
+                    onClick={() => history.push(item.route)}
+                    _hover={{ transform: 'translateY(-1px)' }}
+                    transition="all 0.2s"
+                  >
+                    <Box>
+                      <Text fontSize="sm" fontWeight="700" color={textPrimary}>{item.title}</Text>
+                      <Text fontSize="xs" color={textSecondary}>{item.note}</Text>
+                    </Box>
+                    <Badge colorScheme={item.colorScheme} borderRadius="full">{item.value}</Badge>
+                  </Flex>
                 ))}
               </VStack>
             </CardBody>

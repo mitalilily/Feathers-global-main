@@ -19,14 +19,6 @@ export const getAllCodRemittances = async (params = {}) => {
 }
 
 /**
- * Get COD payable / receivables report.
- */
-export const getCodPayableReport = async (params = {}) => {
-  const response = await apiClient.get('/admin/cod-remittance/payable-report', { params })
-  return response.data
-}
-
-/**
  * Get user-specific COD remittances
  */
 export const getUserCodRemittances = async (userId) => {

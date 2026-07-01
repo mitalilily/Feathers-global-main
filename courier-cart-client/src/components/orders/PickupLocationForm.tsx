@@ -15,11 +15,10 @@ import { useEffect, useState } from 'react'
 import { Controller, useFormContext } from 'react-hook-form'
 import { BiCheckCircle } from 'react-icons/bi'
 import { usePickupAddresses } from '../../hooks/Pickup/usePickupAddresses'
-import { getDefaultPickupSlot } from '../../utils/pickupSchedule'
 import type { B2BFormData } from './b2b/B2BOrderForm'
 import type { B2CFormData } from './b2c/B2COrderForm'
 
-const ACCENT = '#E85500'
+const ACCENT = '#047b85'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_MUTED = '#496189'
 
@@ -44,12 +43,11 @@ const PickupLocationForm = ({ compact = false }: { compact?: boolean }) => {
   const primaryLocation = locations?.pickupAddresses?.find((l) => l.isPrimary)
 
   useEffect(() => {
-    const defaultPickupSlot = getDefaultPickupSlot()
     if (!pickupDate) {
-      setValue('pickupDate', defaultPickupSlot.pickupDate)
+      setValue('pickupDate', new Date().toISOString().split('T')[0])
     }
     if (!pickupTime) {
-      setValue('pickupTime', defaultPickupSlot.pickupTime)
+      setValue('pickupTime', '10:00')
     }
   }, [pickupDate, pickupTime, setValue])
 

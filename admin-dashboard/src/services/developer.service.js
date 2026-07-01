@@ -30,32 +30,6 @@ export async function fetchDeveloperLiveLogs(limit = 1000) {
   }
 }
 
-export async function fetchShopifyOAuthCredentials() {
-  try {
-    const response = await api.get('/admin/developer/shopify-oauth-credentials')
-    return response.data
-  } catch (error) {
-    console.error(
-      'Error fetching Shopify OAuth credentials:',
-      error.response?.data || error.message,
-    )
-    throw error
-  }
-}
-
-export async function updateShopifyOAuthCredentials(payload) {
-  try {
-    const response = await api.put('/admin/developer/shopify-oauth-credentials', payload)
-    return response.data
-  } catch (error) {
-    console.error(
-      'Error updating Shopify OAuth credentials:',
-      error.response?.data || error.message,
-    )
-    throw error
-  }
-}
-
 export async function updateDeveloperIssue(issueKey, payload) {
   try {
     const response = await api.patch(

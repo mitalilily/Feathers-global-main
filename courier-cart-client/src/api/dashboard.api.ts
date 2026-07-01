@@ -170,6 +170,149 @@ export interface MerchantDashboardStats {
   }
 }
 
+export interface MerchantOpsAnalyticsFilters {
+  fromDate?: string
+  toDate?: string
+  courier?: string
+  zone?: string
+  search?: string
+  accountId?: string
+}
+
+export interface MerchantOpsAnalyticsSummary {
+  totalOrders: number
+  deliveredOrders: number
+  deliveryRate: number
+  rtoRate: number
+  avgDeliveryDays: number
+  avgDispatchDays: number
+  bestZone?: { label?: string; zone?: string } | null
+  worstZone?: { label?: string; zone?: string } | null
+  bestCourier?: { label?: string; courier?: string } | null
+}
+
+export interface MerchantOpsAnalyticsData {
+  summary: MerchantOpsAnalyticsSummary
+  zoneOverview: Array<{
+    zone: string
+    label: string
+    orders: number
+    deliveryRate: number
+    rtoRate: number
+    avgDeliveryDays: number
+    bestCourier: string
+  }>
+  zoneCourierMatrix: {
+    zones: string[]
+    couriers: string[]
+    rows: Array<{
+      courier: string
+      zones: Array<{
+        zone: string
+        deliveryRate: number
+        orders: number
+      }>
+    }>
+  }
+  zoneRtoAnalytics: Array<{
+    zone: string
+    codRto: number
+    prepaidRto: number
+  }>
+  zoneSpeed: Array<{
+    zone: string
+    bestCourier: string
+    avgDays: number
+  }>
+  ndrAnalytics: Array<{
+    reason: string
+    count: number
+    share: number
+  }>
+  courierPerformance: Array<{
+    courier: string
+    orders: number
+    delivered: number
+    deliveryRate: number
+    avgDeliveryDays: number
+    rtoRate: number
+  }>
+  highRiskPincodes: Array<{
+    pincode: string
+    orders: number
+    rtoRate: number
+  }>
+  pincodeCourierComparison: Array<{
+    pincode: string
+    courier: string
+    deliveryRate: number
+    rtoRate: number
+    avgDeliveryDays: number
+  }>
+  codFriendlyPincodes: Array<{
+    pincode: string
+    codDelivery: number
+    codRto: number
+  }>
+  prepaidRecommendedPincodes: Array<{
+    pincode: string
+    codRto: number
+  }>
+  weightDistribution: Array<{
+    label: string
+    orders: number
+    share: number
+  }>
+  colorWiseRto: Array<{
+    color: string
+    rto: number
+  }>
+  priceWiseRto: Array<{
+    priceRange: string
+    rto: number
+  }>
+  courierRtoByWeight: Array<{
+    courier: string
+    [key: string]: string | number
+  }>
+  productWiseRto: Array<{
+    product: string
+    orders: number
+    delivered: number
+    rto: number
+    rtoRate: number
+  }>
+  categoryWiseRto: Array<{
+    category: string
+    rtoRate: number
+  }>
+  skuWiseRto: Array<{
+    sku: string
+    product: string
+    rtoRate: number
+  }>
+  sizeWiseRto: Array<{
+    size: string
+    rtoRate: number
+  }>
+  dispatchDelay: Array<{
+    dispatchTime: string
+    orders: number
+    deliveryRate: number
+    rtoRate: number
+  }>
+  guidance: string[]
+  filtersApplied: {
+    fromDate: string | null
+    toDate: string | null
+    userId: string | null
+    accountId: string | null
+    courier: string | null
+    zone: string | null
+    search: string | null
+  }
+}
+
 export const getMerchantDashboardStats = async (
   selectedDate?: string,
   config?: AxiosRequestConfig,
@@ -183,4 +326,21 @@ export const getMerchantDashboardStats = async (
   }
   const { data } = await axiosInstance.get('/dashboard/stats', axiosConfig)
   return data.success ? data.data : ({} as MerchantDashboardStats)
+}
+
+export const getMerchantOpsAnalytics = async (
+  filters: MerchantOpsAnalyticsFilters = {},
+  config?: AxiosRequestConfig,
+): Promise<MerchantOpsAnalyticsData> => {
+  const axiosConfig: AxiosRequestConfig = {
+    ...config,
+    timeout: config?.timeout ?? 60000,
+    params: {
+      ...(config?.params ?? {}),
+      ...filters,
+    },
+  }
+
+  const { data } = await axiosInstance.get('/dashboard/ops-analytics', axiosConfig)
+  return data.success ? data.data : ({} as MerchantOpsAnalyticsData)
 }

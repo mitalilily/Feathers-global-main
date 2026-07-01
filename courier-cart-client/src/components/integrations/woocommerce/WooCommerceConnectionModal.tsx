@@ -101,7 +101,7 @@ const WooCommerceConnectionModal = ({
                 { primary: "1. Sign in to your WordPress admin panel" },
                 { primary: "2. Open WooCommerce > Settings > Advanced > REST API" },
                 { primary: "3. Click Create an API key or Add Key" },
-                { primary: "4. Set Description to Shiplifi and select the store admin user" },
+                { primary: "4. Set Description to Feather Global and select the store admin user" },
                 {
                   primary:
                     "5. Set Permission to Read/Write so orders, notes, and webhooks can sync",

@@ -42,6 +42,7 @@ const widgetLabels: Record<string, string> = {
   metricsOverview: 'Metrics Overview',
   courierPerformance: 'Courier Performance',
   topDestinations: 'Top Destinations',
+  opsAnalytics: 'Ops Analytics',
 }
 
 const defaultPreferences: DashboardPreferences = {
@@ -61,6 +62,7 @@ const defaultPreferences: DashboardPreferences = {
     metricsOverview: true,
     courierPerformance: true,
     topDestinations: true,
+    opsAnalytics: true,
   },
   widgetOrder: [
     'quickStats',
@@ -78,6 +80,7 @@ const defaultPreferences: DashboardPreferences = {
     'metricsOverview',
     'courierPerformance',
     'topDestinations',
+    'opsAnalytics',
   ],
   layout: {
     columns: 12,
@@ -457,4 +460,3 @@ export default function DashboardCustomizationDialog({ open, onClose }: Dashboar
     </Dialog>
   )
 }
-

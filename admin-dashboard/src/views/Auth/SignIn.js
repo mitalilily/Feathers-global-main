@@ -24,6 +24,7 @@ import { FiCheckCircle } from 'react-icons/fi'
 import { useHistory } from 'react-router-dom'
 import { loginAdmin } from '../../services/auth.service'
 import { useAuthStore } from '../../store/useAuthStore'
+import { BRAND } from '../../constants/brand'
 
 function isTokenValid(token) {
   try {
@@ -35,24 +36,31 @@ function isTokenValid(token) {
 }
 
 function SignIn() {
-  const pageBg = useColorModeValue('#F1ECE8', '#111113')
+  const pageBg = useColorModeValue(BRAND.colors.surface, '#111113')
   const shellBg = useColorModeValue('white', '#18181B')
-  const shellBorder = useColorModeValue('rgba(17,17,19,0.08)', 'rgba(255,255,255,0.08)')
-  const leftBg = useColorModeValue('#141417', '#111113')
-  const leftBorder = useColorModeValue('rgba(17,17,19,0.08)', 'rgba(255,255,255,0.08)')
-  const textPrimary = useColorModeValue('#171414', 'white')
-  const textSecondary = useColorModeValue('#6E6763', 'rgba(255,255,255,0.72)')
-  const inputBg = useColorModeValue('#F8F4F2', 'rgba(255,255,255,0.04)')
-  const inputBorder = useColorModeValue('rgba(17,17,19,0.12)', 'rgba(255,255,255,0.1)')
-  const iconHoverBg = useColorModeValue('rgba(217,4,22,0.08)', 'rgba(255,255,255,0.08)')
+  const shellBorder = useColorModeValue('rgba(215,238,241,0.95)', 'rgba(255,255,255,0.08)')
+  const leftBg = useColorModeValue(
+    'linear-gradient(145deg, #013f49 0%, #047b85 52%, #0d4f66 100%)',
+    '#111113',
+  )
+  const leftBorder = useColorModeValue('rgba(255,255,255,0.12)', 'rgba(255,255,255,0.08)')
+  const textPrimary = useColorModeValue(BRAND.colors.ink, 'white')
+  const textSecondary = useColorModeValue('rgba(255,255,255,0.88)', 'rgba(255,255,255,0.72)')
+  const inputBg = useColorModeValue('#F8FCFD', 'rgba(255,255,255,0.04)')
+  const inputBorder = useColorModeValue('rgba(4,123,133,0.12)', 'rgba(255,255,255,0.1)')
+  const iconHoverBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.08)')
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(BRAND.adminEmail)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const toast = useToast()
   const history = useHistory()
   const login = useAuthStore((state) => state.login)
+
+  useEffect(() => {
+    document.title = `${BRAND.name} Admin | Sign In`
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -107,8 +115,8 @@ function SignIn() {
         position="absolute"
         inset="0"
         bgImage={useColorModeValue(
-          'radial-gradient(circle at 10% 10%, rgba(217,4,22,0.08) 0%, transparent 42%), radial-gradient(circle at 92% 0%, rgba(52,52,59,0.08) 0%, transparent 34%)',
-          'radial-gradient(circle at 10% 10%, rgba(217,4,22,0.16) 0%, transparent 42%), radial-gradient(circle at 92% 0%, rgba(255,255,255,0.06) 0%, transparent 34%)',
+          'radial-gradient(circle at 10% 10%, rgba(4,123,133,0.08) 0%, transparent 42%), radial-gradient(circle at 92% 0%, rgba(255,130,28,0.08) 0%, transparent 34%)',
+          'radial-gradient(circle at 10% 10%, rgba(4,123,133,0.16) 0%, transparent 42%), radial-gradient(circle at 92% 0%, rgba(255,255,255,0.06) 0%, transparent 34%)',
         )}
       />
 
@@ -120,7 +128,7 @@ function SignIn() {
         border="1px solid"
         borderColor={shellBorder}
         borderRadius={{ base: '16px', lg: '20px' }}
-        boxShadow={useColorModeValue('0 24px 64px rgba(17,17,19,0.1)', '0 24px 60px rgba(5,4,10,0.42)')}
+        boxShadow={useColorModeValue('0 24px 64px rgba(7,25,35,0.1)', '0 24px 60px rgba(5,4,10,0.42)')}
         overflow="hidden"
         zIndex="1"
       >
@@ -129,8 +137,8 @@ function SignIn() {
             <HStack spacing={4} mb={{ base: 8, md: 10 }}>
               <Box
                 as="img"
-                src="/logo/shiplifi-logo.png"
-                alt="Shiplifi"
+                src={BRAND.logo}
+                alt={BRAND.name}
                 h="54px"
                 w="54px"
                 objectFit="contain"
@@ -140,8 +148,8 @@ function SignIn() {
                 border="1px solid rgba(17,17,19,0.08)"
               />
               <VStack align="start" spacing={0.5}>
-                <Text fontSize="xs" fontWeight="800" letterSpacing="0.18em" textTransform="uppercase" color="rgba(255,255,255,0.52)">
-                  Shiplifi
+                <Text fontSize="xs" fontWeight="800" letterSpacing="0.18em" textTransform="uppercase" color="rgba(255,255,255,0.72)">
+                  {BRAND.name}
                 </Text>
                 <Text fontSize="sm" fontWeight="700" color="white">
                   Admin Control Center
@@ -151,9 +159,9 @@ function SignIn() {
 
             <VStack align="start" spacing={5} maxW="560px">
               <Heading fontSize={{ base: '3xl', md: '4xl' }} lineHeight="1.02" letterSpacing="-0.04em" color="white">
-                Run Shiplifi operations from one sharper admin command layer.
+                Run {BRAND.name} operations from one sharper admin command layer.
               </Heading>
-              <Text color="rgba(255,255,255,0.72)" fontSize="md" lineHeight="1.9">
+              <Text color="rgba(255,255,255,0.88)" fontSize="md" lineHeight="1.9">
                 Oversee pricing, users, serviceability, support, billing, and logistics execution
                 from a cleaner admin console built for daily operational control.
               </Text>
@@ -169,13 +177,13 @@ function SignIn() {
                   key={item.title}
                   p={4}
                   borderRadius="10px"
-                  bg="rgba(255,255,255,0.06)"
-                  border="1px solid rgba(255,255,255,0.08)"
+                  bg="rgba(255,255,255,0.1)"
+                  border="1px solid rgba(255,255,255,0.16)"
                 >
                   <Text fontSize="sm" fontWeight="800" color="white">
                     {item.title}
                   </Text>
-                  <Text mt={2} fontSize="sm" lineHeight="1.7" color="rgba(255,255,255,0.68)">
+                  <Text mt={2} fontSize="sm" lineHeight="1.7" color="rgba(255,255,255,0.82)">
                     {item.body}
                   </Text>
                 </Box>
@@ -192,7 +200,7 @@ function SignIn() {
                   <Box pt="1">
                     <FiCheckCircle color="#F86B78" size={15} />
                   </Box>
-                  <Text color="white" fontSize="sm" fontWeight="600">
+                  <Text color="rgba(255,255,255,0.95)" fontSize="sm" fontWeight="600">
                     {item}
                   </Text>
                 </HStack>
@@ -210,10 +218,10 @@ function SignIn() {
                     Secure Access
                   </Text>
                   <Heading fontSize={{ base: '2xl', md: '3xl' }} fontWeight="800" color={textPrimary} lineHeight="1.08" letterSpacing="-0.03em">
-                    Sign in to Shiplifi Admin
+                    Sign in to {BRAND.name} Admin
                   </Heading>
                   <Text mt={2} color={textSecondary} fontSize="sm" lineHeight="1.8">
-                    Enter your administrator credentials to continue to the Shiplifi control center.
+                    Enter your administrator credentials to continue to the {BRAND.name} control center.
                   </Text>
                 </Box>
 
@@ -225,7 +233,7 @@ function SignIn() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@shiplifi.com"
+                    placeholder={BRAND.adminEmail}
                     h="50px"
                     borderRadius="10px"
                     bg={inputBg}
@@ -233,7 +241,7 @@ function SignIn() {
                     _hover={{ borderColor: 'brand.400' }}
                     _focus={{
                       borderColor: 'brand.500',
-                      boxShadow: '0 0 0 3px rgba(217,4,22,0.12)',
+                      boxShadow: '0 0 0 3px rgba(4,123,133,0.12)',
                     }}
                   />
                 </FormControl>
@@ -256,7 +264,7 @@ function SignIn() {
                       _hover={{ borderColor: 'brand.400' }}
                       _focus={{
                         borderColor: 'brand.500',
-                        boxShadow: '0 0 0 3px rgba(217,4,22,0.12)',
+                        boxShadow: '0 0 0 3px rgba(4,123,133,0.12)',
                       }}
                     />
                     <InputRightElement h="50px" pr="8px">

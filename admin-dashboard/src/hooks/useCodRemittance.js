@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   confirmCourierSettlement,
   getAllCodRemittances,
-  getCodPayableReport,
   getCodPlatformStats,
   getUserCodRemittances,
   manualMarkSettlement,
@@ -34,17 +33,6 @@ export const useAllCodRemittances = (params) => {
 }
 
 /**
- * Hook to fetch COD payable / receivables report.
- */
-export const useCodPayableReport = (params) => {
-  return useQuery({
-    queryKey: ['codPayableReport', params],
-    queryFn: () => getCodPayableReport(params),
-    staleTime: 1000 * 60 * 2,
-  })
-}
-
-/**
  * Hook to fetch user-specific COD remittances
  */
 export const useUserCodRemittances = (userId) => {
@@ -69,7 +57,6 @@ export const useManualMarkSettlement = () => {
       queryClient.invalidateQueries({ queryKey: ['allCodRemittances'] })
       queryClient.invalidateQueries({ queryKey: ['codPlatformStats'] })
       queryClient.invalidateQueries({ queryKey: ['userCodRemittances'] })
-      queryClient.invalidateQueries({ queryKey: ['codPayableReport'] })
       toast({
         title: 'Settlement Marked',
         description: 'COD remittance marked settled successfully',
@@ -102,7 +89,6 @@ export const useUpdateRemittanceNotes = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allCodRemittances'] })
       queryClient.invalidateQueries({ queryKey: ['userCodRemittances'] })
-      queryClient.invalidateQueries({ queryKey: ['codPayableReport'] })
       toast({
         title: 'Notes Updated',
         description: 'Successfully updated notes',
@@ -144,7 +130,6 @@ export const useConfirmCourierSettlement = () => {
       queryClient.invalidateQueries({ queryKey: ['allCodRemittances'] })
       queryClient.invalidateQueries({ queryKey: ['codPlatformStats'] })
       queryClient.invalidateQueries({ queryKey: ['userCodRemittances'] })
-      queryClient.invalidateQueries({ queryKey: ['codPayableReport'] })
     },
   })
 }

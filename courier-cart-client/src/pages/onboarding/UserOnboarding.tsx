@@ -20,15 +20,17 @@ import StepTwoForm from '../../components/onboarding/StepTwoForm'
 import SwitchAccountButton from '../../components/onboarding/SwitchAccountButton'
 import CustomIconLoadingButton from '../../components/UI/button/CustomLoadingButton'
 import FullScreenLoader from '../../components/UI/loader/FullScreenLoader'
+import { BRAND, brandGradient } from '../../config/brand'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useCompleteUserOnboarding } from '../../hooks/useCompleteUserOnboarding'
 import type { UserInfoData } from '../../types/user.types'
-import { hasValidationErrors, validateOnboardingFields } from '../../utils/functions'
+import { emptyErrors, hasValidationErrors, validateOnboardingFields } from '../../utils/functions'
 import { initialFormData } from '../../utils/utility'
 
-const BRAND_ORANGE = '#E85500'
-const BRAND_ORANGE_DARK = '#C23E00'
-const BRAND_DARK = '#141414'
+const BRAND_ORANGE = BRAND.colors.orange
+const BRAND_TEAL = BRAND.colors.teal
+const BRAND_TEAL_DARK = BRAND.colors.tealDark
+const BRAND_DARK = BRAND.colors.ink
 
 export type FormErrors = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -56,6 +58,21 @@ const steps = [
   },
 ]
 
+const createFormErrors = (): FormErrors => JSON.parse(JSON.stringify(emptyErrors)) as FormErrors
+
+const normalizeFormErrors = (errors: Partial<FormErrors> = {}): FormErrors => {
+  const base = createFormErrors()
+
+  return {
+    ...base,
+    ...errors,
+    basicInfo: { ...base.basicInfo, ...(errors.basicInfo ?? {}) },
+    businessLegal: { ...base.businessLegal, ...(errors.businessLegal ?? {}) },
+    platformIntegration: { ...base.platformIntegration, ...(errors.platformIntegration ?? {}) },
+    warehouseSetup: { ...base.warehouseSetup, ...(errors.warehouseSetup ?? {}) },
+  }
+}
+
 export default function UserOnboarding() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
@@ -67,7 +84,7 @@ export default function UserOnboarding() {
 
   const [step, setStep] = useState<number>(1)
   const [formData, setFormData] = useState<UserInfoData>({ ...initialFormData })
-  const [formErrors, setFormErrors] = useState<FormErrors>({ ...initialFormData })
+  const [formErrors, setFormErrors] = useState<FormErrors>(() => createFormErrors())
 
   const progressPercent = useMemo(() => Math.round((step / steps.length) * 100), [step])
   const currentStepMeta = steps[step - 1]
@@ -93,26 +110,28 @@ export default function UserOnboarding() {
 
     setFormData(updatedForm)
 
-    const newErrors = validateOnboardingFields(updatedForm, step)
+    const newErrors = normalizeFormErrors(validateOnboardingFields(updatedForm, step))
     setFormErrors((prev) => {
+      const currentErrors = normalizeFormErrors(prev)
+
       if (subKey) {
         return {
-          ...prev,
+          ...currentErrors,
           [subKey]: {
-            ...prev[subKey],
+            ...currentErrors[subKey],
             [name]: newErrors[subKey]?.[name] || '',
           },
         }
       }
       return {
-        ...prev,
+        ...currentErrors,
         [name]: newErrors[name] || '',
       }
     })
   }
 
   const handleNext = async () => {
-    const errors = validateOnboardingFields(formData, step)
+    const errors = normalizeFormErrors(validateOnboardingFields(formData, step))
     setFormErrors(errors)
 
     if (hasValidationErrors(errors)) return
@@ -181,8 +200,7 @@ export default function UserOnboarding() {
         overflowX: 'hidden',
         px: { xs: 1, md: 1.75 },
         py: { xs: 1, md: 1.5 },
-        background:
-          'radial-gradient(circle at top left, rgba(217,4,22,0.1) 0%, transparent 24%), radial-gradient(circle at bottom right, rgba(20,20,20,0.08) 0%, transparent 26%), linear-gradient(180deg, #f3ece7 0%, #ece4de 100%)',
+        background: brandGradient,
       }}
     >
       {fetchingUserData && <FullScreenLoader />}
@@ -193,7 +211,7 @@ export default function UserOnboarding() {
           sx={{
             borderRadius: { xs: 2, md: 3 },
             overflow: 'hidden',
-            border: '1px solid rgba(17,17,19,0.08)',
+            border: '1px solid rgba(4,123,133,0.14)',
             background: 'rgba(255,255,255,0.82)',
             backdropFilter: 'blur(18px)',
             boxShadow: '0 30px 80px rgba(17, 17, 19, 0.12)',
@@ -214,15 +232,15 @@ export default function UserOnboarding() {
                 minWidth: 0,
                 p: { xs: 2.2, md: 3, lg: 3.4 },
                 background:
-                  'radial-gradient(circle at 16% 16%, rgba(255,255,255,0.12) 0%, transparent 24%), radial-gradient(circle at 80% 20%, rgba(217,4,22,0.22) 0%, transparent 26%), linear-gradient(180deg, #17171b 0%, #101012 100%)',
+                  `radial-gradient(circle at 16% 16%, rgba(255,255,255,0.12) 0%, transparent 24%), radial-gradient(circle at 80% 20%, ${alpha(BRAND_ORANGE, 0.26)} 0%, transparent 26%), linear-gradient(180deg, ${BRAND_TEAL_DARK} 0%, #012f38 100%)`,
                 color: '#fff',
                 borderBottom: { xs: '1px solid rgba(255,255,255,0.08)', lg: 'none' },
               }}
             >
               <Box
                 component="img"
-                src="/logo/shiplifi-logo.png"
-                alt="Shiplifi"
+                src={BRAND.logo}
+                alt={BRAND.name}
                 sx={{ width: { xs: 150, md: 176 }, height: 'auto', mb: 2.2 }}
               />
 
@@ -279,7 +297,7 @@ export default function UserOnboarding() {
                       bgcolor: alpha('#fff', 0.1),
                       '& .MuiLinearProgress-bar': {
                         borderRadius: 2,
-                        background: `linear-gradient(90deg, ${BRAND_ORANGE} 0%, #FF7A88 100%)`,
+                        background: `linear-gradient(90deg, ${BRAND_TEAL} 0%, ${BRAND_ORANGE} 100%)`,
                       },
                     }}
                   />
@@ -298,13 +316,13 @@ export default function UserOnboarding() {
                           borderRadius: 2,
                           border: `1px solid ${
                             isActive
-                              ? alpha(BRAND_ORANGE, 0.42)
+                              ? alpha(BRAND_TEAL, 0.42)
                               : isCompleted
                                 ? alpha('#fff', 0.14)
                                 : alpha('#fff', 0.08)
                           }`,
                           bgcolor: isActive
-                            ? alpha(BRAND_ORANGE, 0.16)
+                            ? alpha(BRAND_TEAL, 0.16)
                             : isCompleted
                               ? alpha('#fff', 0.05)
                               : 'transparent',
@@ -319,7 +337,7 @@ export default function UserOnboarding() {
                               display: 'grid',
                               placeItems: 'center',
                               bgcolor: isCompleted ? '#fff' : alpha('#fff', isActive ? 0.12 : 0.08),
-                              color: isCompleted ? BRAND_ORANGE : '#fff',
+                              color: isCompleted ? BRAND_TEAL : '#fff',
                               fontWeight: 800,
                               flexShrink: 0,
                             }}
@@ -360,9 +378,8 @@ export default function UserOnboarding() {
                   sx={{
                     p: { xs: 2, md: 2.4 },
                     borderRadius: 2,
-                    border: '1px solid rgba(17,17,19,0.08)',
-                    background:
-                      'radial-gradient(circle at top right, rgba(217,4,22,0.12) 0%, transparent 24%), linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,244,241,0.98) 100%)',
+                    border: '1px solid rgba(4,123,133,0.14)',
+                    background: `radial-gradient(circle at top right, ${alpha(BRAND_TEAL, 0.12)} 0%, transparent 24%), linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(244,251,252,0.98) 100%)`,
                   }}
                 >
                   <Stack
@@ -377,7 +394,7 @@ export default function UserOnboarding() {
                           fontSize: '0.74rem',
                           letterSpacing: '0.16em',
                           textTransform: 'uppercase',
-                          color: BRAND_ORANGE,
+                          color: BRAND_TEAL,
                           fontWeight: 800,
                           mb: 0.7,
                         }}
@@ -404,8 +421,8 @@ export default function UserOnboarding() {
                         px: 1.25,
                         py: 0.75,
                         borderRadius: 999,
-                        bgcolor: alpha(BRAND_ORANGE, 0.08),
-                        color: BRAND_ORANGE,
+                        bgcolor: alpha(BRAND_TEAL, 0.08),
+                        color: BRAND_TEAL,
                         fontSize: '0.75rem',
                         fontWeight: 800,
                         textTransform: 'uppercase',
@@ -423,7 +440,7 @@ export default function UserOnboarding() {
                     minWidth: 0,
                     p: { xs: 1.2, md: 1.6 },
                     borderRadius: 2,
-                    border: '1px solid rgba(17,17,19,0.08)',
+                    border: '1px solid rgba(4,123,133,0.12)',
                     background:
                       'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(250,246,243,0.98) 100%)',
                     boxShadow: '0 20px 42px rgba(17, 17, 19, 0.05)',
@@ -468,7 +485,7 @@ export default function UserOnboarding() {
                   sx={{
                     p: { xs: 1.4, md: 1.6 },
                     borderRadius: 2,
-                    border: '1px solid rgba(17,17,19,0.08)',
+                    border: '1px solid rgba(4,123,133,0.12)',
                     background: 'rgba(255,255,255,0.88)',
                   }}
                 >
@@ -508,7 +525,7 @@ export default function UserOnboarding() {
                       width: isMobile ? '100%' : 'auto',
                       minWidth: 190,
                       borderRadius: '4px',
-                      background: `linear-gradient(135deg, ${BRAND_ORANGE} 0%, ${BRAND_ORANGE_DARK} 100%)`,
+                      background: `linear-gradient(135deg, ${BRAND_TEAL} 0%, ${BRAND_TEAL_DARK} 100%)`,
                       color: '#fff',
                       minHeight: 48,
                     }}

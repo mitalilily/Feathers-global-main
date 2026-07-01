@@ -31,6 +31,7 @@ import { useAllCouriersWithDetails } from '../../../hooks/Integrations/useCourie
 import {
   useB2COrdersByUser,
   useCancelShipment,
+  useCreateReverseShipment,
   useRegenerateOrderDocuments,
   useRetryFailedManifest,
 } from '../../../hooks/Orders/useOrders'
@@ -77,10 +78,6 @@ import {
   CLIENT_ORDER_ADDED_HEADERS,
   CLIENT_ORDER_BASE_HEADERS,
 } from '../../../utils/orderCsvExport'
-import {
-  getDefaultPickupDateInput,
-  getDefaultPickupTimeInput,
-} from '../../../utils/pickupSchedule'
 import { SupportTicketForm } from '../../support/SupportTicketForm'
 import {
   BULK_MANIFEST_LIMIT,
@@ -100,7 +97,7 @@ import {
 } from '../bulkActionUtils'
 import ManifestPickupScheduleDialog from '../ManifestPickupScheduleDialog'
 import { OrderExpandedRow } from '../OrderExpandedRow'
-import { buildReverseFlowPath, type ReverseFlowRouteState } from '../reverse/reverseFlow'
+import ReverseModal from '../reverse/ReverseModal'
 import SourceOrderCourierDrawer from '../SourceOrderCourierDrawer'
 import B2COrderFormSteps from './B2COrderForm'
 import BulkB2CUpload from './BulkB2CUpload'
@@ -130,6 +127,13 @@ type PickupSchedulePayload = {
   pickup_time: string
   pickup_location: string
   expected_package_count: number
+}
+
+const getDefaultPickupDateInput = () => new Date().toISOString().split('T')[0]
+
+const getDefaultPickupTimeInput = () => {
+  const nextHour = new Date(Date.now() + 60 * 60 * 1000)
+  return `${String(nextHour.getHours()).padStart(2, '0')}:${String(nextHour.getMinutes()).padStart(2, '0')}`
 }
 
 const parsePickupDetails = (value: unknown) => {
@@ -199,13 +203,6 @@ const documentGenerationStatuses = new Set([
   'rto',
   'rto_in_transit',
   'rto_delivered',
-])
-const reversePickupSupportedProviders = new Set([
-  'delhivery',
-  'shadowfax',
-  'xpressbees',
-  'ekart',
-  'amazon',
 ])
 
 const actionMenuItemSx = {
@@ -335,6 +332,9 @@ const B2COrdersList = () => {
   const { data: couriers } = useAllCouriersWithDetails()
   const { data: warehouses } = usePickupAddresses()
   const { mutateAsync: cancelShipment } = useCancelShipment()
+  const { mutate: createReverse } = useCreateReverseShipment()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [reverseOrder, setReverseOrder] = useState<any | null>(null)
   const orders: B2COrder[] = data?.orders || []
   const selectedOrders: B2COrder[] = orders.filter((order) => selectedOrderIds.includes(order.id))
   const manifestValidationMessage =
@@ -1146,7 +1146,10 @@ const B2COrdersList = () => {
       label: 'Courier',
       type: 'select',
       options:
-        couriers?.map((c: { name: string; id: string }) => ({ label: c.name, value: c.id })) ?? [],
+        couriers?.map((c: { name?: string; id?: string }) => ({
+          label: String(c.name || ''),
+          value: String(c.id || ''),
+        })) ?? [],
       isAdvanced: true,
     },
     {
@@ -1155,8 +1158,8 @@ const B2COrdersList = () => {
       type: 'select',
       options:
         warehouses?.pickupAddresses?.map((w) => ({
-          label: w.pickup?.addressNickname,
-          value: w.pickup?.addressNickname,
+          label: String(w.pickup?.addressNickname || ''),
+          value: String(w.pickup?.addressNickname || ''),
         })) ?? [],
       isAdvanced: true,
     },
@@ -1200,7 +1203,7 @@ const B2COrdersList = () => {
 
   const isCancellable = (row: B2COrder) => {
     const status = (row.order_status || '').toLowerCase()
-    const terminalStatuses = new Set(['cancellation_requested', 'cancelled', 'delivered', 'rto_delivered'])
+    const terminalStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
     const provider = getProviderKey(row)
     const providerSupports = ['delhivery', 'ekart', 'shadowfax', 'xpressbees', 'amazon'].includes(provider)
 
@@ -1209,7 +1212,7 @@ const B2COrdersList = () => {
 
   const canSelectCourierForOrder = (row: B2COrder) => {
     const status = String(row.order_status || '').trim().toLowerCase()
-    const terminalStatuses = new Set(['cancellation_requested', 'cancelled', 'delivered', 'rto_delivered'])
+    const terminalStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
 
     return isMarketplaceSourceOrder(row) && !String(row.awb_number || '').trim() && !terminalStatuses.has(status)
   }
@@ -1237,7 +1240,7 @@ const B2COrdersList = () => {
             onClick={() => navigate(getClientAwbTrackingPath(String(value)))}
             sx={{
               cursor: 'pointer',
-              color: '#E85500',
+              color: '#047b85',
               fontWeight: 500,
               textDecoration: 'underline',
               '&:hover': { opacity: 0.8 },
@@ -1260,7 +1263,12 @@ const B2COrdersList = () => {
       label: 'Order Total',
       id: 'order_amount',
       minWidth: 150,
-      render: (v) => `₹${Number(v ?? 0).toFixed(2)}`,
+      render: (_v, row) => {
+        const orderAmount = Number(row.order_amount ?? 0)
+        const cod = Number(row.cod_charges ?? 0)
+        const customerTotal = Math.max(orderAmount - cod, 0)
+        return `₹${customerTotal.toFixed(2)}`
+      },
     },
     {
       label: 'Shipping Charge',
@@ -1362,7 +1370,6 @@ const B2COrdersList = () => {
         const isLabelGenerating = documentGenerationRef === `${row.id}-label`
         const isInvoiceGenerating = documentGenerationRef === `${row.id}-invoice`
         const isMenuOpen = activeActionOrderId === row.id && Boolean(actionMenuAnchor)
-        const reversePickupSupported = reversePickupSupportedProviders.has(providerKey)
 
         const renderActionItem = ({
           key,
@@ -1417,11 +1424,11 @@ const B2COrdersList = () => {
                 textTransform: 'none',
                 whiteSpace: 'nowrap',
                 borderColor: 'rgba(232, 85, 0, 0.32)',
-                color: isMenuOpen ? '#FFFFFF' : '#E85500',
-                bgcolor: isMenuOpen ? '#E85500' : '#FFFFFF',
+                color: isMenuOpen ? '#FFFFFF' : '#047b85',
+                bgcolor: isMenuOpen ? '#047b85' : '#FFFFFF',
                 boxShadow: isMenuOpen ? '0 10px 20px rgba(232, 85, 0, 0.16)' : 'none',
                 '&:hover': {
-                  borderColor: '#E85500',
+                  borderColor: '#047b85',
                   bgcolor: isMenuOpen ? '#D34B00' : 'rgba(232, 85, 0, 0.06)',
                 },
               }}
@@ -1565,14 +1572,8 @@ const B2COrdersList = () => {
                 renderActionItem({
                   key: 'reverse',
                   icon: <MdKeyboardReturn />,
-                  label: reversePickupSupported ? 'Open Reverse Flow' : 'Reverse Pickup Unavailable',
-                  onClick: () =>
-                    navigate(buildReverseFlowPath(row.id), {
-                      state: {
-                        reverseOrder: row as unknown as ReverseFlowRouteState['reverseOrder'],
-                      } satisfies ReverseFlowRouteState,
-                    }),
-                  disabled: !reversePickupSupported,
+                  label: 'Create Reverse',
+                  onClick: () => setReverseOrder(row),
                 })}
               {canCancelOrders &&
                 isCancellable(row) &&
@@ -1811,7 +1812,7 @@ const B2COrdersList = () => {
                         }}
                         disabled={downloadingByWarehouse}
                         sx={{
-                          bgcolor: '#E85500',
+                          bgcolor: '#047b85',
                           textTransform: 'none',
                           '&:hover': { bgcolor: '#B40312' },
                         }}
@@ -2026,7 +2027,7 @@ const B2COrdersList = () => {
             sx={{ flexWrap: 'nowrap' }}
           >
             <Box sx={{ flex: 0, whiteSpace: 'nowrap' }}>
-              <Typography sx={{ fontWeight: 700, color: '#E85500', fontSize: '15px' }}>
+              <Typography sx={{ fontWeight: 700, color: '#047b85', fontSize: '15px' }}>
                 {selectedOrders.length} order{selectedOrders.length > 1 ? 's' : ''} selected
               </Typography>
               {manifestValidationMessage && (
@@ -2123,10 +2124,10 @@ const B2COrdersList = () => {
                   px: 1.5,
                   fontSize: '0.8rem',
                   fontWeight: 600,
-                  color: '#E85500',
-                  borderColor: '#E85500',
+                  color: '#047b85',
+                  borderColor: '#047b85',
                   '&:hover': {
-                    borderColor: '#E85500',
+                    borderColor: '#047b85',
                     backgroundColor: 'rgba(217, 4, 22, 0.04)',
                   },
                 }}
@@ -2187,6 +2188,15 @@ const B2COrdersList = () => {
           renderExpandedRow={(row) => <OrderExpandedRow row={row} />}
         />
       )}
+      <ReverseModal
+        open={Boolean(reverseOrder)}
+        order={reverseOrder}
+        onClose={() => setReverseOrder(null)}
+        onConfirm={(payload) => {
+          createReverse(payload)
+          setReverseOrder(null)
+        }}
+      />
       <CustomDrawer
         width={isXs ? '100%' : 820}
         open={Boolean(detailsOrder)}

@@ -50,8 +50,8 @@ const AboutUsEditor = () => {
 
   const handleLoadTemplate = () => {
     const templateHtml = `
-      <h2>About Shiplifi</h2>
-      <p><strong>Shiplifi</strong> is a courier aggregator technology platform designed to help entrepreneurs, D2C brands, and logistics businesses run a branded shipping operation with a cleaner and more scalable software stack.</p>
+      <h2>About Feather Global</h2>
+      <p><strong>Feather Global</strong> is a courier aggregator technology platform designed to help entrepreneurs, D2C brands, and logistics businesses run a branded shipping operation with a cleaner and more scalable software stack.</p>
 
       <h3>What We Do</h3>
       <ul>
@@ -69,8 +69,8 @@ const AboutUsEditor = () => {
 
       <h3>Contact</h3>
       <p><strong>Registered Office:</strong> B-76 Shiv Shakti Nagar, Jagatpura Road, Malviya Nagar, Jaipur, Rajasthan, India 302017</p>
-      <p><strong>Email:</strong> info@shiplifi.com</p>
-      <p><strong>Website:</strong> www.shiplifi.com</p>
+      <p><strong>Email:</strong> support@featherglobal.in</p>
+      <p><strong>Website:</strong> www.featherglobal.in</p>
     `
 
     const blocksFromHTML = convertFromHTML(templateHtml)
@@ -129,7 +129,7 @@ const AboutUsEditor = () => {
     if (!validateForm()) return
 
     try {
-      await updatePageMutation.mutateAsync({ title: 'About Us – Shiplifi', content })
+      await updatePageMutation.mutateAsync({ title: 'About Us - Feather Global', content })
       toast({
         title: 'About Us content saved',
         status: 'success',

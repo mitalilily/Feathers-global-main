@@ -1,10 +1,11 @@
 // AppRoutes.tsx
 import { lazy, Suspense } from 'react'
+import { Box } from '@mui/material'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import RequireAuth from '../components/auth/wrapper/RequireAuth'
+import RequireMerchantReady from '../components/auth/wrapper/RequireMerchantReady'
 import RequireOnboard from '../components/auth/wrapper/RequireOnboard'
 import Layout from '../components/UI/Layout'
-import FullScreenLoader from '../components/UI/loader/FullScreenLoader'
 import CreateOrderWrapper from '../components/orders/CreateOrderWrapper'
 import { useAuth } from '../context/auth/AuthContext'
 import Login from '../pages/auth/Login'
@@ -99,7 +100,7 @@ function PublicTrackingRoute() {
   const location = useLocation()
   const { awb } = useParams<{ awb?: string }>()
 
-  if (loading) return <FullScreenLoader />
+  if (loading) return <Box />
 
   if (isAuthenticated) {
     const params = new URLSearchParams(location.search)
@@ -121,7 +122,7 @@ export default function AppRoutes() {
   return (
     <BrowserRouter>
       <GlobalRedirectHandler />
-      <Suspense fallback={<FullScreenLoader />}>
+      <Suspense fallback={<Box />}>
         <Routes>
           {/* public */}
           <Route path="/" element={<Login />} />
@@ -149,7 +150,14 @@ export default function AppRoutes() {
             <Route path="/billing/wallet_transactions" element={<WalletTransactions />} />
             <Route path="/billing/invoice_management" element={<Invoices />} />
             <Route path="/orders/list" element={<Orders />} />
-            <Route path="/orders/create" element={<CreateOrderWrapper />} />
+            <Route
+              path="/orders/create"
+              element={
+                <RequireMerchantReady>
+                  <CreateOrderWrapper />
+                </RequireMerchantReady>
+              }
+            />
             <Route path="/orders/b2c/list" element={<B2COrdersList />} />
             <Route path="/support/about_us" element={<AboutUs />} />
             <Route path="/orders/b2b/list" element={<B2bOrders />} />

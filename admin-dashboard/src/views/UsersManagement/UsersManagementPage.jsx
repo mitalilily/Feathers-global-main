@@ -21,8 +21,8 @@ import StatusBadge from 'components/Badge/StatusBadge'
 import SortControls from 'components/SortControls'
 import TableFilters from 'components/Tables/TableFilters'
 import { useDeleteUser, useUsersWithRoleUser } from 'hooks/useUsers'
-import { useEffect, useState } from 'react'
-import { useHistory, useLocation } from 'react-router-dom/cjs/react-router-dom.min'
+import { useState } from 'react'
+import { useHistory } from 'react-router-dom/cjs/react-router-dom.min'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 const userFilterOptions = [
   {
@@ -85,23 +85,12 @@ const getKycBadgeType = (status) => {
   return 'neutral'
 }
 
-const getFiltersFromSearch = (search) => {
-  const params = new URLSearchParams(search)
-  return {
-    search: params.get('search') || '',
-    approved: params.get('approved') || '',
-    kycStatus: params.get('kycStatus') || '',
-    onboardingComplete: params.get('onboardingComplete') || '',
-  }
-}
-
 export default function UsersManagementPage() {
   const history = useHistory()
-  const location = useLocation()
   const toast = useToast()
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(10)
-  const [filters, setFilters] = useState(() => getFiltersFromSearch(location.search))
+  const [filters, setFilters] = useState({})
   const [selectedUserId, setSelectedUserId] = useState(null)
   const { isOpen, onOpen, onClose } = useDisclosure()
 
@@ -109,11 +98,6 @@ export default function UsersManagementPage() {
   const [sortOrder, setSortOrder] = useState('desc')
 
   const deleteUserMutation = useDeleteUser()
-
-  useEffect(() => {
-    setFilters(getFiltersFromSearch(location.search))
-    setPage(1)
-  }, [location.search])
 
   const handleSortByChange = (e) => {
     setSortBy(e)

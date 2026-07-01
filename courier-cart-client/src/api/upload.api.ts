@@ -1,4 +1,69 @@
+import axios from "axios";
 import axiosInstance from "./axiosInstance";
+
+export interface UploadedFileInfo {
+  url: string;
+  key: string;
+  originalName: string;
+  size: number;
+  mime: string;
+}
+
+export const uploadFileToStorage = async (
+  file: File,
+  folder?: string,
+  onProgress?: (progress: number) => void
+): Promise<UploadedFileInfo> => {
+  const contentType = file.type || "application/octet-stream";
+
+  const { data } = await axiosInstance.post("/uploads/presign", {
+    contentType,
+    filename: file.name,
+    folder,
+  });
+
+  await axios.put(data.uploadUrl, file, {
+    withCredentials: false,
+    headers: { "Content-Type": contentType },
+    onUploadProgress: (event) => {
+      if (event.total && onProgress) {
+        onProgress(Math.round((event.loaded * 100) / event.total));
+      }
+    },
+  });
+
+  return {
+    url: data.publicUrl,
+    key: data.key,
+    originalName: file.name,
+    size: file.size,
+    mime: contentType,
+  };
+};
+
+export const uploadKycPdfToBackend = async (
+  file: File,
+  onProgress?: (progress: number) => void,
+): Promise<UploadedFileInfo> => {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const { data } = await axiosInstance.post('/uploads/kyc/pdf', formData, {
+    onUploadProgress: (event) => {
+      if (event.total && onProgress) {
+        onProgress(Math.round((event.loaded * 100) / event.total))
+      }
+    },
+  })
+
+  return {
+    url: data.url,
+    key: data.key,
+    originalName: data.originalName || file.name,
+    size: data.size || file.size,
+    mime: data.mime || file.type || 'application/pdf',
+  }
+}
 
 export const getPresignedDownloadUrls = async (
   keys: string | string[]

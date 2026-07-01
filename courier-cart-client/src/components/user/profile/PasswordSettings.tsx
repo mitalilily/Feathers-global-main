@@ -18,8 +18,8 @@ import { toast } from '../../UI/Toast'
 import { useChangePassword } from '../../../hooks/Auth/useChangePassword'
 import { useUserInfo } from '../../../hooks/useUserInfo'
 
-const BRAND_NAVY = '#E85500'
-const BRAND_ORANGE = '#1A7500'
+const BRAND_NAVY = '#047b85'
+const BRAND_ORANGE = '#ff821c'
 
 interface PasswordFormValues {
   currentPassword?: string
@@ -185,7 +185,7 @@ export default function PasswordSettingsForm() {
             styles={{
               minWidth: 170,
               borderRadius: '10px',
-              background: `linear-gradient(135deg, ${BRAND_NAVY} 0%, #2a5fbe 100%)`,
+              background: `linear-gradient(135deg, ${BRAND_NAVY} 0%, #047b85 100%)`,
               color: '#fff',
             }}
           />

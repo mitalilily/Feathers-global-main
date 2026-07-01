@@ -378,7 +378,7 @@ export default function DataTable<T extends { id: string | number }>(props: Data
                             fontSize: isCompactDesktop ? '0.68rem' : '0.74rem',
                             fontWeight: 800,
                             color: HEADER_TEXT,
-                            fontFamily: "'Inter','Poppins',sans-serif",
+                            fontFamily: "'Inter', 'Segoe UI', sans-serif",
                             letterSpacing: '0.08em',
                             textTransform: 'uppercase',
                             maxWidth: 170,

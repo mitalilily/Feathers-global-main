@@ -175,6 +175,7 @@ const OrderDetailsForm = () => {
         />
       </Grid>
 
+      {/* Order Type */}
       <Grid size={{ xs: 12, md: 4 }}>
         <Controller
           name="orderType"

@@ -9,12 +9,13 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { SiShopify } from "react-icons/si";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useStartShopifyOAuth } from "../../hooks/useIntegrations";
+import { useState } from "react";
+import { useIntegrateShopify } from "../../hooks/useIntegrations";
 import { toast } from "../UI/Toast";
 import { useAuth } from "../../context/auth/AuthContext";
 import ShopifyConnectionModal from "./ShopifyConnectionModal";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
 interface IShopifyIntegrationProps {
   fullWidth?: boolean;
@@ -24,10 +25,10 @@ interface IShopifyIntegrationProps {
 
 export interface ShopifyForm {
   storeUrl: string;
-  apiKey?: string;
+  apiKey: string;
   webhookSecret?: string;
   name?: string;
-  adminApiAccessToken?: string;
+  adminApiAccessToken: string;
   hostName?: string;
   domain?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,70 +61,46 @@ export default function ShopifyIntegration({
   fromChannelList = false,
 }: IShopifyIntegrationProps) {
   const { user: userData } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
   const theme = useTheme();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [openModal, setOpenModal] = useState<boolean>(false);
-  const autoStartAttemptedRef = useRef(false);
 
   const [shopifyDetails, setShopifyDetails] = useState<ShopifyForm>({
     storeUrl: "",
+    apiKey: "",
+    webhookSecret: "",
+    adminApiAccessToken: "",
     userId: "",
     status: "active",
     settings: {
-      fulfillTrigger: "order_booked",
+      fulfillTrigger: "do_not_fulfill",
       customerNotifyOnFulfill: "do_not_notify",
-      autoUpdateShipmentStatus: true,
-      autoCancelOrders: true,
     },
   });
 
   const [inputErrors, setInputErrors] = useState<{
+    adminApiAccessToken?: string;
+    apiKey?: string;
     storeUrl?: string;
+    webhookSecret?: string;
   }>({
+    adminApiAccessToken: undefined,
+    apiKey: undefined,
     storeUrl: undefined,
+    webhookSecret: undefined,
   });
 
-  const { mutate: startShopifyOAuth, isPending: integrating } =
-    useStartShopifyOAuth();
-
-  const beginShopifyOAuth = useCallback(
-    (shop: string, returnTo: string) => {
-      startShopifyOAuth(
-        { shop, returnTo },
-        {
-          onSuccess: (data) => {
-            const authUrl = data?.authUrl || data?.data?.authUrl
-            if (!authUrl) {
-              toast.open({
-                message: "Shopify authorization URL was not returned",
-                severity: "error",
-              });
-              return
-            }
-            window.location.assign(authUrl)
-          },
-          onError: (error: any) => {
-            const message =
-              error?.response?.data?.error ||
-              error?.response?.data?.message ||
-              "Error starting Shopify connection";
-            console.error("Error starting Shopify OAuth:", message);
-            toast.open({
-              message,
-              severity: "error",
-            });
-          },
-        }
-      );
-    },
-    [startShopifyOAuth],
-  )
+  const { mutate: integrateShopify, isPending: integrating } =
+    useIntegrateShopify();
 
   const validateFields = () => {
     const errors: typeof inputErrors = {
+      adminApiAccessToken: "",
+      apiKey: "",
       storeUrl: "",
+      webhookSecret: "",
     };
 
     const normalizedStoreUrl = normalizeShopifyStoreUrl(shopifyDetails.storeUrl)
@@ -137,46 +114,64 @@ export default function ShopifyIntegration({
         "Enter a valid Shopify URL (e.g., mystore.myshopify.com)";
     }
 
+    if (!shopifyDetails.apiKey.trim()) {
+      errors.apiKey = "API Key is required";
+    }
+
+    if (!shopifyDetails.adminApiAccessToken.trim()) {
+      errors.adminApiAccessToken = "Admin API Token is required";
+    }
+
+    if (!String(shopifyDetails.webhookSecret || "").trim()) {
+      errors.webhookSecret = "Webhook Secret is required";
+    }
+
+    // if (!shopifyDetails.hostName.trim()) {
+    //   errors.hostName = "Host Name is required";
+    // }
+
     setInputErrors(errors);
     return Object.values(errors).every((val) => val === "");
   };
   const handleConnect = () => {
     if (!validateFields()) return;
 
-    const shop = normalizeShopifyStoreUrl(shopifyDetails.storeUrl)
-    const returnTo = fromChannelList || forOnboarding ? "/channels/connected" : window.location.pathname
-    beginShopifyOAuth(shop, returnTo)
-  };
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const isShopifyInstall = params.get('shopifyInstall') === '1'
-    const shop = normalizeShopifyStoreUrl(params.get('shop') || '')
-
-    if (!isShopifyInstall || autoStartAttemptedRef.current) return
-    autoStartAttemptedRef.current = true
-
-    if (!/^[a-zA-Z0-9-]+\.myshopify\.com$/.test(shop)) {
-      toast.open({
-        message: 'Shopify did not provide a valid store domain. Open the connection from Shopify admin again.',
-        severity: 'error',
-      })
-      params.delete('shopifyInstall')
-      params.delete('shop')
-      navigate(
-        {
-          pathname: location.pathname,
-          search: params.toString() ? `?${params.toString()}` : '',
-        },
-        { replace: true },
-      )
-      return
+    const payload = {
+      ...shopifyDetails,
+      storeUrl: normalizeShopifyStoreUrl(shopifyDetails.storeUrl),
+      userId: userData?.userId,
     }
 
-    setShopifyDetails((prev) => ({ ...prev, storeUrl: shop }))
-    setOpenModal(true)
-    beginShopifyOAuth(shop, '/channels/connected')
-  }, [beginShopifyOAuth, location.pathname, location.search, navigate])
+    integrateShopify(
+      payload,
+      {
+        onSuccess: (data) => {
+          toast.open({
+            message: data?.warning ? `${data?.message}. ${data.warning}` : data?.message,
+            severity: data?.warning ? "warning" : "success",
+          });
+          setOpenModal(false);
+          if (!forOnboarding && !fromChannelList) {
+            queryClient.invalidateQueries({ queryKey: ["stores"] });
+          }
+          if (fromChannelList && !forOnboarding) {
+            navigate("/channels/connected");
+          }
+        },
+        onError: (error: any) => {
+          const message =
+            error?.response?.data?.error ||
+            error?.response?.data?.message ||
+            "Error integrating Shopify store";
+          console.error("Error integrating Shopify store:", message);
+          toast.open({
+            message,
+            severity: "error",
+          });
+        },
+      }
+    );
+  };
 
   const isConnected: boolean = userData?.salesChannels?.shopify;
 

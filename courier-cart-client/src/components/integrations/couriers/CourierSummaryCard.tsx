@@ -17,7 +17,7 @@ const summaryItems = (summary: CourierSummary) => [
   {
     label: 'Total Couriers',
     value: summary.totalCourierCount,
-    icon: <FaShippingFast size={24} color="#E85500" />,
+    icon: <FaShippingFast size={24} color="#047b85" />,
   },
   {
     label: 'Serviceable Pincodes',
@@ -27,7 +27,7 @@ const summaryItems = (summary: CourierSummary) => [
   {
     label: 'Pickup Pincodes',
     value: summary.pickupPincodesCount,
-    icon: <FaStore size={24} color="#E85500" />,
+    icon: <FaStore size={24} color="#047b85" />,
   },
   {
     label: 'Total RTO Count',
@@ -37,7 +37,7 @@ const summaryItems = (summary: CourierSummary) => [
   {
     label: 'Total ODA Count',
     value: summary.totalOdaCount,
-    icon: <FaExclamationTriangle size={24} color="#E85500" />,
+    icon: <FaExclamationTriangle size={24} color="#047b85" />,
   },
 ]
 
@@ -81,8 +81,8 @@ export default function CourierSummaryCard({ summary }: Props) {
                   borderRadius: 2,
                   display: 'grid',
                   placeItems: 'center',
-                  bgcolor: alpha('#E85500', 0.08),
-                  border: `1px solid ${alpha('#E85500', 0.12)}`,
+                  bgcolor: alpha('#047b85', 0.08),
+                  border: `1px solid ${alpha('#047b85', 0.12)}`,
                 }}
               >
                 {icon}

@@ -1,4 +1,4 @@
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "@mui/material/styles";
 import App from "./App.tsx";
@@ -11,7 +11,7 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider } from "./context/auth/AuthContext.tsx";
 import ErrorBoundary from "./components/UI/ErrorBoundary.tsx";
 
-const clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID?.trim();
+const clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID;
 const CHUNK_RELOAD_KEY = "__chunk_reload_attempted__";
 
 const isChunkLoadError = (message?: string) => {
@@ -54,19 +54,10 @@ const queryClient = new QueryClient({
   },
 });
 
-function OptionalGoogleOAuthProvider({ children }: { children: ReactNode }) {
-  if (!clientId) {
-    console.warn("VITE_GOOGLE_OAUTH_CLIENT_ID is missing. Google OAuth login is disabled.");
-    return <>{children}</>;
-  }
-
-  return <GoogleOAuthProvider clientId={clientId}>{children}</GoogleOAuthProvider>;
-}
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <OptionalGoogleOAuthProvider>
+      <GoogleOAuthProvider clientId={clientId}>
         <ThemeProvider theme={darkTheme}>
           <CssBaseline />
           <ToastProvider />
@@ -76,7 +67,7 @@ createRoot(document.getElementById("root")!).render(
             </AuthProvider>
           </QueryClientProvider>
         </ThemeProvider>
-      </OptionalGoogleOAuthProvider>
+      </GoogleOAuthProvider>
     </ErrorBoundary>
   </StrictMode>
 );

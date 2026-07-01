@@ -2,10 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fetchDeveloperLiveLogs,
   fetchDeveloperErrorLogs,
-  fetchShopifyOAuthCredentials,
   retryDeveloperManifest,
   triggerShadowfaxWebhookTest,
-  updateShopifyOAuthCredentials,
   updateDeveloperIssue,
 } from 'services/developer.service'
 
@@ -24,24 +22,6 @@ export const useDeveloperLiveLogs = (enabled, limit = 1000) => {
     enabled,
     refetchInterval: enabled ? 3000 : false,
     refetchIntervalInBackground: true,
-  })
-}
-
-export const useShopifyOAuthCredentials = () => {
-  return useQuery({
-    queryKey: ['shopifyOAuthCredentials'],
-    queryFn: fetchShopifyOAuthCredentials,
-  })
-}
-
-export const useUpdateShopifyOAuthCredentials = () => {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: updateShopifyOAuthCredentials,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['shopifyOAuthCredentials'] })
-    },
   })
 }
 

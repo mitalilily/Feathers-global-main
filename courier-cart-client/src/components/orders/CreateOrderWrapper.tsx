@@ -8,25 +8,15 @@ import ReversePickupForm from './reverse/ReversePickupForm'
 const getRequestedOrderType = (value: string | null): 'b2c' | 'b2b' =>
   value === 'b2b' ? 'b2b' : 'b2c'
 
-const getRequestedPickupMode = (value: string | null): 'forward' | 'reverse' =>
-  value === 'reverse' ? 'reverse' : 'forward'
-
 const CreateOrderWrapper = () => {
   const [searchParams] = useSearchParams()
   const requestedType = getRequestedOrderType(searchParams.get('type'))
-  const requestedPickupMode = getRequestedPickupMode(searchParams.get('pickupMode'))
   const [activeTab, setActiveTab] = useState<'b2c' | 'b2b'>(requestedType)
-  const [pickupMode, setPickupMode] = useState<'forward' | 'reverse'>(requestedPickupMode)
+  const [pickupMode, setPickupMode] = useState<'forward' | 'reverse'>('forward')
 
   useEffect(() => {
     setActiveTab(requestedType)
   }, [requestedType])
-
-  useEffect(() => {
-    if (requestedType === 'b2c') {
-      setPickupMode(requestedPickupMode)
-    }
-  }, [requestedPickupMode, requestedType])
 
   const handleTabChange = (_event: SyntheticEvent, newValue: 'b2c' | 'b2b') => {
     setActiveTab(newValue)
@@ -34,13 +24,6 @@ const CreateOrderWrapper = () => {
       setPickupMode('forward')
     }
   }
-
-  const pageTitle =
-    activeTab === 'b2c'
-      ? pickupMode === 'reverse'
-        ? 'Create Reverse Order'
-        : 'Create Order'
-      : 'Create B2B Order'
 
   return (
     <Container
@@ -78,7 +61,7 @@ const CreateOrderWrapper = () => {
           }}
         >
           <Typography variant="body2" fontWeight={700} color="text.primary">
-            {pageTitle}
+            Create Order
           </Typography>
           <Tabs
             value={activeTab}
@@ -93,10 +76,10 @@ const CreateOrderWrapper = () => {
                 px: { xs: 0.85, sm: 1.1 },
               },
               '& .Mui-selected': {
-                color: '#E85500',
+                color: '#047b85',
               },
               '& .MuiTabs-indicator': {
-                backgroundColor: '#E85500',
+                backgroundColor: '#047b85',
                 height: 3,
               },
             }}

@@ -13,6 +13,7 @@ export interface TrackingResponse {
   order_number: string
   awb_number: string
   courier_name: string
+  integration_type?: string
   status: string // cancelled, in-transit, delivered, etc.
   edd: string
   history: TrackingHistory[]

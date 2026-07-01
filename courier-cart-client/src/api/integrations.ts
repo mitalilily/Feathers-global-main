@@ -21,17 +21,11 @@ export interface Stores {
   createdAt: string;
   updatedAt: string;
 }
-
-export const startShopifyOAuth = async (params: { shop: string; returnTo?: string }) => {
-  const { data } = await axiosInstance.post('/integrations/shopify/oauth/start', params)
-  return data
-}
-
-export const updateShopifySettings = async (params: {
-  storeId?: string
-  settings: ShopifyForm['settings']
-}) => {
-  const { data } = await axiosInstance.put('/integrations/shopify/settings', params)
+export const integrateShopifyStore = async (params: ShopifyForm) => {
+  const { data } = await axiosInstance.post(
+    "/integrations/shopify-auth",
+    params
+  );
   return data;
 };
 

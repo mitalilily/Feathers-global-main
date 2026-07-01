@@ -84,7 +84,7 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                     borderColor: 'rgba(17, 24, 39, 0.2)',
                   },
                   '&.Mui-focused fieldset': {
-                    borderColor: '#E85500',
+                    borderColor: '#047b85',
                   },
                 },
                 '& .MuiInputBase-input': {

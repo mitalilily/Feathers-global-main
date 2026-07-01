@@ -9,10 +9,10 @@ import {
   useUserChannelIntegrations,
 } from '../../hooks/Integrations/useUserChannelIntegrations'
 import {
+  useIntegrateShopify,
   useIntegrateWooCommerce,
   useSyncShopifyOrders,
   useSyncWooCommerceOrders,
-  useUpdateShopifySettings,
 } from '../../hooks/useIntegrations'
 import { channelIntegrationImageMapping } from '../../utils/utility'
 import ShopifyConnectionModal from '../integrations/ShopifyConnectionModal'
@@ -22,27 +22,19 @@ import type { WooCommerceForm } from '../integrations/woocommerce/WooCommerceInt
 import TableSkeleton from '../UI/table/TableSkeleton'
 import { toast } from '../UI/Toast'
 
+const normalizeShopifyStoreUrl = (value?: string) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '')
+    .replace(/\/admin(?:\/.*)?$/, '')
+
 const getApiErrorMessage = (error: any, fallback: string) =>
   error?.response?.data?.error ||
   error?.response?.data?.message ||
   error?.message ||
   fallback
-
-const withShopifySyncDefaults = (settings?: ShopifyForm['settings']) => ({
-  fulfillTrigger: 'order_booked',
-  customerNotifyOnFulfill: 'do_not_notify',
-  autoUpdateShipmentStatus: true,
-  autoCancelOrders: true,
-  markCodPaidOnDelivery: false,
-  ...(settings || {}),
-})
-
-const withWooCommerceSyncDefaults = (settings?: WooCommerceForm['settings']) => ({
-  autoUpdateStatus: true,
-  autoUpdateShipmentStatus: true,
-  markCodPaid: false,
-  ...(settings || {}),
-})
 
 const UserConnectedChannels = () => {
   const { user: userData } = useAuth()
@@ -50,7 +42,7 @@ const UserConnectedChannels = () => {
 
   const { data: stores, isLoading } = useUserChannelIntegrations()
 
-  const { mutate: updateShopifySettings, isPending: integrating } = useUpdateShopifySettings()
+  const { mutate: integrateShopify, isPending: integrating } = useIntegrateShopify()
   const { mutate: syncShopifyOrders, isPending: syncingShopify } = useSyncShopifyOrders()
   const { mutate: integrateWooCommerce, isPending: integratingWooCommerce } =
     useIntegrateWooCommerce()
@@ -106,11 +98,14 @@ const UserConnectedChannels = () => {
                       consumerKey: row?.apiKey || '',
                       consumerSecret: row?.adminApiAccessToken || '',
                       webhookSecret: metadata?.wooWebhookSecret || metadata?.webhookSecret || '',
-                      settings: withWooCommerceSyncDefaults(row?.settings),
                     }
                   : {
                       storeUrl: row?.domain,
-                      settings: withShopifySyncDefaults(row?.settings),
+                      webhookSecret:
+                        (row as any)?.webhookSecret ||
+                        metadata?.shopifyWebhookSecret ||
+                        metadata?.webhookSecret ||
+                        '',
                     }
 
               setDetails({
@@ -180,12 +175,21 @@ const UserConnectedChannels = () => {
   ]
 
   const handleUpdateShopify = () => {
+    const storeUrl = normalizeShopifyStoreUrl(
+      (details as any)?.storeUrl || (details as any)?.domain,
+    )
     const payload = {
-      storeId: selectedStore.channelId,
-      settings: ((details as any)?.settings || {}) as ShopifyForm['settings'],
-    }
+      ...(details as any),
+      storeUrl,
+      webhookSecret:
+        (details as any)?.webhookSecret ||
+        (details as any)?.metadata?.shopifyWebhookSecret ||
+        (details as any)?.metadata?.webhookSecret ||
+        '',
+      userId: userData?.userId,
+    } as ShopifyForm
 
-    updateShopifySettings(payload, {
+    integrateShopify(payload, {
       onSuccess: (data) => {
         toast.open({
           message: data?.warning ? `${data?.message}. ${data.warning}` : data?.message,

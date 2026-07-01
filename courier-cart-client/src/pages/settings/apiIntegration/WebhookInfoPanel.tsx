@@ -33,8 +33,8 @@ export const WebhookInfoPanel = ({
         <Stack spacing={3}>
           <Box>
             <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-              <MdInfo size={20} color="#E85500" />
-              <Typography variant="h6" fontWeight={600} color="#E85500">
+              <MdInfo size={20} color="#047b85" />
+              <Typography variant="h6" fontWeight={600} color="#047b85">
                 Webhook Information
               </Typography>
             </Stack>
@@ -112,7 +112,7 @@ export const WebhookInfoPanel = ({
                     fontSize: '0.75rem',
                     '&:hover': {
                       bgcolor: '#F5F7FA',
-                      color: '#E85500',
+                      color: '#047b85',
                     },
                   }}
                 >

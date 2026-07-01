@@ -1,17 +1,18 @@
 import { Badge, Box, Flex, HStack, Stack, Text, useColorModeValue } from '@chakra-ui/react'
+import { BRAND } from '../../constants/brand'
 
 export default function PageHeader({
-  eyebrow = 'Shiplifi Admin',
+  eyebrow = `${BRAND.name} Admin`,
   title,
   description,
   actions = null,
   meta = [],
 }) {
   const panelBg = useColorModeValue('rgba(255,255,255,0.96)', 'rgba(17, 17, 19, 0.92)')
-  const borderColor = useColorModeValue('rgba(17, 17, 19, 0.08)', 'rgba(255, 255, 255, 0.08)')
-  const titleColor = useColorModeValue('gray.800', 'white')
-  const textColor = useColorModeValue('gray.600', 'gray.300')
-  const metaBg = useColorModeValue('rgba(217, 4, 22, 0.05)', 'rgba(255, 255, 255, 0.04)')
+  const borderColor = useColorModeValue('rgba(215, 238, 241, 0.95)', 'rgba(255, 255, 255, 0.08)')
+  const titleColor = useColorModeValue(BRAND.colors.ink, 'white')
+  const textColor = useColorModeValue(BRAND.colors.muted, 'gray.300')
+  const metaBg = useColorModeValue('rgba(4, 123, 133, 0.06)', 'rgba(255, 255, 255, 0.04)')
 
   return (
     <Box

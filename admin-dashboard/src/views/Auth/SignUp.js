@@ -15,16 +15,21 @@ import {
 } from '@chakra-ui/react'
 import React from 'react'
 import { NavLink } from 'react-router-dom'
+import { BRAND, brandGradient } from '../../constants/brand'
 
 function SignUp() {
-  const pageBg = useColorModeValue('#F1ECE8', '#111113')
+  const pageBg = useColorModeValue(BRAND.colors.surface, '#111113')
   const shellBg = useColorModeValue('rgba(255,255,255,0.96)', 'rgba(24, 24, 27, 0.94)')
-  const shellBorder = useColorModeValue('rgba(17, 17, 19, 0.12)', 'rgba(148, 163, 184, 0.14)')
-  const panelBg = useColorModeValue('#FAF4F2', '#141417')
-  const titleColor = useColorModeValue('#171414', 'white')
-  const textColor = useColorModeValue('#6E6763', 'rgba(255,255,255,0.72)')
+  const shellBorder = useColorModeValue('rgba(215, 238, 241, 0.95)', 'rgba(148, 163, 184, 0.14)')
+  const panelBg = useColorModeValue(brandGradient, '#141417')
+  const titleColor = useColorModeValue(BRAND.colors.ink, 'white')
+  const textColor = useColorModeValue(BRAND.colors.muted, 'rgba(255,255,255,0.72)')
   const inputBg = useColorModeValue('white', 'rgba(255,255,255,0.04)')
-  const inputBorder = useColorModeValue('rgba(29,21,46,0.12)', 'rgba(255,255,255,0.12)')
+  const inputBorder = useColorModeValue('rgba(4,123,133,0.12)', 'rgba(255,255,255,0.12)')
+
+  React.useEffect(() => {
+    document.title = `${BRAND.name} Admin | Create account`
+  }, [])
 
   return (
     <Flex
@@ -41,8 +46,8 @@ function SignUp() {
         position="absolute"
         inset="0"
         bgImage={useColorModeValue(
-          'radial-gradient(circle at 12% 10%, rgba(217,4,22,0.08) 0%, transparent 36%), radial-gradient(circle at 90% 14%, rgba(52,52,59,0.08) 0%, transparent 30%)',
-          'radial-gradient(circle at 12% 10%, rgba(217,4,22,0.16) 0%, transparent 36%), radial-gradient(circle at 90% 14%, rgba(255,255,255,0.08) 0%, transparent 30%)',
+          'radial-gradient(circle at 12% 10%, rgba(4,123,133,0.08) 0%, transparent 36%), radial-gradient(circle at 90% 14%, rgba(255,130,28,0.08) 0%, transparent 30%)',
+          'radial-gradient(circle at 12% 10%, rgba(4,123,133,0.16) 0%, transparent 36%), radial-gradient(circle at 90% 14%, rgba(255,255,255,0.08) 0%, transparent 30%)',
         )}
       />
 
@@ -64,8 +69,8 @@ function SignUp() {
             <Flex align="center" gap={4} mb={8}>
               <Box
                 as="img"
-                src="/logo/shiplifi-logo.png"
-                alt="Shiplifi"
+                src={BRAND.logo}
+                alt={BRAND.name}
                 h="56px"
                 w="56px"
                 objectFit="contain"
@@ -75,7 +80,7 @@ function SignUp() {
               />
               <Box>
                 <Text fontSize="xs" fontWeight="800" letterSpacing="0.16em" textTransform="uppercase" color="brand.500">
-                  Shiplifi
+                  {BRAND.name}
                 </Text>
                 <Text fontSize="sm" fontWeight="700" color={titleColor}>
                   Admin onboarding
@@ -89,7 +94,7 @@ function SignUp() {
               </Heading>
               <Text color={textColor} lineHeight="1.9">
                 Set up administrator access for pricing, support, shipping operations and internal
-                platform control inside Shiplifi.
+                platform control inside {BRAND.name}.
               </Text>
             </Stack>
 
@@ -118,7 +123,7 @@ function SignUp() {
                     Create account
                   </Text>
                   <Heading fontSize={{ base: '2xl', md: '3xl' }} color={titleColor} letterSpacing="-0.03em">
-                    Register a Shiplifi admin
+                    Register a {BRAND.name} admin
                   </Heading>
                   <Text mt={2} fontSize="sm" color={textColor} lineHeight="1.8">
                     The form is intentionally minimal and professional. Connect it to your live
@@ -137,7 +142,14 @@ function SignUp() {
                   <FormLabel fontSize="sm" fontWeight="700" color={titleColor}>
                     Work email
                   </FormLabel>
-                  <Input placeholder="admin@shiplifi.com" type="email" h="50px" borderRadius="10px" bg={inputBg} borderColor={inputBorder} />
+                  <Input
+                    placeholder={BRAND.adminEmail}
+                    type="email"
+                    h="50px"
+                    borderRadius="10px"
+                    bg={inputBg}
+                    borderColor={inputBorder}
+                  />
                 </FormControl>
 
                 <FormControl>

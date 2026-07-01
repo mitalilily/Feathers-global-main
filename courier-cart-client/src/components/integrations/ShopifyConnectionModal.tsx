@@ -2,6 +2,7 @@ import {
   Box,
   Card,
   Grid,
+  Link,
   List,
   ListItem,
   ListItemText,
@@ -11,7 +12,7 @@ import {
   useTheme,
 } from '@mui/material'
 import { type Dispatch, type SetStateAction } from 'react'
-import { BiLink } from 'react-icons/bi'
+import { BiKey, BiLink } from 'react-icons/bi'
 import { FaConnectdevelop } from 'react-icons/fa6'
 import { FcInfo } from 'react-icons/fc'
 import { RiDeleteBin2Fill } from 'react-icons/ri'
@@ -81,9 +82,9 @@ const ShopifyConnectionModal = ({
             size={isMobile ? 'large' : 'medium'}
             onClick={() => handleConnect?.()}
             disabled={integrating}
-            text={isEditing && !forOnboarding ? 'Save Settings' : 'Continue to Shopify'}
+            text={isEditing && !forOnboarding ? 'Update' : 'Connect'}
             loading={integrating}
-            loadingText={isEditing && !forOnboarding ? 'Saving...' : 'Opening Shopify...'}
+            loadingText={isEditing && !forOnboarding ? 'Saving...' : 'Connecting...'}
           />
         </Stack>
       }
@@ -102,33 +103,37 @@ const ShopifyConnectionModal = ({
           >
             <Typography variant="h6" gutterBottom>
               <FcInfo style={{ marginRight: 8 }} />
-              How Shopify connection works
+              How to get Shopify API credentials
             </Typography>
             <Typography variant="body2" color="text.secondary" mb={2}>
-              Connect with Shopify OAuth. Shiplifi sends you to Shopify, Shopify asks for permission,
-              and then returns you here after the store is connected.
+              Follow these steps to get your Shopify Admin API access token and API key:
             </Typography>
 
             <List dense>
               {[
                 {
-                  primary: '1. Enter your myshopify.com store domain',
-                  secondary: 'Use the permanent domain, for example mystore.myshopify.com.',
+                  primary: '1. Log in to your Shopify admin',
+                  secondary: (
+                    <Link
+                      href="https://your-store.myshopify.com/admin"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      https://your-store.myshopify.com/admin
+                    </Link>
+                  ),
                 },
+                { primary: "2. Go to 'Apps' section" },
+                { primary: "3. Click on 'Develop apps'" },
+                { primary: '4. Create a new custom app' },
                 {
-                  primary: '2. Continue to Shopify',
-                  secondary:
-                    'Shopify will show the exact permissions requested by Shiplifi before you approve.',
+                  primary: '5. Configure Admin API permissions',
+                  secondary: 'Select required scopes (read/write permissions).',
                 },
+                { primary: '6. Install the app' },
                 {
-                  primary: '3. Approve protected customer data access if prompted',
-                  secondary:
-                    'Order names, phone numbers, emails, and addresses are needed for shipping labels.',
-                },
-                {
-                  primary: '4. Return to Shiplifi',
-                  secondary:
-                    'After approval, orders and webhooks are connected automatically.',
+                  primary: '7. Get your credentials',
+                  secondary: "You’ll find API key & Admin API token under 'API credentials'",
                 },
               ].map((step, index) => (
                 <ListItem key={index}>
@@ -150,16 +155,31 @@ const ShopifyConnectionModal = ({
             }}
           >
             <Typography variant="subtitle1" fontWeight={600} mb={2}>
-              {isEditing && !forOnboarding ? 'Connected Shopify Store' : 'Connect with Shopify'}
+              Enter Shopify Credentials
             </Typography>
             <Stack spacing={2}>
+              {isEditing && !forOnboarding ? (
+                <CustomInput
+                  required
+                  prefix={<BiLink />}
+                  label="Store Name"
+                  value={shopifyDetails?.name ?? ''}
+                  onChange={(e) =>
+                    setShopifyDetails((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                  error={!!inputErrors?.name}
+                  helperText={inputErrors?.name}
+                />
+              ) : null}
               <CustomInput
-                required={!isEditing || forOnboarding}
+                required
                 prefix={<BiLink />}
                 label="Shopify Store URL"
-                placeholder="shiplifi-test.myshopify.com"
+                placeholder="feather-global-test.myshopify.com"
                 value={shopifyDetails.storeUrl ?? shopifyDetails?.domain}
-                disabled={isEditing && !forOnboarding}
                 onChange={(e) =>
                   setShopifyDetails((prev) => ({
                     ...prev,
@@ -169,11 +189,74 @@ const ShopifyConnectionModal = ({
                 error={!!inputErrors?.storeUrl}
                 helperText={inputErrors?.storeUrl}
               />
-              <Typography variant="body2" color="text.secondary">
-                {isEditing && !forOnboarding
-                  ? 'Authentication is managed by Shopify OAuth. No access token or webhook secret is shown or required.'
-                  : 'You will approve permissions on Shopify. Shiplifi never asks you to copy an Admin API token.'}
-              </Typography>
+              <CustomInput
+                required
+                prefix={<BiKey />}
+                label="Shopify API Key"
+                type="password"
+                placeholder="Enter your API Key"
+                value={shopifyDetails.apiKey}
+                onChange={(e) =>
+                  setShopifyDetails((prev) => ({
+                    ...prev,
+                    apiKey: e.target.value,
+                  }))
+                }
+                error={!!inputErrors?.apiKey}
+                helperText={inputErrors?.apiKey}
+              />
+              <CustomInput
+                required
+                prefix={<BiKey />}
+                type="password"
+                label="Admin API Access Token"
+                placeholder="Enter Admin API Token"
+                value={shopifyDetails.adminApiAccessToken}
+                onChange={(e) =>
+                  setShopifyDetails((prev) => ({
+                    ...prev,
+                    adminApiAccessToken: e.target.value,
+                  }))
+                }
+                error={!!inputErrors?.adminApiAccessToken}
+                helperText={inputErrors?.adminApiAccessToken}
+              />
+              <CustomInput
+                required
+                prefix={<BiKey />}
+                type="password"
+                label="Webhook Secret (API Secret Key)"
+                placeholder="Enter webhook signing secret"
+                value={
+                  shopifyDetails.webhookSecret ??
+                  shopifyDetails?.metadata?.shopifyWebhookSecret ??
+                  shopifyDetails?.metadata?.webhookSecret ??
+                  ""
+                }
+                onChange={(e) =>
+                  setShopifyDetails((prev) => ({
+                    ...prev,
+                    webhookSecret: e.target.value,
+                  }))
+                }
+                error={!!inputErrors?.webhookSecret}
+                helperText={inputErrors?.webhookSecret}
+              />
+              {/* <CustomInput
+                required
+                prefix={<BiGlobe />}
+                label="Shopify Host Name"
+                placeholder="Enter Host Name"
+                value={shopifyDetails.hostName}
+                onChange={(e) =>
+                  setShopifyDetails((prev) => ({
+                    ...prev,
+                    hostName: e.target.value,
+                  }))
+                }
+                error={!!inputErrors?.hostName}
+                helperText={inputErrors?.hostName}
+              /> */}
             </Stack>
           </Card>
           {isEditing && !forOnboarding ? (
@@ -305,7 +388,7 @@ const ShopifyConnectionModal = ({
                       },
                     }))
                   }
-                  helperText="Automatically update order statuses in Shopify when they change in Shiplifi."
+                  helperText="Automatically update order statuses in Shopify when they change in Feather Global."
                 />
 
                 {/* Auto cancel orders */}
@@ -321,7 +404,7 @@ const ShopifyConnectionModal = ({
                       },
                     }))
                   }
-                  helperText="Automatically cancel the order in Shopify when it’s marked as cancelled in Shiplifi."
+                  helperText="Automatically cancel the order in Shopify when it’s marked as cancelled in Feather Global."
                 />
 
                 {/* Mark COD Orders Paid */}

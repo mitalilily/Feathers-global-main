@@ -5,7 +5,7 @@ import { BiRupee } from 'react-icons/bi'
 import { FaBox, FaFileInvoice, FaTruck, FaUser } from 'react-icons/fa'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-const ACCENT = '#E85500'
+const ACCENT = '#047b85'
 const TEXT_PRIMARY = '#17171A'
 import type { CreateB2BShipmentParams } from '../../../api/order.service'
 import { useCreateB2BShipment } from '../../../hooks/Orders/useOrders'

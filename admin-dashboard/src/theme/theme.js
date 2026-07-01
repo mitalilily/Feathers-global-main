@@ -57,7 +57,7 @@ const componentOverrides = {
           th: {
             textTransform: 'none',
             letterSpacing: '0',
-            fontWeight: '700',
+            fontWeight: '600',
             fontSize: '12px',
             color: 'gray.600',
             borderColor: 'gray.200',
@@ -81,7 +81,7 @@ const componentOverrides = {
           overflow: 'hidden',
         },
         header: {
-          fontWeight: '700',
+          fontWeight: '600',
         },
       },
     },
@@ -91,7 +91,7 @@ const componentOverrides = {
         textTransform: 'none',
         px: '2.5',
         py: '1',
-        fontWeight: '700',
+        fontWeight: '600',
       },
     },
     Tooltip: {
@@ -101,8 +101,8 @@ const componentOverrides = {
     },
   },
   fonts: {
-    heading: "'Raleway', 'Open Sans', sans-serif",
-    body: "'Open Sans', sans-serif",
+    heading: "'Inter', 'Segoe UI', sans-serif",
+    body: "'Inter', 'Segoe UI', sans-serif",
   },
 }
 

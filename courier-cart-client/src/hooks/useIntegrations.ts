@@ -3,28 +3,20 @@ import {
   connectBigCommerce,
   connectMagento,
   connectWooCommerce,
-  startShopifyOAuth,
+  integrateShopifyStore,
   syncShopifyOrders,
   syncWooCommerceOrders,
   integrateWixStore,
-  updateShopifySettings,
 } from "../api/integrations";
 import type { ShopifyForm } from "../components/integrations/ShopifyIntegration";
 import type { WooCommerceForm } from "../components/integrations/woocommerce/WooCommerceIntegration";
 import type { WixForm } from "../components/integrations/wix/WixIntegration";
 
-export const useStartShopifyOAuth = () => {
-  return useMutation({
-    mutationFn: (params: { shop: string; returnTo?: string }) => startShopifyOAuth(params),
-  });
-};
-
-export const useUpdateShopifySettings = () => {
+export const useIntegrateShopify = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { storeId?: string; settings: ShopifyForm["settings"] }) =>
-      updateShopifySettings(params),
+    mutationFn: (params: ShopifyForm) => integrateShopifyStore(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["userInfo"] });
       queryClient.invalidateQueries({ queryKey: ["stores"] });

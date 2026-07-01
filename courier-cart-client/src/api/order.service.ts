@@ -10,7 +10,6 @@ export interface CreateShipmentParams {
   package_height?: number
   transaction_fee?: number
   integration_type?: 'delhivery' | 'ekart' | 'shadowfax' | 'xpressbees' | 'amazon' | 'icarry'
-  isReverse?: boolean
   request_auto_pickup?: 'Yes' | 'No'
   gift_wrap?: number
   shipping_charges?: number // What seller charges customer (customer-facing price)
@@ -110,7 +109,7 @@ export const createShipment = async (
 
 export const bookExistingB2COrderCourier = async (
   orderId: string,
-  data: Omit<CreateShipmentParams, 'order_number' | 'order_date' | 'order_amount' | 'order_items'>,
+  data: Omit<CreateShipmentParams, 'order_number' | 'order_date' | 'order_amount' | 'consignee' | 'order_items'>,
 ): Promise<CreateShipmentResponse> => {
   try {
     const res = await axiosInstance.post<CreateShipmentResponse>(

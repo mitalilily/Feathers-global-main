@@ -14,7 +14,7 @@ import {
 } from "@mui/material";
 import CustomInput from "./CustomInput";
 
-const BRAND_GREEN = '#4b8e40'
+const BRAND_GREEN = '#047b85'
 
 export interface DropdownItem {
   key: string;

@@ -5,8 +5,8 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 type TopSection = 'user_profile' | 'company' | 'bank_details' | 'kyc_details'
 
-const BRAND_PRIMARY = '#E85500'
-const BRAND_WINE = '#1A7500'
+const BRAND_PRIMARY = '#047b85'
+const BRAND_WINE = '#ff821c'
 const BRAND_TEXT = '#17171A'
 const BRAND_MUTED = '#6E6763'
 

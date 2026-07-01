@@ -1,6 +1,6 @@
 import { alpha } from '@mui/material/styles'
 import { Box, Chip, Stack, Typography } from '@mui/material'
-import { FiCheckCircle, FiLink, FiTool } from 'react-icons/fi'
+import { FiClock, FiLink, FiTool } from 'react-icons/fi'
 import CustomInput from '../UI/inputs/CustomInput'
 import type { UserInfoData } from '../../types/user.types'
 import type { FormErrors } from '../../pages/onboarding/UserOnboarding'
@@ -17,7 +17,7 @@ interface IStepThree {
   setErrors: React.Dispatch<React.SetStateAction<FormErrors>>
 }
 
-const BRAND_ORANGE = '#E85500'
+const BRAND_ORANGE = '#047b85'
 const BRAND_INK = '#141414'
 
 export default function StepThree({ formData, errors, onChange, setErrors }: IStepThree) {
@@ -54,24 +54,24 @@ export default function StepThree({ formData, errors, onChange, setErrors }: ISt
         <Stack direction="row" spacing={1} alignItems="center" mb={1.1}>
           <FiTool size={16} color={BRAND_ORANGE} />
           <Typography sx={{ fontWeight: 700, color: BRAND_INK, fontSize: '0.95rem' }}>
-            Shopify and WooCommerce integrations are available
+            Shopify and channel integrations are currently unavailable
           </Typography>
         </Stack>
         <Typography variant="body2" sx={{ color: '#6E6763', lineHeight: 1.7 }}>
-          You can finish onboarding now and connect Shopify or WooCommerce from the Integrations page.
-          Amazon and other channels will be added separately as they become available.
+          You can finish onboarding now. Once integrations are enabled, connect Shopify,
+          WooCommerce, Amazon, or other channels from the Integrations page.
         </Typography>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} mt={1.4}>
           <Chip
-            icon={<FiCheckCircle size={13} />}
-            label="Available now"
+            icon={<FiClock size={13} />}
+            label="Available soon"
             size="small"
             sx={{ backgroundColor: '#fff', border: `1px solid ${alpha(BRAND_ORANGE, 0.16)}`, color: BRAND_ORANGE }}
           />
           <Chip
             icon={<FiLink size={13} />}
-            label="Connect from Integrations"
+            label="Connect later from Settings"
             size="small"
             sx={{ backgroundColor: '#fff', border: `1px solid ${alpha(BRAND_ORANGE, 0.16)}`, color: BRAND_ORANGE }}
           />

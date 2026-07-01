@@ -1,7 +1,9 @@
 import type { KycDetails } from "../types/user.types";
 import axiosInstance from "./axiosInstance";
 
-export const submitKyc = async (details: Partial<KycDetails>) => {
+export type SubmitKycPayload = Partial<KycDetails> & { draft?: boolean };
+
+export const submitKyc = async (details: SubmitKycPayload) => {
   const { data } = await axiosInstance.post("/profile/kyc", details);
   return data;
 };

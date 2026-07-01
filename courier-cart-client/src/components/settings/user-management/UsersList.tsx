@@ -243,8 +243,8 @@ const UsersList = () => {
                 color="error"
                 sx={{
                   borderRadius: 2,
-                  border: `1px solid ${alpha('#E85500', 0.16)}`,
-                  backgroundColor: alpha('#E85500', 0.05),
+                  border: `1px solid ${alpha('#047b85', 0.16)}`,
+                  backgroundColor: alpha('#047b85', 0.05),
                 }}
                 onClick={(e) => openPopover(e, user)}
               >

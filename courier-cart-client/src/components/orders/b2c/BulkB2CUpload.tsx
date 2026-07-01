@@ -34,12 +34,11 @@ import {
 import { useAvailableCouriersMutation } from '../../../hooks/Integrations/useCouriers'
 import { usePickupAddresses } from '../../../hooks/Pickup/usePickupAddresses'
 import type { HydratedPickup } from '../../../types/generic.types'
-import { getDefaultPickupSlot } from '../../../utils/pickupSchedule'
 import AddPickupAddressForm from '../../pickups/AddPickupAddressForm'
 import CustomDrawer from '../../UI/drawer/CustomDrawer'
 import { toast } from '../../UI/Toast'
 
-const ACCENT = '#E85500'
+const ACCENT = '#047b85'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_MUTED = '#5B7094'
 
@@ -148,13 +147,11 @@ type CourierSelection = {
   zoneName?: string | null
 }
 
-const samplePickupSlot = getDefaultPickupSlot()
-
 const sampleRows = [
   {
-    warehouse_name: 'Shiplifi Jaipur Hub',
-    pickup_date: samplePickupSlot.pickupDate,
-    pickup_time: samplePickupSlot.pickupTime,
+    warehouse_name: 'Feather Global Jaipur Hub',
+    pickup_date: new Date().toISOString().split('T')[0],
+    pickup_time: '10:00',
     order_id: 'B2C-1001',
     order_date: new Date().toISOString().split('T')[0],
     buyer_name: 'Rohit Sharma',
@@ -302,12 +299,11 @@ const normalizeCsvRow = (
   const warehouseName = cleanText(row.warehouse_name || row.pickup_address || row.pickup_location)
   const matchedPickup = findPickupByWarehouseName(warehouseName, pickupAddresses)
   const products = extractProductsFromCsv(row)
-  const defaultPickupSlot = getDefaultPickupSlot()
   const normalized: BulkUploadRow = {
     rowNumber: index + 2,
     warehouseName,
-    pickupDate: cleanText(row.pickup_date) || defaultPickupSlot.pickupDate,
-    pickupTime: cleanText(row.pickup_time) || defaultPickupSlot.pickupTime,
+    pickupDate: cleanText(row.pickup_date) || new Date().toISOString().split('T')[0],
+    pickupTime: cleanText(row.pickup_time) || '10:00',
     orderId: cleanText(row.order_id || row.order_number),
     orderDate: cleanText(row.order_date) || new Date().toISOString().split('T')[0],
     buyerName: cleanText(row.buyer_name),

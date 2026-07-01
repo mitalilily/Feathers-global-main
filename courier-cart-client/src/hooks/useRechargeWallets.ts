@@ -75,11 +75,11 @@ export const useRechargeWallet = () =>
         key: orderData.key,
         amount: orderData.amount,
         currency: orderData.currency || 'INR',
-        name: orderData.name || 'Shiplifi',
+        name: orderData.name || 'Feather Global',
         description: orderData.description || 'Wallet Recharge',
         order_id: orderData.orderId,
         prefill: orderData.prefill,
-        theme: orderData.theme || { color: '#4b8e40' },
+        theme: orderData.theme || { color: '#047b85' },
         handler: async function (response: RazorpayPaymentResponse) {
           try {
             // Payment successful - confirm with backend
