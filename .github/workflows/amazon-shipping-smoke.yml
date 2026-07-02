@@ -20,18 +20,21 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     env:
-      DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST || secrets.SHIPLIFI_HOST }}
-      DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER || secrets.SHIPLIFI_USER }}
-      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY || secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
+      DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST }}
+      DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY }}
+      DEPLOY_PASSWORD: ${{ secrets.FGSHIP_PASSWORD || secrets.FEATHERS_GLOBAL_PASSWORD }}
       DEPLOY_APP_ROOT: /srv/feathers-global/current
 
     steps:
       - name: Validate smoke-test secrets
         run: |
           missing=()
-          [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST or SHIPLIFI_HOST")
-          [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER or SHIPLIFI_USER")
-          [ -n "${DEPLOY_SSH_PRIVATE_KEY}" ] || missing+=("FGSHIP_SSH_PRIVATE_KEY or FEATHERS_GLOBAL_SSH_PRIVATE_KEY or SHIPLIFI_SSH_PRIVATE_KEY")
+          [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST")
+          [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER")
+          if [ -z "${DEPLOY_SSH_PRIVATE_KEY}" ] && [ -z "${DEPLOY_PASSWORD}" ]; then
+            missing+=("FGSHIP_SSH_PRIVATE_KEY / FEATHERS_GLOBAL_SSH_PRIVATE_KEY or FGSHIP_PASSWORD / FEATHERS_GLOBAL_PASSWORD")
+          fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required GitHub Actions secrets:\n' >&2
@@ -39,29 +42,75 @@ jobs:
             exit 1
           fi
 
-      - name: Start SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ env.DEPLOY_SSH_PRIVATE_KEY }}
-
-      - name: Add server to known_hosts
+      - name: Install SSH tooling
         run: |
-          mkdir -p ~/.ssh
-          for attempt in 1 2 3 4 5; do
-            if ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts; then
-              exit 0
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Configure deploy SSH
+        run: |
+          mkdir -p ~/.ssh "${RUNNER_TEMP}/bin"
+          chmod 700 ~/.ssh
+          touch ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
+            StrictHostKeyChecking accept-new
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ServerAliveInterval 30
+            ServerAliveCountMax 3
+          EOF
+
+          auth_mode=''
+          if [ -n "${DEPLOY_SSH_PRIVATE_KEY}" ]; then
+            printf '%s' "${DEPLOY_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/deploy_key
+            printf '\n' >> ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+
+            if ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+              cat >> ~/.ssh/config <<'EOF'
+            IdentitiesOnly yes
+            IdentityFile ~/.ssh/deploy_key
+          EOF
+              auth_mode='key'
+            elif [ -n "${DEPLOY_PASSWORD}" ]; then
+              echo "SSH private key secret is invalid; falling back to password authentication."
+              rm -f ~/.ssh/deploy_key
+            else
+              echo "::error::SSH private key secret is invalid. Use an unencrypted OpenSSH private key with the original newlines, or set FGSHIP_PASSWORD."
+              exit 1
             fi
-            echo "ssh-keyscan attempt ${attempt} failed; retrying..."
-            sleep 5
-          done
-          exit 1
+          fi
+
+          if [ -z "${auth_mode}" ]; then
+            auth_mode='password'
+          fi
+
+          chmod 600 ~/.ssh/config
+          ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          cat > "${RUNNER_TEMP}/bin/dep-ssh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "${DEPLOY_AUTH_MODE:-}" = "password" ]; then
+            SSHPASS="${DEPLOY_PASSWORD:?}" exec sshpass -e ssh deploy-target "$@"
+          fi
+          exec ssh deploy-target "$@"
+          EOF
+          chmod +x "${RUNNER_TEMP}/bin/dep-ssh"
+
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          echo "DEPLOY_AUTH_MODE=${auth_mode}" >> "${GITHUB_ENV}"
 
       - name: Run Amazon rates smoke test
         env:
           ORIGIN_POSTAL_CODE: ${{ inputs.origin_postal_code }}
           DESTINATION_POSTAL_CODE: ${{ inputs.destination_postal_code }}
         run: |
-          cat <<'PY' | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "cd ${DEPLOY_APP_ROOT}/backend && ORIGIN_POSTAL_CODE='$ORIGIN_POSTAL_CODE' DESTINATION_POSTAL_CODE='$DESTINATION_POSTAL_CODE' python3 -"
+          cat <<'PY' | dep-ssh "cd ${DEPLOY_APP_ROOT}/backend && ORIGIN_POSTAL_CODE='$ORIGIN_POSTAL_CODE' DESTINATION_POSTAL_CODE='$DESTINATION_POSTAL_CODE' python3 -"
           from pathlib import Path
           from urllib import parse, request, error
           from datetime import datetime, timezone
@@ -233,7 +282,7 @@ jobs:
         env:
           BACKEND_LOG_LINES: ${{ inputs.backend_log_lines }}
         run: |
-          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" "LINES='${BACKEND_LOG_LINES:-300}' bash -s" <<'SH'
+          dep-ssh "LINES='${BACKEND_LOG_LINES:-300}' bash -s" <<'SH'
           set -euo pipefail
           lines="${LINES:-300}"
           case "$lines" in
@@ -243,8 +292,7 @@ jobs:
             lines=1000
           fi
           {
-            pm2 logs feathers-global-backend --lines "$lines" --nostream 2>/dev/null ||
-            pm2 logs shiplifi-backend --lines "$lines" --nostream 2>/dev/null
+            pm2 logs feathers-global-backend --lines "$lines" --nostream 2>/dev/null
           } | grep -E 'ShipmentCreate|AmazonShipping|Amazon Shipping|Error creating B2C|shipping/v2/shipments' \
             | tail -n "$lines" || true
           SH

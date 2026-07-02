@@ -38,13 +38,13 @@ Create one Shiplifi app from the Shopify Dev Dashboard. The Shopify app's client
 Configure the app URL:
 
 ```text
-https://api.shiplifi.com/api/integrations/shopify/oauth/install
+https://api.fgship.in/api/integrations/shopify/oauth/install
 ```
 
 Configure the allowed redirection URL:
 
 ```text
-https://api.shiplifi.com/api/integrations/shopify/oauth/callback
+https://api.fgship.in/api/integrations/shopify/oauth/callback
 ```
 
 For local testing, use a public HTTPS tunnel for the backend and add that callback too:
@@ -58,12 +58,12 @@ https://your-ngrok-domain.ngrok-free.app/api/integrations/shopify/oauth/callback
 `API_URL` must be the public backend origin and must not include `/api`.
 
 ```bash
-API_URL=https://api.shiplifi.com
+API_URL=https://api.fgship.in
 SHOPIFY_CLIENT_ID=your_shopify_client_id
 SHOPIFY_CLIENT_SECRET=your_shopify_client_secret
 SHOPIFY_SCOPES=read_orders,write_orders,read_customers,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders
-SHOPIFY_API_VERSION=2026-04
-SHOPIFY_OAUTH_SUCCESS_URL=https://app.shiplifi.com/channels/connected
+SHOPIFY_API_VERSION=2026-07
+SHOPIFY_OAUTH_SUCCESS_URL=https://client.fgship.in/channels/connected
 SHOPIFY_SEND_OAUTH_SCOPE=false
 ```
 
@@ -82,7 +82,7 @@ The public install handoff path for the Shopify app URL is:
 The app registers Shopify order webhooks at:
 
 ```text
-https://api.shiplifi.com/api/webhooks/shopify/order-created
+https://api.fgship.in/api/webhooks/shopify/order-created
 ```
 
 Shopify signs OAuth callbacks and webhook deliveries with `SHOPIFY_CLIENT_SECRET`.
@@ -165,7 +165,7 @@ cd ../courier-cart-client && npm run build
 On production, after the Shopify Dev Dashboard credentials are present, run:
 
 ```bash
-cd /srv/shiplifi/current/backend
+cd /srv/feathers-global/current/backend
 NODE_ENV=production npm run check:shopify-oauth -- --require-public --shop=your-store.myshopify.com
 ```
 

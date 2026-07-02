@@ -14,10 +14,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST || secrets.SHIPLIFI_HOST }}
-      DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER || secrets.SHIPLIFI_USER }}
-      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY || secrets.SHIPLIFI_SSH_PRIVATE_KEY }}
-      DEPLOY_PASSWORD: ${{ secrets.FGSHIP_PASSWORD || secrets.FEATHERS_GLOBAL_PASSWORD || secrets.SHIPLIFI_PASSWORD }}
+      DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST }}
+      DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY }}
+      DEPLOY_PASSWORD: ${{ secrets.FGSHIP_PASSWORD || secrets.FEATHERS_GLOBAL_PASSWORD }}
       DEPLOY_APP_ROOT: /srv/feathers-global/current
       DEPLOY_PUBLIC_API_URL: https://api.fgship.in/api
       DEPLOY_PUBLIC_SOCKET_URL: https://api.fgship.in
@@ -31,10 +31,10 @@ jobs:
       - name: Validate deploy secrets
         run: |
           missing=()
-          [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST or SHIPLIFI_HOST")
-          [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER or SHIPLIFI_USER")
+          [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST")
+          [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER")
           if [ -z "${DEPLOY_SSH_PRIVATE_KEY}" ] && [ -z "${DEPLOY_PASSWORD}" ]; then
-            missing+=("FGSHIP_SSH_PRIVATE_KEY / FEATHERS_GLOBAL_SSH_PRIVATE_KEY / SHIPLIFI_SSH_PRIVATE_KEY or FGSHIP_PASSWORD / FEATHERS_GLOBAL_PASSWORD / SHIPLIFI_PASSWORD")
+            missing+=("FGSHIP_SSH_PRIVATE_KEY / FEATHERS_GLOBAL_SSH_PRIVATE_KEY or FGSHIP_PASSWORD / FEATHERS_GLOBAL_PASSWORD")
           fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
@@ -256,6 +256,9 @@ jobs:
           client_id = os.environ["SHOPIFY_CLIENT_ID"]
           client_secret = os.environ["SHOPIFY_CLIENT_SECRET"]
           scopes = os.environ.get("SHOPIFY_SCOPES", "").strip() or "read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+          api_origin = os.environ["DEPLOY_PUBLIC_API_URL"].strip().rstrip("/")
+          if api_origin.endswith("/api"):
+              api_origin = api_origin[:-4]
           send_oauth_scope = os.environ.get("SHOPIFY_SEND_OAUTH_SCOPE", "").strip().lower()
           if send_oauth_scope in {"true", "1", "yes", "on"}:
               send_oauth_scope = "true"
@@ -276,9 +279,9 @@ jobs:
 
           preserve_admin_panel_credentials = existing.get("SHOPIFY_CREDENTIALS_SOURCE", "").strip().lower() == "admin_panel"
           updates = {{
-              "API_URL": {os.environ["DEPLOY_PUBLIC_API_URL"]!r},
+              "API_URL": {api_origin!r},
               "SHOPIFY_SCOPES": {scopes!r},
-              "SHOPIFY_API_VERSION": "2026-04",
+              "SHOPIFY_API_VERSION": "2026-07",
               "SHOPIFY_OAUTH_SUCCESS_URL": {os.environ["DEPLOY_SHOPIFY_OAUTH_SUCCESS_URL"]!r},
               "SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS": "true",
               "SHOPIFY_SEND_OAUTH_SCOPE": {send_oauth_scope!r},
@@ -328,7 +331,7 @@ jobs:
           fi
 
           dep-ssh \
-            "cd ${DEPLOY_APP_ROOT}/backend && NODE_ENV=production npm run check:shopify-oauth -- --require-public --shop=shiplifi-oauth-smoke.myshopify.com"
+            "cd ${DEPLOY_APP_ROOT}/backend && NODE_ENV=production npm run check:shopify-oauth -- --require-public --shop=fgship-oauth-smoke.myshopify.com"
 
       - name: Backfill Amazon LWA env from DB
         continue-on-error: true

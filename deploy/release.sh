@@ -10,6 +10,8 @@ BUILD_SWAP_SIZE="${BUILD_SWAP_SIZE:-4G}"
 DEPLOY_PUBLIC_API_URL="${DEPLOY_PUBLIC_API_URL:-https://api.fgship.in/api}"
 DEPLOY_PUBLIC_SOCKET_URL="${DEPLOY_PUBLIC_SOCKET_URL:-https://api.fgship.in}"
 PM2_BIN="${PM2_BIN:-$(command -v pm2 || true)}"
+PM2_APP_NAME="${PM2_APP_NAME:-feathers-global-backend}"
+LEGACY_PM2_APP_NAME="${LEGACY_PM2_APP_NAME:-shiplifi-backend}"
 
 repair_pm2_install() {
   if ! command -v npm >/dev/null 2>&1; then
@@ -138,8 +140,12 @@ npm run build
 BACKEND_PORT="$(
   node -e "require('dotenv').config({ path: '.env.production' }); process.stdout.write(process.env.PORT || '5013')"
 )"
-echo "Starting backend on port ${BACKEND_PORT}"
-NODE_ENV=production PORT="$BACKEND_PORT" "$PM2_BIN" startOrReload ecosystem.config.cjs --update-env
+if [ "$LEGACY_PM2_APP_NAME" != "$PM2_APP_NAME" ] && "$PM2_BIN" describe "$LEGACY_PM2_APP_NAME" >/dev/null 2>&1; then
+  echo "Removing legacy PM2 app ${LEGACY_PM2_APP_NAME} before starting ${PM2_APP_NAME}"
+  "$PM2_BIN" delete "$LEGACY_PM2_APP_NAME" || true
+fi
+echo "Starting backend on port ${BACKEND_PORT} as ${PM2_APP_NAME}"
+NODE_ENV=production PORT="$BACKEND_PORT" PM2_APP_NAME="$PM2_APP_NAME" "$PM2_BIN" startOrReload ecosystem.config.cjs --update-env
 "$PM2_BIN" save
 
 cd "$APP_ROOT/landing"

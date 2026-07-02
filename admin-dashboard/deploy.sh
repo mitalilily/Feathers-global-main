@@ -10,7 +10,7 @@
 set +e
 
 # VPS configuration
-VPS_TARGET_PATH="/var/www/meracourierwala/admin-dashboard/build"
+VPS_TARGET_PATH="${VPS_TARGET_PATH:-/srv/feathers-global/current/admin-dashboard/build}"
 
 # Get VPS connection details from argument or environment variables
 if [ -n "$1" ]; then

@@ -9,7 +9,7 @@ This repository is set up to deploy:
 
 Key production files:
 
-- `deploy/nginx/shiplifi.conf`
+- `deploy/nginx/feathers-global.conf`
 - `backend/ecosystem.config.cjs`
 
 Expected VPS layout:
@@ -22,12 +22,12 @@ Expected VPS layout:
 The backend reads `backend/.env.production`, which should stay on the server and not be committed to Git.
 GitHub Actions deployment should preserve that file on the VPS.
 
-GitHub Actions deploy secrets can use either the Feathers Global names or the legacy Shiplifi names:
+GitHub Actions deploy secrets should use Feathers Global naming only:
 
-- `FGSHIP_HOST` or `FEATHERS_GLOBAL_HOST` or `SHIPLIFI_HOST`
-- `FGSHIP_USER` or `FEATHERS_GLOBAL_USER` or `SHIPLIFI_USER`
-- `FGSHIP_SSH_PRIVATE_KEY` or `FEATHERS_GLOBAL_SSH_PRIVATE_KEY` or `SHIPLIFI_SSH_PRIVATE_KEY`
-- `FGSHIP_PASSWORD` or `FEATHERS_GLOBAL_PASSWORD` or `SHIPLIFI_PASSWORD` as a fallback when the runner cannot load the SSH private key
+- `FGSHIP_HOST` or `FEATHERS_GLOBAL_HOST`
+- `FGSHIP_USER` or `FEATHERS_GLOBAL_USER`
+- `FGSHIP_SSH_PRIVATE_KEY` or `FEATHERS_GLOBAL_SSH_PRIVATE_KEY`
+- `FGSHIP_PASSWORD` or `FEATHERS_GLOBAL_PASSWORD` as a fallback when the runner cannot load the SSH private key
 
 The deploy workflow prefers a valid unencrypted OpenSSH private key, but it can fall back to password auth if the key secret is missing or malformed.
 If you use a key, store the full private key with its original newlines, including the `BEGIN ... PRIVATE KEY` and `END ... PRIVATE KEY` lines.

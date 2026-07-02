@@ -10,7 +10,7 @@
 set +e
 
 # VPS configuration
-VPS_TARGET_PATH="/var/www/meracourierwala/courier-cart-client/dist"
+VPS_TARGET_PATH="${VPS_TARGET_PATH:-/srv/feathers-global/current/courier-cart-client/dist}"
 
 # Get VPS connection details from argument or environment variables
 if [ -n "$1" ]; then
@@ -45,8 +45,8 @@ echo "🔨 Running build with production environment variables..."
 
 # Set production environment variables
 # Vite uses VITE_ prefix for environment variables
-export VITE_API_URL="https://feathers-global-main-production.up.railway.app/api"
-export VITE_APP_SOCKET_URL="https://feathers-global-main-production.up.railway.app"
+export VITE_API_URL="${VITE_API_URL:-https://api.fgship.in/api}"
+export VITE_APP_SOCKET_URL="${VITE_APP_SOCKET_URL:-https://api.fgship.in}"
 
 # Keep other environment variables from .env if needed (Shopify, Google OAuth, etc.)
 # These can be overridden here if you have different production values

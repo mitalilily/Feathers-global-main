@@ -7,7 +7,7 @@
 
 set +e
 
-VPS_TARGET_PATH="/var/www/meracourierwala/meracourierwala/courier-cart-client"
+VPS_TARGET_PATH="${VPS_TARGET_PATH:-/srv/feathers-global/current/courier-cart-client}"
 
 if [ -n "$1" ]; then
   VPS_CONNECTION="$1"
@@ -49,4 +49,3 @@ fi
 echo ""
 echo "📋 Remaining files on VPS root:"
 ssh "${VPS_CONNECTION}" "ls -la ${VPS_TARGET_PATH}"
-

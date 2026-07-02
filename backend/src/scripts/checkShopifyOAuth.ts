@@ -37,13 +37,13 @@ const mask = (value: string) => {
 }
 
 const applyMockEnv = () => {
-  process.env.API_URL = 'https://api.shiplifi.com'
+  process.env.API_URL = 'https://api.fgship.in'
   process.env.SHOPIFY_CLIENT_ID = 'mock_shopify_client_id'
   process.env.SHOPIFY_CLIENT_SECRET = 'mock_shopify_client_secret'
   process.env.SHOPIFY_SCOPES =
     'read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders'
-  process.env.SHOPIFY_API_VERSION = '2026-04'
-  process.env.SHOPIFY_OAUTH_SUCCESS_URL = 'https://app.shiplifi.com/channels/connected'
+  process.env.SHOPIFY_API_VERSION = '2026-07'
+  process.env.SHOPIFY_OAUTH_SUCCESS_URL = 'https://client.fgship.in/channels/connected'
   process.env.SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS = 'true'
   process.env.SHOPIFY_SEND_OAUTH_SCOPE = 'false'
 }
@@ -111,7 +111,7 @@ const main = async () => {
   }
   if (options.requirePublic) assertPublicRedirectUri(config.redirectUri)
 
-  const shop = normalizeShopifyDomain(options.shop || 'shiplifi-oauth-smoke.myshopify.com')
+  const shop = normalizeShopifyDomain(options.shop || 'fgship-oauth-smoke.myshopify.com')
   const userId = '00000000-0000-0000-0000-000000000000'
   const result = buildShopifyOAuthAuthorizeUrl({
     shop,

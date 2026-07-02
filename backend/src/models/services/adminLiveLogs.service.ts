@@ -2,7 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 
 const DEFAULT_PM2_LOG_DIR = process.env.PM2_LOG_DIR || '/home/deploy/.pm2/logs'
-const DEFAULT_PM2_APP_NAME = process.env.PM2_APP_NAME || 'shiplifi-backend'
+const DEFAULT_PM2_APP_NAME = process.env.PM2_APP_NAME || 'feathers-global-backend'
 const DEFAULT_LIMIT = 1000
 const MAX_LIMIT = 1000
 const READ_CHUNK_BYTES = 64 * 1024

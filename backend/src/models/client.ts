@@ -28,7 +28,7 @@ const poolConfig = {
   idle_in_transaction_session_timeout: Number(
     process.env.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS || 15000,
   ),
-  application_name: process.env.PG_APP_NAME || `shiplifi-${env}`,
+  application_name: process.env.PG_APP_NAME || `feathers-global-${env}`,
 }
 
 export const pool = new Pool({

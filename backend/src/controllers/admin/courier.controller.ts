@@ -394,7 +394,7 @@ const normalizePublicUrl = (value: unknown, fallback: string) => {
 }
 
 const getPublicApiUrl = () =>
-  normalizePublicUrl(process.env.API_URL || process.env.PUBLIC_API_URL, 'https://api.shiplifi.com')
+  normalizePublicUrl(process.env.API_URL || process.env.PUBLIC_API_URL, 'https://api.fgship.in')
 
 const resolvePublicWebhookUrl = (envName: string, path: string) => {
   const configured = optionalCredentialString(process.env[envName])
@@ -1324,14 +1324,38 @@ export const importShippingRatesController = async (req: any, res: Response) => 
       return res.status(400).json({ success: false, message: 'No file uploaded' })
     }
 
-    const { planId: plan_id, businessType: business_type } = req.query
-    if (!plan_id || !business_type) {
-      return res.status(400).json({ success: false, message: 'Missing plan_id or business_type' })
+    const planIdValue =
+      req.query?.planId ??
+      req.query?.plan_id ??
+      req.body?.planId ??
+      req.body?.plan_id ??
+      undefined
+    const businessTypeValue =
+      req.query?.businessType ??
+      req.query?.business_type ??
+      req.body?.businessType ??
+      req.body?.business_type ??
+      undefined
+
+    const planId = planIdValue != null && String(planIdValue).trim() ? String(planIdValue) : ''
+    const businessType =
+      businessTypeValue != null && String(businessTypeValue).trim()
+        ? String(businessTypeValue)
+        : ''
+
+    if (!planId || !businessType) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing planId/plan_id or businessType/business_type',
+      })
     }
 
-    const normalizedBusinessType = String(business_type).toLowerCase()
+    const normalizedBusinessType = businessType.toLowerCase()
     if (normalizedBusinessType !== 'b2b' && normalizedBusinessType !== 'b2c') {
-      return res.status(400).json({ success: false, message: 'Invalid business_type' })
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid businessType/business_type',
+      })
     }
 
     const { data, errors } = parseRateCardFile(req.file)
@@ -1349,9 +1373,14 @@ export const importShippingRatesController = async (req: any, res: Response) => 
     let savedRows = 0
 
     if (normalizedBusinessType === 'b2c' && isSlabFormat) {
-      savedRows = await importB2CSlabFormat(data as CSVRow[], plan_id as string, zonesList)
+      savedRows = await importB2CSlabFormat(data as CSVRow[], planId, zonesList)
     } else {
-      savedRows = await importFlatFormat(data as CSVRow[], plan_id as string, normalizedBusinessType, zonesList)
+      savedRows = await importFlatFormat(
+        data as CSVRow[],
+        planId,
+        normalizedBusinessType,
+        zonesList,
+      )
     }
 
     if (savedRows === 0) {

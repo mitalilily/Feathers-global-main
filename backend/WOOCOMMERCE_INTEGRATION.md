@@ -18,7 +18,7 @@ Official references:
 1. Sign in to WordPress admin.
 2. Open WooCommerce > Settings > Advanced > REST API.
 3. Click Create an API key or Add Key.
-4. Set Description to `Shiplifi`.
+4. Set Description to `FGShip`.
 5. Select the WordPress user that owns/administers the store.
 6. Set Permissions to `Read/Write`.
 7. Click Generate API Key.
@@ -34,13 +34,13 @@ Do not include `/api` in this value.
 Example:
 
 ```bash
-API_URL=https://api.shiplifi.com
+API_URL=https://api.fgship.in
 ```
 
 The app will register this webhook delivery URL:
 
 ```text
-https://api.shiplifi.com/api/webhook/woocommerce/orders
+https://api.fgship.in/api/webhook/woocommerce/orders
 ```
 
 Optional:
