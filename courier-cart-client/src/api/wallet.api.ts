@@ -24,6 +24,11 @@ export async function confirmRecharge({
   return res.data
 }
 
+export async function fetchRechargeStatus(orderId: string) {
+  const res = await axiosInstance.get(`/payments/wallet/topup/${encodeURIComponent(orderId)}/status`)
+  return res.data
+}
+
 export const fetchWalletBalance = async (): Promise<{
   data: { balance: number }
 }> => {

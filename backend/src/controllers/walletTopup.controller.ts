@@ -1,5 +1,9 @@
 import { Request, Response } from 'express'
-import { confirmVerifiedPayment, createWalletOrder } from '../models/services/walletTopupService'
+import {
+  confirmVerifiedPayment,
+  createWalletOrder,
+  getWalletTopupStatus,
+} from '../models/services/walletTopupService'
 import { getPaymentOptions } from '../models/services/paymentOptions.service'
 
 export const createTopup = async (req: Request, res: Response): Promise<any> => {
@@ -55,6 +59,29 @@ export const confirmFromClient = async (req: Request, res: Response) => {
     console.error('Razorpay confirmation error:', err)
     return res.status(err?.statusCode || 500).json({
       error: err?.message || 'Payment confirmation failed',
+    })
+  }
+}
+
+export const getTopupStatus = async (req: Request, res: Response) => {
+  const orderId = String(req.params.orderId || '').trim()
+  const userId = (req as any).user?.sub
+
+  if (!orderId) {
+    return res.status(400).json({ error: 'Missing Razorpay order id' })
+  }
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    const result = await getWalletTopupStatus({ orderId, userId })
+    return res.json(result)
+  } catch (err: any) {
+    console.error('Razorpay top-up status error:', err)
+    return res.status(err?.statusCode || 500).json({
+      error: err?.message || 'Unable to fetch payment status',
     })
   }
 }

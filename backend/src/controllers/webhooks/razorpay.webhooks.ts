@@ -42,6 +42,21 @@ export const razorpayWebhook = async (req: Request, res: Response): Promise<any>
         break
       }
 
+      case 'order.paid': {
+        const pay = payload.payload?.payment?.entity
+        if (!pay?.order_id || !pay?.id) {
+          console.warn(`⚠️ order.paid webhook did not include a payment entity`)
+          break
+        }
+
+        console.log(
+          `   Processing order.paid - Order ID: ${pay.order_id}, Payment ID: ${pay.id}, Amount: ${pay.amount}`,
+        )
+        await confirmSuccess(pay.order_id, pay.id, +pay.amount)
+        console.log(`✅ Order paid successfully for order: ${pay.order_id}`)
+        break
+      }
+
       case 'payment.failed': {
         const pay = payload.payload.payment.entity
         console.log(

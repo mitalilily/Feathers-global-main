@@ -2,6 +2,7 @@ import { and, eq, or, sql } from 'drizzle-orm'
 import {
   assertRazorpayConfigured,
   razorpay,
+  razorpayApi,
   razorpayCheckoutKeyId,
   razorpayMerchantId,
   verifyCheckoutSignature,
@@ -43,6 +44,38 @@ type WalletOrderCustomerDetails = {
   name: string
   email: string
   phone: string
+}
+
+type WalletTopupRecord = typeof walletTopups.$inferSelect
+type WalletRecord = typeof wallets.$inferSelect
+type WalletTopupLookup = {
+  topup: WalletTopupRecord
+  wallet: WalletRecord
+}
+
+type RazorpayOrderPayment = {
+  id: string
+  amount: number
+  currency: string
+  order_id: string
+  status: string
+  error_description?: string | null
+  created_at?: number
+}
+
+type RazorpayOrderPaymentsResponse = {
+  entity: 'collection'
+  count: number
+  items: RazorpayOrderPayment[]
+}
+
+export type WalletTopupStatusResult = {
+  ok: boolean
+  status: 'created' | 'processing' | 'success' | 'failed'
+  paymentId?: string | null
+  paymentStatus?: string
+  message?: string
+  alreadyProcessed?: boolean
 }
 
 async function resolveWalletOrderCustomerDetails(
@@ -188,6 +221,165 @@ export async function createWalletOrder(
   }
 }
 
+async function findWalletTopup(orderId: string, userId?: string): Promise<WalletTopupLookup | null> {
+  const conditions: any[] = [eq(walletTopups.gatewayOrderId, orderId)]
+
+  if (userId) {
+    conditions.push(eq(wallets.userId, userId))
+  }
+
+  const [row] = await db
+    .select({
+      topup: walletTopups,
+      wallet: wallets,
+    })
+    .from(walletTopups)
+    .innerJoin(wallets, eq(walletTopups.walletId, wallets.id))
+    .where(and(...conditions))
+    .limit(1)
+
+  return row ?? null
+}
+
+const getTopupFailureReason = (meta: unknown) => {
+  if (!meta || typeof meta !== 'object') return ''
+  const record = meta as Record<string, unknown>
+  return pickText(record.reason, record.message)
+}
+
+const getTopupPaymentState = (
+  topup: WalletTopupRecord,
+): WalletTopupStatusResult['status'] => {
+  if (topup.status === 'processing' || topup.status === 'success' || topup.status === 'failed') {
+    return topup.status
+  }
+
+  return 'created'
+}
+
+const pickBestRazorpayPayment = (payments: RazorpayOrderPayment[]) => {
+  const rank = (status: string) => {
+    switch (status) {
+      case 'captured':
+        return 0
+      case 'authorized':
+        return 1
+      case 'created':
+        return 2
+      case 'failed':
+        return 3
+      default:
+        return 99
+    }
+  }
+
+  return [...payments].sort((left, right) => {
+    const rankDiff = rank(left.status) - rank(right.status)
+    if (rankDiff !== 0) return rankDiff
+    return Number(right.created_at || 0) - Number(left.created_at || 0)
+  })[0]
+}
+
+const validatePaymentForTopup = (lookup: WalletTopupLookup, payment: RazorpayOrderPayment) => {
+  const expectedAmount = toPaise(lookup.topup.amount)
+  const expectedCurrency = String(lookup.topup.currency || 'INR').toUpperCase()
+
+  if (!payment || payment.order_id !== lookup.topup.gatewayOrderId) {
+    throw httpError('Razorpay payment does not match this wallet top-up order', 400)
+  }
+
+  if (Number(payment.amount) !== expectedAmount) {
+    throw httpError('Razorpay payment amount mismatch', 400)
+  }
+
+  if (String(payment.currency || '').toUpperCase() !== expectedCurrency) {
+    throw httpError('Razorpay payment currency mismatch', 400)
+  }
+
+  return { expectedAmount, expectedCurrency }
+}
+
+async function syncWalletTopupWithGateway(lookup: WalletTopupLookup): Promise<WalletTopupStatusResult> {
+  const currentStatus = getTopupPaymentState(lookup.topup)
+
+  if (currentStatus === 'success') {
+    return {
+      ok: true,
+      status: 'success',
+      paymentId: lookup.topup.gatewayPaymentId ?? null,
+      alreadyProcessed: true,
+    }
+  }
+
+  if (currentStatus === 'failed') {
+    return {
+      ok: false,
+      status: 'failed',
+      paymentId: lookup.topup.gatewayPaymentId ?? null,
+      message: getTopupFailureReason(lookup.topup.meta) || 'Razorpay payment failed',
+      alreadyProcessed: true,
+    }
+  }
+
+  assertRazorpayConfigured()
+
+  const { data } = await razorpayApi.get<RazorpayOrderPaymentsResponse>(
+    `/orders/${lookup.topup.gatewayOrderId}/payments`,
+  )
+  const payment = pickBestRazorpayPayment(data.items || [])
+
+  if (!payment) {
+    return {
+      ok: false,
+      status: currentStatus,
+      message: 'Waiting for Razorpay to confirm the payment.',
+    }
+  }
+
+  const { expectedAmount, expectedCurrency } = validatePaymentForTopup(lookup, payment)
+  let gatewayPayment: RazorpayOrderPayment = payment
+
+  if (gatewayPayment.status === 'authorized') {
+    gatewayPayment = (await razorpay.payments.capture(
+      gatewayPayment.id,
+      expectedAmount,
+      expectedCurrency,
+    )) as RazorpayOrderPayment
+  }
+
+  if (gatewayPayment.status === 'captured') {
+    await confirmSuccess(lookup.topup.gatewayOrderId || '', gatewayPayment.id, Number(gatewayPayment.amount))
+    return {
+      ok: true,
+      status: 'success',
+      paymentId: gatewayPayment.id,
+      paymentStatus: gatewayPayment.status,
+    }
+  }
+
+  if (gatewayPayment.status === 'failed') {
+    const reason = gatewayPayment.error_description || 'Razorpay payment failed'
+    await confirmFailure(lookup.topup.gatewayOrderId || '', gatewayPayment.id, reason)
+    return {
+      ok: false,
+      status: 'failed',
+      paymentId: gatewayPayment.id,
+      paymentStatus: gatewayPayment.status,
+      message: reason,
+    }
+  }
+
+  await markTopupProcessing(lookup.topup.gatewayOrderId || '', gatewayPayment.id)
+
+  return {
+    ok: false,
+    status: 'processing',
+    paymentId: gatewayPayment.id,
+    paymentStatus: gatewayPayment.status,
+    message: 'Payment is still processing with Razorpay.',
+  }
+}
+
 /* 2️⃣  success */
 export async function confirmSuccess(orderId: string, paymentId: string, paise: number) {
   const amount = paise / 100
@@ -302,15 +494,7 @@ export async function confirmVerifiedPayment(params: {
     throw httpError('Invalid Razorpay payment signature', 400)
   }
 
-  const [row] = await db
-    .select({
-      topup: walletTopups,
-      wallet: wallets,
-    })
-    .from(walletTopups)
-    .innerJoin(wallets, eq(walletTopups.walletId, wallets.id))
-    .where(and(eq(walletTopups.gatewayOrderId, orderId), eq(wallets.userId, userId)))
-    .limit(1)
+  const row = await findWalletTopup(orderId, userId)
 
   if (!row) {
     throw httpError('Wallet top-up order not found', 404)
@@ -322,22 +506,15 @@ export async function confirmVerifiedPayment(params: {
 
   const expectedAmount = toPaise(row.topup.amount)
   const expectedCurrency = (row.topup.currency ?? 'INR').toUpperCase()
-  let payment: any = await razorpay.payments.fetch(paymentId)
-
-  if (!payment || payment.id !== paymentId || payment.order_id !== orderId) {
-    throw httpError('Razorpay payment does not match this wallet top-up order', 400)
-  }
-
-  if (Number(payment.amount) !== expectedAmount) {
-    throw httpError('Razorpay payment amount mismatch', 400)
-  }
-
-  if (String(payment.currency || '').toUpperCase() !== expectedCurrency) {
-    throw httpError('Razorpay payment currency mismatch', 400)
-  }
+  let payment = (await razorpay.payments.fetch(paymentId)) as RazorpayOrderPayment
+  validatePaymentForTopup(row, payment)
 
   if (payment.status === 'authorized') {
-    payment = await razorpay.payments.capture(paymentId, expectedAmount, expectedCurrency)
+    payment = (await razorpay.payments.capture(
+      paymentId,
+      expectedAmount,
+      expectedCurrency,
+    )) as RazorpayOrderPayment
   }
 
   if (payment.status === 'captured') {
@@ -358,4 +535,27 @@ export async function confirmVerifiedPayment(params: {
     paymentStatus: payment.status,
     message: 'Payment is not captured yet. Wallet will be credited when Razorpay confirms capture.',
   }
+}
+
+export async function getWalletTopupStatus(params: {
+  orderId: string
+  userId: string
+}): Promise<WalletTopupStatusResult> {
+  const lookup = await findWalletTopup(params.orderId, params.userId)
+
+  if (!lookup) {
+    throw httpError('Wallet top-up order not found', 404)
+  }
+
+  return syncWalletTopupWithGateway(lookup)
+}
+
+export async function reconcileWalletTopupOrder(orderId: string): Promise<WalletTopupStatusResult | null> {
+  const lookup = await findWalletTopup(orderId)
+
+  if (!lookup) {
+    return null
+  }
+
+  return syncWalletTopupWithGateway(lookup)
 }
