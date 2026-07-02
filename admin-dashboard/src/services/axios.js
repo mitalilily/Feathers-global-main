@@ -8,7 +8,7 @@ const getDefaultApiBaseUrl = () => {
     }
   }
 
-  return 'https://feathers-global-main-1.onrender.com/api'
+  return 'https://api.fgship.in/api'
 }
 
 const apiBaseURL = (process.env.REACT_APP_API_BASE_URL || getDefaultApiBaseUrl()).replace(/\/+$/, '')
