@@ -2609,60 +2609,56 @@ export class XpressbeesService {
     }
 
     const pathCandidates = this.getConfiguredPathCandidates('XPRESSBEES_CANCEL_ENDPOINTS', [
+      `${this.shipmentEndpoint || '/api/shipments2'}/cancel`,
       'https://clientshipupdatesapi.xbees.in/forwardcancellation',
       'http://stageclientshipupdatesapi.xbees.in/forwardcancellation',
-      `${this.shipmentEndpoint || '/api/shipments2'}/cancel`,
     ])
+    const restfulCancelCandidates = pathCandidates.filter(
+      (path) => !/forwardcancellation/i.test(String(path || '')),
+    )
     const forwardCancellationCandidates = pathCandidates.filter((path) =>
       /forwardcancellation/i.test(String(path || '')),
     )
-    const legacyCandidates = pathCandidates.filter(
-      (path) => !/forwardcancellation/i.test(String(path || '')),
-    )
 
-    if (forwardCancellationCandidates.length) {
+    if (restfulCancelCandidates.length) {
       try {
-        const forwardResponse = await this.requestWithFallback<any>({
+        return await this.requestWithFallback<any>({
           method: 'post',
-          pathCandidates: forwardCancellationCandidates,
-          data: this.buildXpressbeesForwardCancellationPayload(normalizedAwb),
-        })
-        if (this.isXpressbeesCancellationMissingShipment(forwardResponse)) {
-          return {
-            success: true,
-            localOnly: true,
-            provider: 'xpressbees',
-            awb: normalizedAwb,
-            message: 'Shipment does not exist on Xpressbees; cancelled locally.',
-            provider_response: forwardResponse,
-          }
-        }
-        if (this.isXpressbeesCancellationAccepted(forwardResponse) || !legacyCandidates.length) {
-          return forwardResponse
-        }
-        this.log('Forward cancellation response was not accepted, trying legacy cancel endpoint', {
-          awb: normalizedAwb,
-          response: this.sanitizeForLogs(forwardResponse),
+          pathCandidates: restfulCancelCandidates,
+          data: { awb: normalizedAwb },
+          exactBaseCandidates: this.getShipmentBaseCandidates(),
         })
       } catch (err: any) {
-        if (!legacyCandidates.length || this.isBusinessValidationError(err)) {
+        if (!forwardCancellationCandidates.length || this.isBusinessValidationError(err)) {
           throw err
         }
-        this.log('Forward cancellation failed, trying legacy cancel endpoint', {
+        this.log('REST cancel endpoint failed, trying forward cancellation endpoint', {
           awb: normalizedAwb,
-          message: this.extractErrorMessage(err, 'forward cancellation failed'),
+          message: this.extractErrorMessage(err, 'REST cancellation failed'),
         })
       }
     }
 
-    return this.requestWithFallback<any>({
-      method: 'post',
-      pathCandidates: legacyCandidates.length
-        ? legacyCandidates
-        : [`${this.shipmentEndpoint || '/api/shipments2'}/cancel`],
-      data: { awb: normalizedAwb },
-      exactBaseCandidates: this.getShipmentBaseCandidates(),
-    })
+    if (forwardCancellationCandidates.length) {
+      const forwardResponse = await this.requestWithFallback<any>({
+        method: 'post',
+        pathCandidates: forwardCancellationCandidates,
+        data: this.buildXpressbeesForwardCancellationPayload(normalizedAwb),
+      })
+      if (this.isXpressbeesCancellationMissingShipment(forwardResponse)) {
+        return {
+          success: true,
+          localOnly: true,
+          provider: 'xpressbees',
+          awb: normalizedAwb,
+          message: 'Shipment does not exist on Xpressbees; cancelled locally.',
+          provider_response: forwardResponse,
+        }
+      }
+      return forwardResponse
+    }
+
+    throw new HttpError(502, 'No Xpressbees cancellation endpoint is configured')
   }
 
   async trackShipment(awb: string) {
