@@ -162,9 +162,10 @@ export interface BankAccount {
   bankName: string;
   branch?: string;
   id: string;
-  accountType?: "Savings" | "Current";
+  accountType?: "SAVINGS" | "CURRENT";
   upiId?: string;
   chequeImageUrl?: string;
+  chequeImageKey?: string;
   status: "verified" | "pending" | "rejected"; // ✅ verified/unverified status
   rejectionReason?: string;
   isPrimary: boolean;

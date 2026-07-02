@@ -22,6 +22,18 @@ const normalizeUpperString = (value: unknown) => {
   return typeof normalized === 'string' ? normalized.toUpperCase() : normalized
 }
 
+const hasNonEmptyString = (value: unknown) => !!String(value ?? '').trim()
+
+const normalizeStringOrEmpty = (value: unknown) => {
+  const normalized = normalizeNullableString(value)
+  return typeof normalized === 'string' ? normalized : ''
+}
+
+const normalizeAccountType = (value: unknown): BankAccount['accountType'] | '' => {
+  const normalized = normalizeUpperString(value)
+  return normalized === 'SAVINGS' || normalized === 'CURRENT' ? normalized : ''
+}
+
 // Razorpay Penny Drop Verification
 export const addBankAccount = async (
   userId: string,
@@ -52,7 +64,7 @@ export const addBankAccount = async (
       !accountType && 'accountType',
       !accountNumber && 'accountNumber',
       !accountHolder && 'accountHolder',
-      // !chequeImageUrl && "chequeImageUrl",
+      !hasNonEmptyString(chequeImageUrl) && 'chequeImageUrl',
     ].filter(Boolean)
 
     if (missing.length) throw new HttpError(400, `Missing required fields: ${missing.join(', ')}`)
@@ -105,8 +117,8 @@ export const addBankAccount = async (
         branch: branch ?? '',
         upiId: upiId ?? null,
         accountNumber: accountNumber ?? null,
-        accountType: accountType ?? '',
-        chequeImageUrl: chequeImageUrl ?? '',
+        accountType: normalizeAccountType(accountType) || 'CURRENT',
+        chequeImageUrl: normalizeStringOrEmpty(chequeImageUrl),
         ifsc: ifsc ?? '',
         accountHolder,
         fundAccountId,
@@ -234,6 +246,7 @@ export async function updateBankAccount(
         typeof normalizedUpiId === 'string' ? normalizedUpiId.toLowerCase() : normalizedUpiId
     }
     if ('accountNumber' in patch) normalizedPatch.accountNumber = normalizeNullableString(patch.accountNumber)
+    if ('accountType' in patch) normalizedPatch.accountType = normalizeAccountType(patch.accountType)
     if ('bankName' in patch) normalizedPatch.bankName = normalizeNullableString(patch.bankName) ?? ''
     if ('branch' in patch) normalizedPatch.branch = normalizeNullableString(patch.branch) ?? ''
     if ('ifsc' in patch) normalizedPatch.ifsc = normalizeUpperString(patch.ifsc) ?? ''
@@ -261,6 +274,7 @@ export async function updateBankAccount(
         !String(mergedAccount.ifsc ?? '').trim() && 'ifsc',
         !String(mergedAccount.accountType ?? '').trim() && 'accountType',
         !String(mergedAccount.accountHolder ?? '').trim() && 'accountHolder',
+        !String(mergedAccount.chequeImageUrl ?? '').trim() && 'chequeImageUrl',
       ].filter(Boolean)
 
       if (missing.length) throw new Error(`Missing required fields: ${missing.join(', ')}`)

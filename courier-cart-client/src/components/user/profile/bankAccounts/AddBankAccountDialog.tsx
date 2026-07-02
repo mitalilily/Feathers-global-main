@@ -17,6 +17,10 @@ import CustomDialog from '../../../UI/modal/CustomModal'
 import FileUploader from '../../../UI/uploader/FileUploader'
 import { BRAND_GRADIENT } from '../UserProfileForm'
 
+type BankAccountFormValues = Partial<BankAccount> & {
+  chequeImageKey?: string
+}
+
 interface DialogProps {
   open: boolean
   onClose: () => void
@@ -24,6 +28,28 @@ interface DialogProps {
   addingAccount?: boolean
   initialData?: Partial<BankAccount> // 🆕 For edit mode
 }
+
+const extractStoredFileName = (value?: string | null) => {
+  const rawValue = String(value ?? '').trim()
+  if (!rawValue) return ''
+
+  const normalizedValue = rawValue.split('?')[0]
+  const segments = normalizedValue.split('/').filter(Boolean)
+  const lastSegment = segments.at(-1) ?? normalizedValue
+
+  try {
+    return decodeURIComponent(lastSegment)
+  } catch {
+    return lastSegment
+  }
+}
+
+const buildDefaultValues = (data?: Partial<BankAccount>): BankAccountFormValues => ({
+  accountType: data?.accountType ?? 'SAVINGS',
+  ...data,
+  chequeImageUrl: data?.chequeImageUrl ?? '',
+  chequeImageKey: extractStoredFileName(data?.chequeImageUrl),
+})
 
 export const AddBankAccountDialog: React.FC<DialogProps> = ({
   open,
@@ -45,28 +71,28 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
     clearErrors,
     reset,
     formState: { errors },
-  } = useForm({
-    defaultValues: initialData ?? {},
+  } = useForm<BankAccountFormValues>({
+    defaultValues: buildDefaultValues(initialData),
   })
 
   const [mode, setMode] = useState<'bank' | 'upi'>(() => resolveMode(initialData))
 
   useEffect(() => {
-    if (initialData) {
-      reset(initialData)
-      setMode(resolveMode(initialData))
-      setValue(
-        'chequeImageKey' as keyof BankAccount,
-        initialData.chequeImageUrl?.split('/').pop() ?? '',
-      )
-    }
-  }, [initialData, reset, setValue])
+    register('chequeImageUrl')
+    register('chequeImageKey')
+  }, [register])
+
+  useEffect(() => {
+    reset(buildDefaultValues(initialData))
+    setMode(resolveMode(initialData))
+  }, [initialData, reset])
 
   const submit = handleSubmit(async (d) => {
     const normalizedUpiId = String(d.upiId ?? '')
       .trim()
       .toLowerCase()
     const normalizedAccountNumber = String(d.accountNumber ?? '').trim()
+    const normalizedChequeImageUrl = String(d.chequeImageUrl ?? '').trim()
     const shouldUseBankDetails = mode === 'bank' && !!normalizedAccountNumber
 
     if (!normalizedUpiId && !shouldUseBankDetails) {
@@ -81,7 +107,7 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
     }
 
     if (shouldUseBankDetails && (!d.ifsc || !d.bankName || !d.branch)) return
-    if (shouldUseBankDetails && !d?.chequeImageUrl)
+    if (shouldUseBankDetails && !normalizedChequeImageUrl)
       return setError('chequeImageUrl', {
         type: 'required',
         message: 'Cheque image is required',
@@ -103,7 +129,7 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
       branch: shouldUseBankDetails ? d.branch ?? null : null,
       accountType: shouldUseBankDetails ? d.accountType ?? 'SAVINGS' : undefined,
       upiId: normalizedUpiId || null,
-      chequeImageUrl: shouldUseBankDetails ? d.chequeImageUrl ?? null : null,
+      chequeImageUrl: shouldUseBankDetails ? normalizedChequeImageUrl || null : null,
     } as BankAccount
 
     await onAdd(newAcc as BankAccount)
@@ -311,16 +337,25 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
                   variant="button"
                   accept="image/*,.pdf"
                   folderKey="ir"
-                  placeholder={watch('chequeImageKey' as keyof BankAccount)}
+                  placeholder={watch('chequeImageKey')}
                   error={!!errors.chequeImageUrl}
                   onUploaded={(files) => {
-                    setValue('chequeImageUrl', files[0]?.url, {
+                    const uploadedFile = files[0]
+
+                    setValue('chequeImageUrl', uploadedFile?.url ?? '', {
                       shouldValidate: true,
                     })
-                    setValue('chequeImageKey' as keyof BankAccount, files[0]?.key, {
-                      shouldValidate: true,
-                    })
-                    clearErrors('chequeImageUrl')
+                    setValue(
+                      'chequeImageKey',
+                      uploadedFile?.originalName ??
+                        extractStoredFileName(uploadedFile?.url || uploadedFile?.key),
+                      {
+                        shouldValidate: true,
+                      },
+                    )
+                    if (uploadedFile) {
+                      clearErrors('chequeImageUrl')
+                    }
                   }}
                 />
                 {errors.chequeImageUrl && (

@@ -24,6 +24,16 @@ export const BankAccountsSection: React.FC = () => {
 
   const [editing, setEditing] = useState<BankAccount | null>(null)
 
+  const openAddDialog = () => {
+    setEditing(null)
+    setOpen(true)
+  }
+
+  const closeDialog = () => {
+    setOpen(false)
+    setEditing(null)
+  }
+
   const handleMakePrimary = (id: string) => {
     makePrimary.mutate(id, {
       onSuccess: () =>
@@ -51,10 +61,9 @@ export const BankAccountsSection: React.FC = () => {
         {
           onSuccess: () => {
             toast.open({ message: 'Bank Account updated!' })
-            setOpen(false)
-            setEditing(null)
+            closeDialog()
           },
-          onError: () => toast.open({ message: 'Error updating Bank Account!' }),
+          onError: (err) => toast.open({ message: err.message, severity: 'error' }),
         },
       )
     } else {
@@ -62,9 +71,9 @@ export const BankAccountsSection: React.FC = () => {
       addBank.mutate(data as BankAccount, {
         onSuccess: () => {
           toast.open({ message: 'Bank Account added successfully!' })
-          setOpen(false)
+          closeDialog()
         },
-        onError: () => toast.open({ message: 'Error adding Bank Account!' }),
+        onError: (err) => toast.open({ message: err.message, severity: 'error' }),
       })
     }
   }
@@ -105,7 +114,7 @@ export const BankAccountsSection: React.FC = () => {
         {accounts && accounts.length > 0 && (
           <Button
             variant="contained"
-            onClick={() => setOpen(true)}
+            onClick={openAddDialog}
             sx={{
               borderRadius: 0,
               textTransform: 'none',
@@ -197,7 +206,7 @@ export const BankAccountsSection: React.FC = () => {
           </Stack>
           <Button
             variant="contained"
-            onClick={() => setOpen(true)}
+            onClick={openAddDialog}
             sx={{
               px: 4,
               py: 1.5,
@@ -217,16 +226,10 @@ export const BankAccountsSection: React.FC = () => {
         </Box>
       )}
 
-      {!accounts?.length && (
-        <Box sx={{ display: 'none' }}>
-          <AddBankAccountDialog open={open} onClose={() => setOpen(false)} onAdd={handleAdd} />
-        </Box>
-      )}
-
       <AddBankAccountDialog
         addingAccount={addBank.isPending || editBank.isPending}
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={closeDialog}
         initialData={editing ?? undefined}
         onAdd={handleAdd}
       />
