@@ -26,16 +26,10 @@ const BankAccountCard = ({ account, onUpdateStatus, signedChequeUrl }) => {
   const rejectionColor = useColorModeValue('red.700', 'red.300')
 
   return (
-    <Box
-      borderRadius="xl"
-      boxShadow="sm"
-      bg={cardBg}
-      p={4}
-      width="100%"
-    >
+    <Box borderRadius="xl" boxShadow="sm" bg={cardBg} p={4} width="100%">
       <Flex justify="space-between" align="center" mb={3} gap={2}>
         <Text fontSize="lg" fontWeight="bold" color={valueColor} flex="1">
-          {account.bankName || 'Bank Name'}
+          {account.bankName || account.upiId || 'Bank Name'}
         </Text>
 
         {account.isPrimary && (
@@ -57,8 +51,8 @@ const BankAccountCard = ({ account, onUpdateStatus, signedChequeUrl }) => {
             account.status === 'pending'
               ? 'warning'
               : account.status === 'verified'
-              ? 'success'
-              : 'error'
+                ? 'success'
+                : 'error'
           }
         />
       </Flex>
@@ -68,45 +62,43 @@ const BankAccountCard = ({ account, onUpdateStatus, signedChequeUrl }) => {
           <Text fontWeight="600" color={labelColor}>
             Account Number:
           </Text>
-          <Text color={valueColor}>{account.accountNumber || '—'}</Text>
+          <Text color={valueColor}>{account.accountNumber || '-'}</Text>
+        </Box>
+        <Box>
+          <Text fontWeight="600" color={labelColor}>
+            UPI ID:
+          </Text>
+          <Text color={valueColor}>{account.upiId || '-'}</Text>
         </Box>
         <Box>
           <Text fontWeight="600" color={labelColor}>
             Account Holder:
           </Text>
           <Text color={valueColor}>
-            {account.accountHolderName || account.accountHolder || '—'}
+            {account.accountHolderName || account.accountHolder || '-'}
           </Text>
         </Box>
         <Box>
           <Text fontWeight="600" color={labelColor}>
             IFSC Code:
           </Text>
-          <Text color={valueColor}>{account.ifscCode || account.ifsc || '—'}</Text>
+          <Text color={valueColor}>{account.ifscCode || account.ifsc || '-'}</Text>
         </Box>
         <Box>
           <Text fontWeight="600" color={labelColor}>
             Branch:
           </Text>
-          <Text color={valueColor}>{account.branch || '—'}</Text>
+          <Text color={valueColor}>{account.branch || '-'}</Text>
         </Box>
       </SimpleGrid>
 
-      {/* Rejection Note */}
       {account.status === 'rejected' && account.internalNote && (
-        <Box
-          p={3}
-          bg={rejectionBg}
-          borderRadius="md"
-          color={rejectionColor}
-          mb={3}
-        >
+        <Box p={3} bg={rejectionBg} borderRadius="md" color={rejectionColor} mb={3}>
           <Text fontWeight="600">Rejection Note:</Text>
           <Text whiteSpace="pre-wrap">{account.internalNote}</Text>
         </Box>
       )}
 
-      {/* Signed Cheque Preview/Download Button */}
       {signedChequeUrl && (
         <Link href={signedChequeUrl} isExternal style={{ textDecoration: 'none' }}>
           <Button size="sm" colorScheme="teal" mb={3}>
@@ -115,7 +107,6 @@ const BankAccountCard = ({ account, onUpdateStatus, signedChequeUrl }) => {
         </Link>
       )}
 
-      {/* Pending Status Action */}
       {account?.status === 'pending' && (
         <BankAccountRow account={account} onUpdateStatus={onUpdateStatus} />
       )}
@@ -124,26 +115,22 @@ const BankAccountCard = ({ account, onUpdateStatus, signedChequeUrl }) => {
 }
 
 const BankAccountsTab = ({ userId }) => {
-  // All hooks must be called before any conditional returns
   const bg = useColorModeValue('gray.50', 'gray.800')
   const dividerBorderColor = useColorModeValue('gray.200', 'gray.600')
   const emptyTextColor = useColorModeValue('gray.500', 'gray.400')
 
-  // Fetch user bank accounts with React Query hook
   const { data: bankAccounts, isLoading, error } = useUserBankAccounts(userId)
-  const { mutateAsync: updateStatus, isPending: isUpdating } = useUpdateBankAccountStatus(userId)
+  const { mutateAsync: updateStatus } = useUpdateBankAccountStatus(userId)
 
   const chequeKeys = useMemo(() => {
     if (!bankAccounts) return []
-    return bankAccounts?.map((account) => account?.chequeImageUrl).filter(Boolean) // remove undefined/null
+    return bankAccounts.map((account) => account?.chequeImageUrl).filter(Boolean)
   }, [bankAccounts])
 
-  // Fetch presigned URLs for all cheque keys
   const { data: chequeUrls, refetch: refetchCheques } = usePresignedDownloadUrls({
     keys: chequeKeys,
   })
 
-  // Refetch when keys change
   useEffect(() => {
     if (chequeKeys.length) {
       refetchCheques()
@@ -173,7 +160,6 @@ const BankAccountsTab = ({ userId }) => {
       </Center>
     )
   }
-  console.log(chequeUrls)
 
   return (
     <Box p={6} w="100%" maxW="900px" mx="auto" bg={bg} borderRadius="xl" minH="400px">
@@ -183,18 +169,18 @@ const BankAccountsTab = ({ userId }) => {
         </Text>
       </Flex>
 
-      {bankAccounts && bankAccounts?.length > 0 ? (
+      {bankAccounts && bankAccounts.length > 0 ? (
         <VStack
           divider={<StackDivider borderColor={dividerBorderColor} />}
           spacing={6}
           align="stretch"
         >
-          {bankAccounts.map((account) => (
+          {bankAccounts.map((account, index) => (
             <BankAccountCard
               key={account.id}
               account={account}
               onUpdateStatus={handleUpdateStatus}
-              signedChequeUrl={chequeUrls?.[0]}
+              signedChequeUrl={chequeUrls?.[index]}
             />
           ))}
         </VStack>

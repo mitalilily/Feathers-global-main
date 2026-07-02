@@ -10,6 +10,18 @@ import { pennyDropVerifyLive } from './razorpayPennydrop.service'
 // import { AxiosError } from "axios";
 // import { cashfreeApi } from "../../utils/cashfree";
 
+const normalizeNullableString = (value: unknown) => {
+  if (value === undefined || value === null) return value
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+const normalizeUpperString = (value: unknown) => {
+  const normalized = normalizeNullableString(value)
+  return typeof normalized === 'string' ? normalized.toUpperCase() : normalized
+}
+
 // Razorpay Penny Drop Verification
 export const addBankAccount = async (
   userId: string,
@@ -214,14 +226,54 @@ export async function updateBankAccount(
 
     if (!existing) throw new Error('Bank account not found')
 
+    const normalizedPatch: Record<string, any> = { ...patch }
+
+    if ('upiId' in patch) {
+      const normalizedUpiId = normalizeNullableString(patch.upiId)
+      normalizedPatch.upiId =
+        typeof normalizedUpiId === 'string' ? normalizedUpiId.toLowerCase() : normalizedUpiId
+    }
+    if ('accountNumber' in patch) normalizedPatch.accountNumber = normalizeNullableString(patch.accountNumber)
+    if ('bankName' in patch) normalizedPatch.bankName = normalizeNullableString(patch.bankName) ?? ''
+    if ('branch' in patch) normalizedPatch.branch = normalizeNullableString(patch.branch) ?? ''
+    if ('ifsc' in patch) normalizedPatch.ifsc = normalizeUpperString(patch.ifsc) ?? ''
+    if ('accountHolder' in patch) normalizedPatch.accountHolder = normalizeNullableString(patch.accountHolder) ?? ''
+    if ('chequeImageUrl' in patch) {
+      normalizedPatch.chequeImageUrl = normalizeNullableString(patch.chequeImageUrl) ?? ''
+    }
+
+    const mergedAccount = {
+      ...existing,
+      ...normalizedPatch,
+    }
+
+    const hasUpiId = !!String(mergedAccount.upiId ?? '').trim()
+    const hasAccountNumber = !!String(mergedAccount.accountNumber ?? '').trim()
+
+    if (!hasUpiId && !hasAccountNumber) {
+      throw new Error('Provide either UPI ID or bank account number')
+    }
+
+    if (hasAccountNumber) {
+      const missing = [
+        !String(mergedAccount.bankName ?? '').trim() && 'bankName',
+        !String(mergedAccount.branch ?? '').trim() && 'branch',
+        !String(mergedAccount.ifsc ?? '').trim() && 'ifsc',
+        !String(mergedAccount.accountType ?? '').trim() && 'accountType',
+        !String(mergedAccount.accountHolder ?? '').trim() && 'accountHolder',
+      ].filter(Boolean)
+
+      if (missing.length) throw new Error(`Missing required fields: ${missing.join(', ')}`)
+    }
+
     /* ------------------------------------------------------------ 2. Uniqueness checks */
-    if (patch.upiId && patch.upiId !== existing.upiId) {
+    if ('upiId' in normalizedPatch && normalizedPatch.upiId && normalizedPatch.upiId !== existing.upiId) {
       const [{ count }] = await tx
         .select({ count: sql<number>`count(*)` })
         .from(bankAccounts)
         .where(
           and(
-            eq(bankAccounts.upiId, patch.upiId),
+            eq(bankAccounts.upiId, normalizedPatch.upiId),
             eq(bankAccounts.userId, userId),
             ne(bankAccounts.id, accountId),
           ),
@@ -229,13 +281,17 @@ export async function updateBankAccount(
       if (count > 0) throw new Error('UPI ID already in use')
     }
 
-    if (patch.accountNumber && patch.accountNumber !== existing.accountNumber) {
+    if (
+      'accountNumber' in normalizedPatch &&
+      normalizedPatch.accountNumber &&
+      normalizedPatch.accountNumber !== existing.accountNumber
+    ) {
       const [{ count }] = await tx
         .select({ count: sql<number>`count(*)` })
         .from(bankAccounts)
         .where(
           and(
-            eq(bankAccounts.accountNumber, patch.accountNumber),
+            eq(bankAccounts.accountNumber, normalizedPatch.accountNumber),
             eq(bankAccounts.userId, userId),
             ne(bankAccounts.id, accountId),
           ),
@@ -245,9 +301,10 @@ export async function updateBankAccount(
 
     /* ------------------------------------------------------------ 3. Detect sensitive changes */
     const coreChanged =
-      (patch.upiId && patch.upiId !== existing.upiId) ||
-      (patch.accountNumber && patch.accountNumber !== existing.accountNumber) ||
-      (patch.ifsc && patch.ifsc !== existing.ifsc)
+      ('upiId' in normalizedPatch && normalizedPatch.upiId !== existing.upiId) ||
+      ('accountNumber' in normalizedPatch &&
+        normalizedPatch.accountNumber !== existing.accountNumber) ||
+      ('ifsc' in normalizedPatch && normalizedPatch.ifsc !== existing.ifsc)
 
     const nextStatus = coreChanged ? 'pending' : existing.status
 
@@ -261,7 +318,7 @@ export async function updateBankAccount(
 
     /* ------------------------------------------------------------ 5. Build & apply update (fundAccountId untouched) */
     const updatePayload: Partial<BankAccount> = {
-      ...patch,
+      ...normalizedPatch,
       status: nextStatus,
     }
     delete updatePayload.fundAccountId // keep whatever is already there

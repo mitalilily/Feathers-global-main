@@ -32,6 +32,9 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
   addingAccount = false,
   initialData,
 }) => {
+  const resolveMode = (data?: Partial<BankAccount>): 'bank' | 'upi' =>
+    data?.accountNumber ? 'bank' : data?.upiId ? 'upi' : 'bank'
+
   const {
     register,
     handleSubmit,
@@ -46,40 +49,61 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
     defaultValues: initialData ?? {},
   })
 
-  const [mode, setMode] = useState<'bank' | 'upi'>(() => (initialData?.upiId ? 'upi' : 'bank'))
+  const [mode, setMode] = useState<'bank' | 'upi'>(() => resolveMode(initialData))
 
   useEffect(() => {
     if (initialData) {
       reset(initialData)
-      setMode(initialData.upiId ? 'upi' : 'bank')
+      setMode(resolveMode(initialData))
       setValue(
         'chequeImageKey' as keyof BankAccount,
         initialData.chequeImageUrl?.split('/').pop() ?? '',
       )
     }
-  }, [initialData])
+  }, [initialData, reset, setValue])
 
   const submit = handleSubmit(async (d) => {
-    if (mode === 'bank' && (!d.accountNumber || !d.ifsc || !d.bankName)) return
-    if (mode === 'bank' && !d?.chequeImageUrl)
+    const normalizedUpiId = String(d.upiId ?? '')
+      .trim()
+      .toLowerCase()
+    const normalizedAccountNumber = String(d.accountNumber ?? '').trim()
+    const shouldUseBankDetails = mode === 'bank' && !!normalizedAccountNumber
+
+    if (!normalizedUpiId && !shouldUseBankDetails) {
+      setError('accountNumber', {
+        type: 'required',
+        message: 'Provide either bank account details or a UPI ID',
+      })
+      return setError('upiId', {
+        type: 'required',
+        message: 'Provide either UPI ID or bank account details',
+      })
+    }
+
+    if (shouldUseBankDetails && (!d.ifsc || !d.bankName || !d.branch)) return
+    if (shouldUseBankDetails && !d?.chequeImageUrl)
       return setError('chequeImageUrl', {
         type: 'required',
         message: 'Cheque image is required',
       })
-    if (mode === 'upi' && !d.upiId) return
+    if (!shouldUseBankDetails && !normalizedUpiId)
+      return setError('upiId', {
+        type: 'required',
+        message: 'UPI ID is required',
+      })
 
     const newAcc = {
       ...initialData,
       status: 'pending',
       isPrimary: initialData?.isPrimary ?? false,
       accountHolder: d.accountHolder,
-      accountNumber: mode === 'bank' ? d?.accountNumber : null,
-      ifsc: d.ifsc ?? null,
-      bankName: d.bankName ?? null,
-      branch: d.branch,
-      accountType: d.accountType ?? 'SAVINGS',
-      upiId: d.upiId ?? null,
-      chequeImageUrl: d.chequeImageUrl ?? null,
+      accountNumber: shouldUseBankDetails ? normalizedAccountNumber : null,
+      ifsc: shouldUseBankDetails ? d.ifsc ?? null : null,
+      bankName: shouldUseBankDetails ? d.bankName ?? null : null,
+      branch: shouldUseBankDetails ? d.branch ?? null : null,
+      accountType: shouldUseBankDetails ? d.accountType ?? 'SAVINGS' : undefined,
+      upiId: normalizedUpiId || null,
+      chequeImageUrl: shouldUseBankDetails ? d.chequeImageUrl ?? null : null,
     } as BankAccount
 
     await onAdd(newAcc as BankAccount)
@@ -151,6 +175,24 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
             })}
           />
 
+          <CustomInput
+            label={mode === 'upi' ? 'UPI ID' : 'UPI ID (Optional)'}
+            placeholder="e.g., yourname@upi"
+            required={mode === 'upi'}
+            fullWidth
+            error={!!errors.upiId}
+            helperText={errors.upiId?.message as string}
+            {...register('upiId', {
+              required: mode === 'upi' && 'UPI ID is required',
+              onChange: (e) => {
+                setValue('upiId', e.target.value.toLowerCase(), {
+                  shouldValidate: true,
+                })
+                clearErrors(['upiId', 'accountNumber'])
+              },
+            })}
+          />
+
           {/* Bank Fields */}
           {mode === 'bank' && (
             <>
@@ -167,6 +209,7 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
                     value: /^[0-9]{9,18}$/,
                     message: '9–18 digits only',
                   },
+                  onChange: () => clearErrors(['accountNumber', 'upiId']),
                 })}
               />
               <CustomInput
@@ -287,22 +330,6 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
                 )}
               </Stack>
             </>
-          )}
-
-          {/* UPI ID field */}
-          {mode === 'upi' && (
-            <CustomInput
-              label="UPI ID"
-              placeholder="e.g., yourname@upi"
-              required
-              fullWidth
-              error={!!errors.upiId}
-              helperText={errors.upiId?.message as string}
-              {...register('upiId', {
-                required: mode === 'upi' && 'UPI ID is required',
-                onChange: (e) => setValue('upiId', e.target.value.toLowerCase()),
-              })}
-            />
           )}
 
           {/* Submit button */}
