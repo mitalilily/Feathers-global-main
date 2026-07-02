@@ -1611,13 +1611,28 @@ export class XpressbeesService {
     )
   }
 
-  async listNdr() {
+  async listNdr(input: {
+    awbNumber?: string | string[]
+    page?: string | number
+    perPage?: string | number
+  } = {}) {
+    const params = new URLSearchParams()
+    const awbNumber = Array.isArray(input.awbNumber)
+      ? input.awbNumber.map((value) => String(value || '').trim()).filter(Boolean).join(',')
+      : String(input.awbNumber || '').trim()
+    const page = String(input.page ?? '').trim()
+    const perPage = String(input.perPage ?? '').trim()
+
+    if (awbNumber) params.set('awb_number', awbNumber)
+    if (page) params.set('page', page)
+    if (perPage) params.set('per_page', perPage)
+
+    const suffix = params.toString() ? `?${params.toString()}` : ''
     return this.requestWithFallback<any>({
       method: 'get',
-      pathCandidates: this.getConfiguredPathCandidates('XPRESSBEES_NDR_ENDPOINTS', [
-        '/api/ndr',
-        '/ndr',
-      ]),
+      pathCandidates: this.getConfiguredPathCandidates('XPRESSBEES_NDR_ENDPOINTS', ['/api/ndr', '/ndr']).map(
+        (path) => `${String(path || '').trim()}${suffix}`,
+      ),
     })
   }
 
