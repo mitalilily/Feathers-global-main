@@ -319,6 +319,68 @@ jobs:
           """)
           PY
 
+      - name: Sync backend Razorpay env
+        env:
+          RAZORPAY_KEY_ID_PROD: ${{ secrets.RAZORPAY_KEY_ID_PROD }}
+          RAZORPAY_KEY_SECRET_PROD: ${{ secrets.RAZORPAY_KEY_SECRET_PROD }}
+          RAZORPAY_MERCHANT_ID_PROD: ${{ secrets.RAZORPAY_MERCHANT_ID_PROD }}
+          RAZORPAY_WEBHOOK_SECRET_PROD: ${{ secrets.RAZORPAY_WEBHOOK_SECRET_PROD }}
+        run: |
+          if [ -z "$RAZORPAY_KEY_ID_PROD" ] || [ -z "$RAZORPAY_KEY_SECRET_PROD" ]; then
+            echo "Razorpay live secrets are not fully set; skipping Razorpay env sync."
+            exit 0
+          fi
+
+          python3 - <<'PY' | dep-ssh "cd ${DEPLOY_APP_ROOT}/backend && umask 077 && python3 -"
+          import os
+
+          key_id = os.environ["RAZORPAY_KEY_ID_PROD"]
+          key_secret = os.environ["RAZORPAY_KEY_SECRET_PROD"]
+          merchant_id = os.environ.get("RAZORPAY_MERCHANT_ID_PROD", "").strip()
+          webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET_PROD", "").strip()
+
+          print(f"""
+          from pathlib import Path
+
+          path = Path(".env.production")
+          updates = {{
+              "RAZORPAY_MODE": "live",
+              "RAZORPAY_KEY_ID_PROD": {key_id!r},
+              "RAZORPAY_KEY_SECRET_PROD": {key_secret!r},
+          }}
+          merchant_id = {merchant_id!r}
+          webhook_secret = {webhook_secret!r}
+          if merchant_id:
+              updates["RAZORPAY_MERCHANT_ID_PROD"] = merchant_id
+          if webhook_secret:
+              updates["RAZORPAY_WEBHOOK_SECRET_PROD"] = webhook_secret
+
+          lines = path.read_text().splitlines() if path.exists() else []
+          seen = set()
+          next_lines = []
+
+          for line in lines:
+              if "=" not in line or line.lstrip().startswith("#"):
+                  next_lines.append(line)
+                  continue
+              key = line.split("=", 1)[0].strip()
+              if key in updates:
+                  next_lines.append(f"{{key}}={{updates[key]}}")
+                  seen.add(key)
+              else:
+                  next_lines.append(line)
+                  seen.add(key)
+
+          for key, value in updates.items():
+              if key not in seen:
+                  next_lines.append(f"{{key}}={{value}}")
+                  seen.add(key)
+
+          path.write_text("\\n".join(next_lines) + "\\n")
+          print("Razorpay backend env updated.")
+          """)
+          PY
+
       - name: Verify Shopify OAuth env
         continue-on-error: true
         env:

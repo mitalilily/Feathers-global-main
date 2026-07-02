@@ -45,3 +45,12 @@ Shopify OAuth deployment needs these GitHub Actions secrets:
 
 The deploy workflow writes Shopify OAuth settings into `backend/.env.production` and keeps `SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS=true` for the multi-merchant OAuth flow.
 After the secrets are present, the workflow runs the backend Shopify OAuth smoke check to verify the production redirect URI, signed state, offline grant shape, and callback HMAC validation without printing secrets.
+
+Razorpay live deployment can use these GitHub Actions secrets:
+
+- `RAZORPAY_KEY_ID_PROD`
+- `RAZORPAY_KEY_SECRET_PROD`
+- `RAZORPAY_MERCHANT_ID_PROD` optional
+- `RAZORPAY_WEBHOOK_SECRET_PROD` optional
+
+When the key ID and key secret are present, the deploy workflow writes them into `backend/.env.production` and forces `RAZORPAY_MODE=live` on the VPS without committing payment secrets to git.
