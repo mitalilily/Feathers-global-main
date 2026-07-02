@@ -238,6 +238,7 @@ export const generateInvoiceForUser = async (
     .from(userProfiles)
     .where(eq(userProfiles.userId, userId))
     .limit(1)
+  const [sellerUser] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId)).limit(1)
 
   const issuerName = adminPrefs?.brandName || 'Shiplifi'
   const issuerAddress = adminPrefs?.sellerAddress || 'N/A'
@@ -1055,7 +1056,7 @@ export const generateInvoiceForUser = async (
   }
 
   // Send email (don't fail invoice generation if email fails)
-  const sellerEmail = sellerRow?.companyInfo?.contactEmail
+  const sellerEmail = sellerRow?.companyInfo?.contactEmail || sellerUser?.email
   if (sellerEmail) {
     try {
       await sendInvoiceReadyEmail({

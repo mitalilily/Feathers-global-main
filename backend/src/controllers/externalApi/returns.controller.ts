@@ -6,6 +6,7 @@ import {
   assertReversePickupAllowed,
   quoteReverseForOrder,
 } from '../../models/services/reverse.service'
+import { sendReversePickupCreatedEmail } from '../../models/services/eventEmail.service'
 import { createB2CShipmentService } from '../../models/services/shiprocket.service'
 import { b2c_orders } from '../../schema/schema'
 import { sendWebhookEvent } from '../../services/webhookDelivery.service'
@@ -108,6 +109,14 @@ export const createReturnOrderController = async (req: any, res: Response) => {
       shipment_data: shipmentData,
     }).catch((err) => {
       console.error('Failed to send return order webhook:', err)
+    })
+
+    await sendReversePickupCreatedEmail({
+      order,
+      originalOrderId,
+      reverseCharge,
+    }).catch((err) => {
+      console.error('Failed to send reverse pickup email:', err)
     })
 
     res.status(201).json({

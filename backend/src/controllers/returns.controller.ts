@@ -1,4 +1,5 @@
 import { Response } from 'express'
+import { sendReversePickupCreatedEmail } from '../models/services/eventEmail.service'
 import { createB2CShipmentService } from '../models/services/shiprocket.service'
 import {
   appendReversePickupTags,
@@ -60,6 +61,13 @@ export const createReversePickup = async (req: any, res: Response) => {
     }
 
     const shipment = await createB2CShipmentService(payload, userId)
+    await sendReversePickupCreatedEmail({
+      order: shipment.order,
+      originalOrderId,
+      reverseCharge,
+    }).catch((err) => {
+      console.error('Failed to send reverse pickup email:', err)
+    })
     res.status(200).json({ success: true, shipment })
   } catch (error: any) {
     const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 400

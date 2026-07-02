@@ -24,6 +24,7 @@ import { OTP_EXPIRY } from '../utils/constants'
 import { eq } from 'drizzle-orm'
 import { db } from '../models/client'
 import { changeAdminPassword, loginAdmin } from '../models/services/adminAuth.service'
+import { sendAccountActivatedEmail } from '../models/services/eventEmail.service'
 import { employees } from '../schema/schema'
 import { sendVerificationEmail } from '../utils/emailSender'
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt'
@@ -260,6 +261,12 @@ export const verifyOtp = async (req: Request, res: Response): Promise<any> => {
 
     await clearUserOtpByEmail(normalizedEmail)
     await markEmailVerified(normalizedEmail) // update emailVerified = true
+    await sendAccountActivatedEmail({
+      userId: user.id,
+      email: user.email,
+    }).catch((err) => {
+      console.error('Failed to send account activation email after OTP verification:', err)
+    })
     const accessToken = signAccessToken(user.id, user.role ?? 'customer')
 
     const { token: refreshToken } = signRefreshToken(user.id, user.role ?? 'customer')
@@ -372,6 +379,12 @@ export const verifyEmailToken = async (req: Request, res: Response): Promise<any
 
     await markEmailVerified(email)
     await clearUserEmailToken(email)
+    await sendAccountActivatedEmail({
+      userId: user.id,
+      email: user.email,
+    }).catch((err) => {
+      console.error('Failed to send account activation email after email token verification:', err)
+    })
     /* ── Sign & Set JWTs ────────────────────────────────────────────── */
     const accessToken = signAccessToken(user.id, user.role ?? 'customer')
 
@@ -435,6 +448,7 @@ export const googleOAuthLogin = async (req: Request, res: Response): Promise<any
 
     // ✅ Step 3: Create or update user
     let user = await findUserByEmail(email)
+    const shouldSendActivationEmail = !user || !user.emailVerified
 
     if (user) {
       await updateUserByEmail(email, {
@@ -470,6 +484,14 @@ export const googleOAuthLogin = async (req: Request, res: Response): Promise<any
 
     if (user) {
       /* ── Sign & Set JWTs ────────────────────────────────────────────── */
+      if (shouldSendActivationEmail) {
+        await sendAccountActivatedEmail({
+          userId: user.id,
+          email: user.email,
+        }).catch((err) => {
+          console.error('Failed to send account activation email after Google login:', err)
+        })
+      }
       const accessToken = signAccessToken(user.id, user.role ?? 'customer')
 
       const { token: refreshToken } = signRefreshToken(user.id, user.role ?? 'customer')

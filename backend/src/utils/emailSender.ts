@@ -28,7 +28,7 @@ const BRAND_MUTED = '#6B7280'
 const BRAND_BORDER = '#E5E7EB'
 const BRAND_SURFACE = '#F9FAFB'
 
-type AttachmentInput = {
+export type AttachmentInput = {
   /** local file path OR Buffer */
   path?: string
   buffer?: Buffer
@@ -45,7 +45,7 @@ type EmailFrameOptions = {
   footerNote?: string
 }
 
-const renderEmailButton = (label: string, href: string) => `
+export const renderEmailButton = (label: string, href: string) => `
   <a
     href="${href}"
     style="
@@ -62,7 +62,7 @@ const renderEmailButton = (label: string, href: string) => `
   </a>
 `
 
-const renderDataTable = (rows: Array<{ label: string; value: string }>) => `
+export const renderDataTable = (rows: Array<{ label: string; value: string }>) => `
   <table style="width:100%; border-collapse:collapse; margin-top:18px; border:1px solid ${BRAND_BORDER};">
     ${rows
       .map(
@@ -81,7 +81,7 @@ const renderDataTable = (rows: Array<{ label: string; value: string }>) => `
   </table>
 `
 
-const renderEmailFrame = ({
+export const renderEmailFrame = ({
   eyebrow = 'FGShip',
   title,
   intro,
@@ -153,7 +153,7 @@ const createTransporter = () => {
 /**
  * Low-level sendEmail supporting optional attachments
  */
-const sendEmail = async (
+export const sendEmail = async (
   to: string,
   subject: string,
   htmlContent: string,
@@ -272,7 +272,7 @@ export const sendEmployeeCredentials = async (
 
   await sendEmail(to, 'Your Feather Global employee account', html)
 }
-const escapeHtml = (unsafe: string) =>
+export const escapeHtml = (unsafe: string) =>
   unsafe
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

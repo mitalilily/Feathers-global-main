@@ -333,63 +333,36 @@ export async function createWeightDiscrepancy(params: CreateDiscrepancyParams) {
     }
   }
 
-  // Send email notification based on user preferences
-  if (settings) {
-    // Get user email
-    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
 
-    if (user?.email) {
-      if (autoAccepted) {
-        // Always send notification for auto-accepted discrepancies to inform seller what happened
-        const thresholdInfo = settings.auto_accept_threshold_kg
-          ? `${settings.auto_accept_threshold_kg}kg`
-          : settings.auto_accept_threshold_percent
-          ? `${settings.auto_accept_threshold_percent}%`
-          : undefined
+  if (user?.email) {
+    const thresholdInfo = settings?.auto_accept_threshold_kg
+      ? `${settings.auto_accept_threshold_kg}kg`
+      : settings?.auto_accept_threshold_percent
+        ? `${settings.auto_accept_threshold_percent}%`
+        : undefined
 
-        sendWeightDiscrepancyEmail({
-          userEmail: user.email,
-          userName: (user as any).name || 'User',
-          orderNumber,
-          awbNumber,
-          courierPartner,
-          declaredWeight,
-          chargedWeight,
-          weightDifference,
-          additionalCharge,
-          discrepancyId: discrepancy.id,
-          autoAccepted: true,
-          autoAcceptThreshold: thresholdInfo,
-        }).catch((err) => console.error('Failed to send auto-acceptance email:', err))
-      } else {
-        // For non-auto-accepted discrepancies, check notification preferences
-        const isLargeDiscrepancy =
-          Math.abs(weightDifference) >= Number(settings.large_discrepancy_threshold_kg || 0.5)
-
-        // Send notification if:
-        // 1. General notifications are enabled (notify_on_discrepancy), OR
-        // 2. It's a large discrepancy AND large discrepancy notifications are enabled
-        const shouldNotify =
-          settings.notify_on_discrepancy ||
-          (isLargeDiscrepancy && settings.notify_on_large_discrepancy)
-
-        if (shouldNotify) {
-          sendWeightDiscrepancyEmail({
-            userEmail: user.email,
-            userName: (user as any).name || 'User',
-            orderNumber,
-            awbNumber,
-            courierPartner,
-            declaredWeight,
-            chargedWeight,
-            weightDifference,
-            additionalCharge,
-            discrepancyId: discrepancy.id,
-            autoAccepted: false,
-          }).catch((err) => console.error('Failed to send discrepancy email:', err))
-        }
-      }
-    }
+    sendWeightDiscrepancyEmail({
+      userEmail: user.email,
+      userName: (user as any).name || 'User',
+      orderNumber,
+      awbNumber,
+      courierPartner,
+      declaredWeight,
+      chargedWeight,
+      weightDifference,
+      additionalCharge,
+      discrepancyId: discrepancy.id,
+      autoAccepted,
+      autoAcceptThreshold: autoAccepted ? thresholdInfo : undefined,
+    }).catch((err) =>
+      console.error(
+        autoAccepted
+          ? 'Failed to send auto-acceptance email:'
+          : 'Failed to send discrepancy email:',
+        err,
+      ),
+    )
   }
 
   return discrepancy

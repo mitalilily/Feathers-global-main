@@ -17,6 +17,7 @@ import {
   calculateChargedWeight,
   calculateVolumetricWeight,
 } from './courierWeightCalculation.service'
+import { sendOrderStatusUpdateEmail, sendTaxInvoiceGeneratedEmail } from './eventEmail.service'
 import { generateInvoicePDF } from './invoice.service'
 import { recordNdrEvent } from './ndr.service'
 import { createNotificationService } from './notifications.service'
@@ -47,6 +48,33 @@ const normalizeWebhookText = (...parts: unknown[]) =>
     .map((part) => String(part || '').trim().toLowerCase())
     .filter(Boolean)
     .join(' | ')
+
+const notifyOrderStatusEmail = async (params: {
+  order: any
+  nextStatus: string
+  previousStatus?: string | null
+  rawStatus?: string | null
+  location?: string | null
+  remarks?: string | null
+  source: string
+}) => {
+  const nextStatus = String(params.nextStatus || '').trim().toLowerCase()
+  const previousStatus = String(params.previousStatus || '').trim().toLowerCase()
+  if (!nextStatus) return
+  if (nextStatus === previousStatus && nextStatus !== 'delivered') return
+
+  await sendOrderStatusUpdateEmail({
+    order: params.order,
+    nextStatus,
+    previousStatus,
+    rawStatus: params.rawStatus,
+    location: params.location,
+    remarks: params.remarks,
+    source: params.source,
+  }).catch((err) => {
+    console.error(`Failed to send order status email for ${params.order?.order_number}:`, err)
+  })
+}
 
 const hasNdrSignal = (...parts: unknown[]) => {
   const text = normalizeWebhookText(...parts)
@@ -415,6 +443,16 @@ const generateInvoiceForOrderWebhook = async (
     console.log(
       `✅ Invoice uploaded successfully for order ${order.order_number}: ${trimmedKey} (status: ${uploadResponse.status})`,
     )
+
+    await sendTaxInvoiceGeneratedEmail({
+      order,
+      invoiceNumber,
+      invoiceDate: invoiceDateStored,
+      invoiceAmount,
+      invoiceKey: trimmedKey,
+    }).catch((emailErr) => {
+      console.error(`Failed to send tax invoice email for ${order.order_number}:`, emailErr)
+    })
 
     return {
       key: trimmedKey,
@@ -1257,9 +1295,19 @@ export async function processDelhiveryWebhook(payload: any, tx = db) {
     }
 
     // 3️⃣ Cancelled → Refund wallet
-    if (internalStatus === 'cancelled') {
+  if (internalStatus === 'cancelled') {
       await applyCancellationRefundOnce(innerTx, order, 'delhivery_webhook')
     }
+  })
+
+  await notifyOrderStatusEmail({
+    order,
+    nextStatus: shouldHoldPreManifestStatus ? currentStatus || 'booked' : internalStatus,
+    previousStatus: currentStatus,
+    rawStatus: status,
+    location,
+    remarks: instructions,
+    source: 'delhivery_webhook',
   })
 
   try {
@@ -1920,6 +1968,16 @@ export async function processEkartWebhook(payload: any, tx = db) {
     }
   })
 
+  await notifyOrderStatusEmail({
+    order,
+    nextStatus: internalStatus,
+    previousStatus,
+    rawStatus: statusRaw,
+    location,
+    remarks: remarks || statusText,
+    source: 'ekart_webhook',
+  })
+
   await sendWebhookEvent(order.user_id, 'tracking.updated', {
     awb_number: order.awb_number || awb,
     order_id: order.id,
@@ -2245,6 +2303,16 @@ export async function processXpressbeesWebhook(payload: any, tx = db) {
         console.error(`❌ Xpressbees invoice flow error for ${order.order_number}:`, err)
       }
     }
+  })
+
+  await notifyOrderStatusEmail({
+    order,
+    nextStatus: internalStatus,
+    previousStatus,
+    rawStatus: statusRaw,
+    location,
+    remarks: remarks || statusText,
+    source: 'xpressbees_webhook',
   })
 
   await sendWebhookEvent(order.user_id, 'tracking.updated', {
@@ -2736,6 +2804,16 @@ export async function processAmazonShippingTrackingWebhook(payload: any, tx = db
     }
   })
 
+  await notifyOrderStatusEmail({
+    order,
+    nextStatus: internalStatus,
+    previousStatus,
+    rawStatus: status || eventCode,
+    location,
+    remarks: remarks || status,
+    source: 'amazon_shipping_webhook',
+  })
+
   await sendWebhookEvent(order.user_id, 'tracking.updated', {
     awb_number: order.awb_number || primaryTrackingId,
     order_id: order.id,
@@ -3221,6 +3299,16 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
         console.error('❌ Failed to log Shadowfax tracking event:', err)
       }
     }
+  })
+
+  await notifyOrderStatusEmail({
+    order,
+    nextStatus: internalStatus,
+    previousStatus,
+    rawStatus: statusRaw,
+    location,
+    remarks: remarks || String(event?.status || statusRaw || internalStatus),
+    source: 'shadowfax_webhook',
   })
 
   await sendWebhookEvent(order.user_id, 'tracking.updated', {

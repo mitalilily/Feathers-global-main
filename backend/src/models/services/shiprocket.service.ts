@@ -49,6 +49,7 @@ import { users } from '../schema/users'
 import { wallets, walletTransactions } from '../schema/wallet'
 import { computeRovChargeForOrder } from './insurance.service'
 import { generateInvoicePDF, Product } from './invoice.service'
+import { sendOrderStatusUpdateEmail, sendTaxInvoiceGeneratedEmail } from './eventEmail.service'
 import { formatPickupAddress, loadInvoiceAssets, normalizePickupDetails } from './invoiceHelpers'
 import { resolveInvoiceNumber } from './invoiceNumber.service'
 import { createNotificationService } from './notifications.service'
@@ -10259,6 +10260,16 @@ async function generateInvoiceForManifestOrderOutsideTransaction(order: any): Pr
       `✅ [Manifest] Invoice generated and uploaded successfully for order ${order.order_number}: ${keyToStore} (status: ${uploadResponse.status})`,
     )
 
+    await sendTaxInvoiceGeneratedEmail({
+      order,
+      invoiceNumber,
+      invoiceDate: invoiceDateStored,
+      invoiceAmount,
+      invoiceKey: keyToStore,
+    }).catch((emailErr: any) => {
+      console.error(`Failed to send tax invoice email for ${order.order_number}:`, emailErr)
+    })
+
     return {
       key: keyToStore,
       invoiceNumber,
@@ -12529,6 +12540,16 @@ export const generateManifestService = async (params: {
               `✅ [Manifest] Invoice generated and uploaded successfully for order ${order.order_number}: ${keyToStore} (status: ${uploadResponse.status})`,
             )
 
+            await sendTaxInvoiceGeneratedEmail({
+              order,
+              invoiceNumber,
+              invoiceDate: invoiceDateStored,
+              invoiceAmount,
+              invoiceKey: keyToStore,
+            }).catch((emailErr: any) => {
+              console.error(`Failed to send tax invoice email for ${order.order_number}:`, emailErr)
+            })
+
             return {
               key: keyToStore,
               invoiceNumber,
@@ -13515,6 +13536,16 @@ export const generateManifestService = async (params: {
           )
 
           // 🖨️ Generate label if it doesn't exist and order has AWB
+          await sendTaxInvoiceGeneratedEmail({
+            order,
+            invoiceNumber,
+            invoiceDate: invoiceDateStored,
+            invoiceAmount,
+            invoiceKey: keyToStore,
+          }).catch((emailErr: any) => {
+            console.error(`Failed to send tax invoice email for ${order.order_number}:`, emailErr)
+          })
+
           if (!order.label && order.awb_number) {
             try {
               console.log(
@@ -14784,6 +14815,32 @@ const trackingWebhookEventForStatus = (status: string) => {
   return 'order.updated'
 }
 
+const notifyLiveTrackingStatusEmail = async (params: {
+  order: any
+  nextStatus: string
+  previousStatus: string
+  rawStatus?: string | null
+  location?: string | null
+  remarks?: string | null
+}) => {
+  const nextStatus = sanitizeString(params.nextStatus).toLowerCase()
+  const previousStatus = sanitizeString(params.previousStatus).toLowerCase()
+  if (!nextStatus) return
+  if (nextStatus === previousStatus && nextStatus !== 'delivered') return
+
+  await sendOrderStatusUpdateEmail({
+    order: params.order,
+    nextStatus,
+    previousStatus,
+    rawStatus: params.rawStatus,
+    location: params.location,
+    remarks: params.remarks,
+    source: 'live_tracking_fetch',
+  }).catch((err: any) => {
+    console.error(`Failed to send live tracking status email for ${params.order?.order_number}:`, err)
+  })
+}
+
 const runB2CLiveTrackingSideEffects = async ({
   order,
   nextStatus,
@@ -15080,6 +15137,15 @@ const persistLiveTrackingStatus = async (
       console.error('Failed to log live tracking event:', err?.message || err)
     }
   }
+
+  await notifyLiveTrackingStatusEmail({
+    order,
+    nextStatus,
+    previousStatus,
+    rawStatus,
+    location: latest?.location || null,
+    remarks: latest?.message || tracking.shipment_info || null,
+  })
 
   await sendWebhookEvent(order.user_id, 'tracking.updated', {
     awb_number: order.awb_number,

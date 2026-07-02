@@ -2,6 +2,7 @@ import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import { billingInvoices, invoiceCodOffsets } from '../../schema/schema'
 import { db } from '../client'
 import { codRemittances } from '../schema/codRemittance'
+import { sendCodRemittanceEventEmail } from './eventEmail.service'
 import { getInvoiceStatement } from './invoiceStatement.service'
 
 /**
@@ -86,6 +87,13 @@ export async function createCodRemittance(params: {
   console.log(
     `📦 COD Remittance created (PENDING): ₹${remittableAmount} for order ${orderNumber}. Waiting for courier settlement.`,
   )
+
+  await sendCodRemittanceEventEmail({
+    remittance,
+    event: 'created',
+  }).catch((err) => {
+    console.error(`Failed to send COD remittance created email for ${orderNumber}:`, err)
+  })
 
   return { remittance, created: true }
 }
@@ -217,6 +225,15 @@ export async function markCodRemittanceSettled(params: {
           console.error('Failed to auto-mark invoice as paid:', err)
         }
       }
+      await sendCodRemittanceEventEmail({
+        remittance: result.updatedRemittance,
+        event: 'settled',
+      }).catch((err) => {
+        console.error(
+          `Failed to send COD remittance settled email for ${result.updatedRemittance?.orderNumber}:`,
+          err,
+        )
+      })
       return result.updatedRemittance
     })
 }

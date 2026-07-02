@@ -9,6 +9,7 @@ import {
 import { db } from '../client'
 import { wallets, walletTopups } from '../schema/wallet'
 import { users } from '../schema/users'
+import { sendWalletRechargeEventEmail } from './eventEmail.service'
 import { createWalletTransaction } from './wallet.service'
 
 import * as dotenv from 'dotenv'
@@ -149,11 +150,25 @@ export async function confirmSuccess(orderId: string, paymentId: string, paise: 
     reason: 'Wallet Recharge',
     meta: { orderId, gateway: 'razorpay' },
   })
+
+  const [wallet] = await db.select().from(wallets).where(eq(wallets.id, row.walletId)).limit(1)
+  if (wallet?.userId) {
+    await sendWalletRechargeEventEmail({
+      userId: wallet.userId,
+      amount: Number(row.amount || amount),
+      currency: row.currency ?? 'INR',
+      gatewayOrderId: orderId,
+      gatewayPaymentId: paymentId,
+      status: 'success',
+    }).catch((err) => {
+      console.error('Failed to send wallet recharge success email:', err)
+    })
+  }
 }
 
 /* 3️⃣  failure */
 export async function confirmFailure(orderId: string, paymentId: string | null, reason: string) {
-  await db
+  const [row] = await db
     .update(walletTopups)
     .set({
       status: 'failed',
@@ -168,6 +183,23 @@ export async function confirmFailure(orderId: string, paymentId: string | null, 
       ),
     )
     .returning()
+
+  if (!row) return
+
+  const [wallet] = await db.select().from(wallets).where(eq(wallets.id, row.walletId)).limit(1)
+  if (wallet?.userId) {
+    await sendWalletRechargeEventEmail({
+      userId: wallet.userId,
+      amount: Number(row.amount || 0),
+      currency: row.currency ?? 'INR',
+      gatewayOrderId: orderId,
+      gatewayPaymentId: paymentId,
+      status: 'failed',
+      reason,
+    }).catch((err) => {
+      console.error('Failed to send wallet recharge failure email:', err)
+    })
+  }
 }
 
 /* 4️⃣  hmac */

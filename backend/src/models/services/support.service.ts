@@ -3,6 +3,7 @@ import { db } from '../client'
 import { supportTickets } from '../schema/supportTickets'
 import { userProfiles } from '../schema/userProfile'
 import { users } from '../schema/users'
+import { sendSupportTicketCreatedEmail } from './eventEmail.service'
 import { createNotificationService } from './notifications.service'
 
 // Assuming you have something like this:
@@ -39,6 +40,13 @@ export const createTicketService = async (data: {
     title: 'New Support Ticket',
     message: `A new ticket "${data.subject}" has been created.`,
     sendEmail: true, // will email ADMIN_EMAIL from env
+  })
+
+  await sendSupportTicketCreatedEmail({
+    userId: data.userId,
+    ticket,
+  }).catch((err) => {
+    console.error('Failed to send support ticket email:', err)
   })
 
   return ticket
