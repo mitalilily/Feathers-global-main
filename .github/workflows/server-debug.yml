@@ -1,0 +1,247 @@
+name: Server Debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      log_lines:
+        description: PM2 log lines to inspect
+        required: false
+        default: "300"
+      sample_limit:
+        description: Recent bank-account rows to sample
+        required: false
+        default: "10"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.FGSHIP_HOST || secrets.FEATHERS_GLOBAL_HOST }}
+      DEPLOY_USER: ${{ secrets.FGSHIP_USER || secrets.FEATHERS_GLOBAL_USER }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.FGSHIP_SSH_PRIVATE_KEY || secrets.FEATHERS_GLOBAL_SSH_PRIVATE_KEY }}
+      DEPLOY_PASSWORD: ${{ secrets.FGSHIP_PASSWORD || secrets.FEATHERS_GLOBAL_PASSWORD }}
+      DEPLOY_APP_ROOT: /srv/feathers-global/current
+      DEPLOY_RUNTIME_USER: ${{ vars.DEPLOY_RUNTIME_USER || 'deploy' }}
+      LOG_LINES: ${{ github.event.inputs.log_lines || '300' }}
+      SAMPLE_LIMIT: ${{ github.event.inputs.sample_limit || '10' }}
+
+    steps:
+      - name: Validate deploy secrets
+        run: |
+          missing=()
+          [ -n "${DEPLOY_HOST}" ] || missing+=("FGSHIP_HOST or FEATHERS_GLOBAL_HOST")
+          [ -n "${DEPLOY_USER}" ] || missing+=("FGSHIP_USER or FEATHERS_GLOBAL_USER")
+          if [ -z "${DEPLOY_SSH_PRIVATE_KEY}" ] && [ -z "${DEPLOY_PASSWORD}" ]; then
+            missing+=("FGSHIP_SSH_PRIVATE_KEY / FEATHERS_GLOBAL_SSH_PRIVATE_KEY or FGSHIP_PASSWORD / FEATHERS_GLOBAL_PASSWORD")
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required GitHub Actions secrets:\n' >&2
+            printf ' - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+      - name: Install SSH tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Configure deploy SSH
+        run: |
+          mkdir -p ~/.ssh "${RUNNER_TEMP}/bin"
+          chmod 700 ~/.ssh
+          touch ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
+            StrictHostKeyChecking accept-new
+            UserKnownHostsFile ~/.ssh/known_hosts
+            ServerAliveInterval 30
+            ServerAliveCountMax 3
+          EOF
+
+          auth_mode=''
+          if [ -n "${DEPLOY_SSH_PRIVATE_KEY}" ]; then
+            normalized_key="${DEPLOY_SSH_PRIVATE_KEY}"
+            if [[ "${normalized_key}" == \"*\" && "${normalized_key}" == *\" ]]; then
+              normalized_key="${normalized_key:1:-1}"
+            elif [[ "${normalized_key}" == \'*\' && "${normalized_key}" == *\' ]]; then
+              normalized_key="${normalized_key:1:-1}"
+            fi
+            if [[ "${normalized_key}" != *$'\n'* && "${normalized_key}" == *\\n* ]]; then
+              normalized_key="${normalized_key//\\r/}"
+              normalized_key="${normalized_key//\\n/$'\n'}"
+            fi
+
+            printf '%s' "${normalized_key}" | tr -d '\r' > ~/.ssh/deploy_key
+            printf '\n' >> ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+
+            if ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null 2>&1; then
+              cat >> ~/.ssh/config <<'EOF'
+            IdentitiesOnly yes
+            IdentityFile ~/.ssh/deploy_key
+          EOF
+              auth_mode='key'
+            elif [ -n "${DEPLOY_PASSWORD}" ]; then
+              rm -f ~/.ssh/deploy_key
+            else
+              echo "::error::SSH private key secret is invalid and no password fallback is set."
+              exit 1
+            fi
+          fi
+
+          if [ -z "${auth_mode}" ]; then
+            auth_mode='password'
+          fi
+
+          chmod 600 ~/.ssh/config
+          ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          cat > "${RUNNER_TEMP}/bin/dep-ssh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ "${DEPLOY_AUTH_MODE:-}" = "password" ]; then
+            SSHPASS="${DEPLOY_PASSWORD:?}" exec sshpass -e ssh deploy-target "$@"
+          fi
+          exec ssh deploy-target "$@"
+          EOF
+          chmod +x "${RUNNER_TEMP}/bin/dep-ssh"
+
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          echo "DEPLOY_AUTH_MODE=${auth_mode}" >> "${GITHUB_ENV}"
+
+      - name: Inspect backend runtime and logs
+        run: |
+          dep-ssh "DEPLOY_APP_ROOT='${DEPLOY_APP_ROOT}' DEPLOY_RUNTIME_USER='${DEPLOY_RUNTIME_USER}' DEPLOY_LOGIN_USER='${DEPLOY_USER}' LOG_LINES='${LOG_LINES}' SAMPLE_LIMIT='${SAMPLE_LIMIT}' bash -s" <<'SH'
+          set -euo pipefail
+
+          run_user="${DEPLOY_RUNTIME_USER:-deploy}"
+          if ! id -u "${run_user}" >/dev/null 2>&1; then
+            run_user="${DEPLOY_LOGIN_USER}"
+          fi
+
+          run_home="$(getent passwd "${run_user}" | cut -d: -f6)"
+          if [ -z "${run_home}" ]; then
+            run_home="${HOME}"
+          fi
+
+          PM2_HOME="${run_home}/.pm2"
+          export PM2_HOME
+
+          echo "== Host context =="
+          echo "whoami=$(whoami)"
+          echo "app_root=${DEPLOY_APP_ROOT}"
+          echo "runtime_user=${run_user}"
+          echo "pm2_home=${PM2_HOME}"
+          echo
+
+          echo "== PM2 status =="
+          pm2 describe feathers-global-backend || true
+          echo
+
+          echo "== Backend env summary =="
+          cd "${DEPLOY_APP_ROOT}/backend"
+          node <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+          const dotenv = require('dotenv')
+          const envPath = path.resolve(process.cwd(), '.env.production')
+          const env = fs.existsSync(envPath) ? dotenv.parse(fs.readFileSync(envPath)) : {}
+          const maskHost = (value) => {
+            const raw = String(value || '').trim()
+            if (!raw) return ''
+            try {
+              return new URL(raw).host
+            } catch {
+              return raw
+            }
+          }
+
+          console.log(JSON.stringify({
+            nodeEnv: env.NODE_ENV || 'production',
+            apiUrlHost: maskHost(env.API_URL),
+            port: env.PORT || '',
+            hasDatabaseUrl: Boolean(env.DATABASE_URL),
+            hasR2Endpoint: Boolean(env.R2_ENDPOINT),
+            r2EndpointHost: maskHost(env.R2_ENDPOINT),
+            prodBucket: env.PROD_BUCKET || env.R2_BUCKET_NAME || env.R2_BUCKET || env.BUCKET_NAME || '',
+            irBucket: env.R2_IR_BUCKET || env.IR_BUCKET || '',
+            hasR2AccessKeyId: Boolean(env.R2_ACCESS_KEY_ID),
+            hasR2SecretAccessKey: Boolean(env.R2_SECRET_ACCESS_KEY),
+          }, null, 2))
+          NODE
+          echo
+
+          echo "== Recent bank account cheque samples =="
+          node <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+          const dotenv = require('dotenv')
+          const { Client } = require('pg')
+
+          dotenv.config({ path: path.resolve(process.cwd(), '.env.production') })
+
+          const limit = Math.max(1, Number(process.env.SAMPLE_LIMIT || 10))
+          const mask = (value) => {
+            const text = String(value || '')
+            return text.length <= 12 ? text : `${text.slice(0, 6)}...${text.slice(-4)}`
+          }
+
+          ;(async () => {
+            const client = new Client({
+              connectionString: process.env.DATABASE_URL,
+              ssl: { rejectUnauthorized: false },
+            })
+
+            await client.connect()
+            try {
+              const result = await client.query(
+                `select id, "userId", "chequeImageUrl", "createdAt", "updatedAt"
+                 from bank_accounts
+                 where coalesce(trim("chequeImageUrl"), '') <> ''
+                 order by "updatedAt" desc nulls last, "createdAt" desc
+                 limit $1`,
+                [limit],
+              )
+
+              const rows = result.rows.map((row) => {
+                const stored = String(row.chequeImageUrl || '')
+                return {
+                  id: row.id,
+                  userId: mask(row.userId),
+                  createdAt: row.createdAt,
+                  updatedAt: row.updatedAt,
+                  valueType: /^https?:\/\//i.test(stored) ? 'url' : 'key',
+                  startsWithIr: stored.startsWith('ir/'),
+                  length: stored.length,
+                  preview: stored.slice(0, 140),
+                }
+              })
+
+              console.log(JSON.stringify(rows, null, 2))
+            } finally {
+              await client.end().catch(() => undefined)
+            }
+          })().catch((error) => {
+            console.error('Failed to read bank account samples:', error.message || error)
+            process.exit(1)
+          })
+          NODE
+          echo
+
+          echo "== Recent backend upload/bank logs =="
+          pm2 logs feathers-global-backend --lines "${LOG_LINES}" --nostream 2>&1 | grep -Ei 'presign|upload|bank|cheque|r2|s3|error' || true
+          echo
+
+          if command -v sudo >/dev/null 2>&1; then
+            echo "== Recent nginx presign requests =="
+            sudo sh -lc "grep -h '/api/uploads/presign' /var/log/nginx/access.log /var/log/nginx/access.log.1 2>/dev/null | tail -n 40" || true
+            echo
+            echo "== Recent nginx errors =="
+            sudo sh -lc "tail -n 120 /var/log/nginx/error.log" || true
+          fi
+          SH
