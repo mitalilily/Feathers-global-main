@@ -23,6 +23,26 @@ const PRESIGN_CACHE_SAFETY_BUFFER_MS = 60 * 1000 // refresh 1 min before expiry
 const R2_UPLOAD_TIMEOUT_MS = Number(process.env.R2_UPLOAD_TIMEOUT_MS || 30000)
 const presignDownloadCache = new Map<string, { url: string; expiresAt: number }>()
 
+const IR_FOLDER_PREFIX = 'ir/'
+
+const resolveIrBucket = () => process.env.R2_IR_BUCKET || process.env.IR_BUCKET || null
+
+const resolveBucketForFolder = (folderKey?: string) => {
+  const normalizedFolder = String(folderKey || '').trim().toLowerCase()
+  if ((normalizedFolder === 'ir' || normalizedFolder.startsWith(IR_FOLDER_PREFIX)) && resolveIrBucket()) {
+    return resolveIrBucket() as string
+  }
+  return getBucketName()
+}
+
+const resolveBucketForStoredValue = (value: string) => {
+  const normalizedValue = String(value || '').trim().toLowerCase()
+  if (normalizedValue.startsWith(IR_FOLDER_PREFIX) && resolveIrBucket()) {
+    return resolveIrBucket() as string
+  }
+  return getBucketName()
+}
+
 const presignCacheKey = (
   bucket: string,
   key: string,
@@ -46,7 +66,7 @@ export const presignUpload = async ({
   userId,
   folderKey = 'userPp',
 }: PresignParams) => {
-  const bucket = getBucketName()
+  const bucket = resolveBucketForFolder(folderKey)
   const key = `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
 
   const command = new PutObjectCommand({
@@ -79,7 +99,7 @@ export const downloadAndUploadToR2 = async ({
   contentType?: string
 }): Promise<string | null> => {
   try {
-    const bucket = getBucketName()
+    const bucket = resolveBucketForFolder(folderKey)
 
     // Check if the input is a valid URL (starts with http:// or https://)
     const isValidUrl = /^https?:\/\//i.test(url)
@@ -290,15 +310,16 @@ export const presignDownload = async (
   },
 ): Promise<string | Array<string | null> | null> => {
   try {
-    const bucket = getBucketName()
     const now = Date.now()
 
     if (typeof keyOrKeys === 'string') {
-      return buildPresignedDownloadUrl(bucket, keyOrKeys, now, options)
+      return buildPresignedDownloadUrl(resolveBucketForStoredValue(keyOrKeys), keyOrKeys, now, options)
     }
 
     const urls = await Promise.all(
-      keyOrKeys.map((key) => buildPresignedDownloadUrl(bucket, key, now, options)),
+      keyOrKeys.map((key) =>
+        buildPresignedDownloadUrl(resolveBucketForStoredValue(key), key, now, options),
+      ),
     )
 
     return urls

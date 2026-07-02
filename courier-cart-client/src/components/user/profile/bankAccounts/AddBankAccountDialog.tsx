@@ -266,7 +266,8 @@ export const AddBankAccountDialog: React.FC<DialogProps> = ({
                 </Typography>
                 <FileUploader
                   variant="button"
-                  accept="image/*"
+                  accept="image/*,.pdf"
+                  folderKey="ir"
                   placeholder={watch('chequeImageKey' as keyof BankAccount)}
                   error={!!errors.chequeImageUrl}
                   onUploaded={(files) => {
