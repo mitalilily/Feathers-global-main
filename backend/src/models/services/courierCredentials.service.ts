@@ -149,6 +149,21 @@ const hasEnvForProviderAndType = (provider: ServiceProviderId, _type: BusinessTy
 
 const normalize = (val?: string | null) => String(val || '').trim()
 
+export const hasUsableXpressbeesCredentials = (config?: XpressbeesConfig | null): boolean => {
+  if (!config) {
+    return hasEnvForProviderAndType('xpressbees', 'b2c')
+  }
+
+  const hasBearerToken =
+    Boolean(normalize(config.apiToken)) || Boolean(normalize(config.authBearer))
+  const hasLoginCredentials =
+    Boolean(normalize(config.email)) && Boolean(normalize(config.password))
+  const hasAwbCredentials =
+    Boolean(normalize(config.xbKey)) || Boolean(normalize(config.xbAccessKey))
+
+  return hasBearerToken || hasLoginCredentials || hasAwbCredentials
+}
+
 const buildConfigFromRow = (provider: ServiceProviderId, row: typeof courierCredentials.$inferSelect) => {
   const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
 

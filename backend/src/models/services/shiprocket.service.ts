@@ -99,6 +99,11 @@ import {
   applyAmazonShippingCredentialsToEnv,
   getStoredAmazonShippingCredentials,
 } from './amazonShippingCredentials.service'
+import {
+  getEffectiveCourierConfig,
+  hasUsableXpressbeesCredentials,
+  type XpressbeesConfig,
+} from './courierCredentials.service'
 import { DelhiveryService } from './couriers/delhivery.service'
 import { EkartService } from './couriers/ekart.service'
 import { ShadowfaxService } from './couriers/shadowfax.service'
@@ -3904,6 +3909,16 @@ export const fetchAvailableCouriersWithRates = async (
 
     // Registry of enabled providers (by serviceProvider string)
     const enabledProviders = new Set(Object.keys(systemCourierMap))
+    const xpressbeesConfig = enabledProviders.has('xpressbees')
+      ? await getEffectiveCourierConfig<XpressbeesConfig>('xpressbees', 'b2c')
+      : null
+    const xpressbeesCredentialsReady = hasUsableXpressbeesCredentials(xpressbeesConfig)
+
+    if (enabledProviders.has('xpressbees') && !xpressbeesCredentialsReady) {
+      console.warn('[Serviceability] Xpressbees rate-card visibility disabled until credentials are configured', {
+        reason: 'missing_xpressbees_credentials',
+      })
+    }
 
     let amazonCredentialsForRates: Awaited<
       ReturnType<typeof getStoredAmazonShippingCredentials>
@@ -4124,7 +4139,7 @@ export const fetchAvailableCouriersWithRates = async (
 
     let xpressbeesAvailable = false
     let xpressbeesResp: any = null
-    if (shouldRunLiveServiceability && enabledProviders.has('xpressbees')) {
+    if (shouldRunLiveServiceability && enabledProviders.has('xpressbees') && xpressbeesCredentialsReady) {
       const xpressbees = new XpressbeesService()
       const originPincode = normalizePincode(params.origin ?? params.source_pincode)?.toString()
       const destinationPincode = normalizePincode(
@@ -4449,6 +4464,7 @@ export const fetchAvailableCouriersWithRates = async (
         if (serviceableProviders.has(providerKey) || !bucket.rows.length) continue
         if (!localRateProviders.has(providerKey)) continue
         if (providerKey === AMAZON_PROVIDER_KEY) continue
+        if (providerKey === 'xpressbees' && !xpressbeesCredentialsReady) continue
 
         // If Shadowfax definitively rejects the lane, do not expose a local
         // rate-card fallback that cannot be booked.
