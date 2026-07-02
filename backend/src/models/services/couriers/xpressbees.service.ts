@@ -1893,30 +1893,43 @@ export class XpressbeesService {
   async submitNdrAction(payload: any[]) {
     const items = Array.isArray(payload) ? payload : [payload]
     const pathCandidates = this.getConfiguredPathCandidates('XPRESSBEES_NDR_ACTION_ENDPOINTS', [
-      'https://clientshipupdatesapi.xbees.in/client/UpdateNDRDeferredDeliveryDate',
       '/api/ndr/create',
       '/ndr/create',
+      'https://clientshipupdatesapi.xbees.in/client/UpdateNDRDeferredDeliveryDate',
     ])
+    const restfulEndpointCandidates = pathCandidates.filter(
+      (path) => !/UpdateNDRDeferredDeliveryDate/i.test(String(path || '')),
+    )
     const deferredEndpointCandidates = pathCandidates.filter((path) =>
       /UpdateNDRDeferredDeliveryDate/i.test(String(path || '')),
     )
-    const legacyEndpointCandidates = pathCandidates.filter(
-      (path) => !/UpdateNDRDeferredDeliveryDate/i.test(String(path || '')),
-    )
+
+    if (restfulEndpointCandidates.length) {
+      try {
+        return await this.requestWithFallback<any>({
+          method: 'post',
+          pathCandidates: restfulEndpointCandidates,
+          data: items,
+          exactBaseCandidates: this.getShipmentBaseCandidates(),
+        })
+      } catch (err: any) {
+        if (!deferredEndpointCandidates.length || this.isBusinessValidationError(err)) {
+          throw err
+        }
+
+        this.log('REST NDR endpoint failed, trying deferred-delivery endpoint', {
+          message: this.extractErrorMessage(err, 'REST NDR action failed'),
+          items: items.length,
+        })
+      }
+    }
 
     if (deferredEndpointCandidates.length) {
       const results = []
       for (const item of items) {
         const body = this.buildXpressbeesDeferredNdrPayload(item)
         if (!body) {
-          if (!legacyEndpointCandidates.length) {
-            throw new HttpError(400, 'Xpressbees ShippingID/AWB is required for NDR action')
-          }
-          return this.requestWithFallback<any>({
-            method: 'post',
-            pathCandidates: legacyEndpointCandidates,
-            data: items,
-          })
+          throw new HttpError(400, 'Xpressbees ShippingID/AWB is required for NDR action')
         }
 
         results.push(
@@ -1932,11 +1945,7 @@ export class XpressbeesService {
       return results.length === 1 ? results[0] : results
     }
 
-    return this.requestWithFallback<any>({
-      method: 'post',
-      pathCandidates: legacyEndpointCandidates,
-      data: items,
-    })
+    throw new HttpError(502, 'No Xpressbees NDR action endpoint is configured')
   }
 
   async createShipment(payload: any): Promise<XpressbeesShipmentResponse> {
