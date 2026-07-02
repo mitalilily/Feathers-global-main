@@ -2672,41 +2672,58 @@ export class XpressbeesService {
     }
 
     const configuredTrackPathCandidates = this.getConfiguredPathCandidates('XPRESSBEES_TRACK_ENDPOINTS', [
+      `${this.shipmentEndpoint || '/api/shipments2'}/track/{awb}`,
+      '/api/shipments2/track/{awb}',
+      '/shipments2/track/{awb}',
       'https://apishipmenttracking.xbees.in/GetShipmentAuditLog',
       'http://api.staging.shipmenttracking.xbees.in/GetShipmentAuditLog',
       'https://apishipmenttracking.xbees.in/GetCurrentShipmentStatus',
       'http://api.staging.shipmenttracking.xbees.in/GetCurrentShipmentStatus',
-      `${this.shipmentEndpoint || '/api/shipments2'}/track/{awb}`,
-      '/api/shipments2/track/{awb}',
-      '/shipments2/track/{awb}',
     ])
 
-    if (
-      configuredTrackPathCandidates.some((path) =>
-        /GetShipmentAuditLog|GetCurrentShipmentStatus/i.test(String(path || '')),
-      )
-    ) {
+    const restfulTrackCandidates = configuredTrackPathCandidates
+      .filter((path) => !/GetShipmentAuditLog|GetCurrentShipmentStatus/i.test(String(path || '')))
+      .map((path) => {
+        const trimmed = String(path || '').trim()
+        if (/\{awb\}/i.test(trimmed)) {
+          return trimmed.replace(/\{awb\}/gi, encodedAwb)
+        }
+        return `${trimmed.replace(/\/+$/, '')}/${encodedAwb}`
+      })
+
+    const legacyTrackCandidates = configuredTrackPathCandidates.filter((path) =>
+      /GetShipmentAuditLog|GetCurrentShipmentStatus/i.test(String(path || '')),
+    )
+
+    if (restfulTrackCandidates.length) {
+      try {
+        return await this.requestWithFallback<any>({
+          method: 'get',
+          pathCandidates: restfulTrackCandidates,
+          exactBaseCandidates: this.getShipmentBaseCandidates(),
+        })
+      } catch (err: any) {
+        if (!legacyTrackCandidates.length || this.isBusinessValidationError(err)) {
+          throw err
+        }
+
+        this.log('REST tracking endpoint failed, trying legacy tracking endpoint', {
+          awb: String(awb || '').trim(),
+          message: this.extractErrorMessage(err, 'REST tracking failed'),
+        })
+      }
+    }
+
+    if (legacyTrackCandidates.length) {
       return this.requestWithFallback<any>({
         method: 'post',
-        pathCandidates: configuredTrackPathCandidates,
+        pathCandidates: legacyTrackCandidates,
         data: { AWBNumber: String(awb || '').trim() },
         headers: this.buildVersionHeaders(this.trackingVersion),
       })
     }
 
-    const trackPathCandidates = configuredTrackPathCandidates.map((path) => {
-      const trimmed = String(path || '').trim()
-      if (/\{awb\}/i.test(trimmed)) {
-        return trimmed.replace(/\{awb\}/gi, encodedAwb)
-      }
-      return `${trimmed.replace(/\/+$/, '')}/${encodedAwb}`
-    })
-
-    return this.requestWithFallback<any>({
-      method: 'get',
-      pathCandidates: trackPathCandidates,
-      exactBaseCandidates: this.getShipmentBaseCandidates(),
-    })
+    throw new HttpError(502, 'No Xpressbees tracking endpoint is configured')
   }
 
   async trackCurrentShipment(awb: string) {
