@@ -1941,6 +1941,7 @@ export class XpressbeesService {
         String(payload.request_auto_pickup || '').toLowerCase() === 'yes' ? 'yes' : 'no',
       consignee: {
         name: payload?.consignee?.name,
+        company_name: payload?.consignee?.company_name || '',
         address: payload?.consignee?.address,
         address_2: payload?.consignee?.address_2 || '',
         city: payload?.consignee?.city,
@@ -1957,6 +1958,11 @@ export class XpressbeesService {
         state: payload?.pickup?.state,
         pincode: String(payload?.pickup?.pincode || ''),
         phone: String(payload?.pickup?.phone || ''),
+        gst_number:
+          payload?.pickup?.gst_number ||
+          payload?.pickup?.gst_umber ||
+          payload?.pickup?.gstNumber ||
+          '',
       },
       is_rto_different: payload?.is_rto_different || 'no',
       ...(payload?.rto
