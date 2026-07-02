@@ -177,7 +177,7 @@ jobs:
           echo
 
           echo "== Recent bank account cheque samples =="
-          node <<'NODE'
+          node <<'NODE' || true
           const fs = require('fs')
           const path = require('path')
           const dotenv = require('dotenv')
@@ -200,10 +200,10 @@ jobs:
             await client.connect()
             try {
               const result = await client.query(
-                `select id, "userId", "chequeImageUrl", "createdAt", "updatedAt"
+                `select id, "userId", "chequeImageUrl", "createdAt"
                  from bank_accounts
                  where coalesce(trim("chequeImageUrl"), '') <> ''
-                 order by "updatedAt" desc nulls last, "createdAt" desc
+                 order by "createdAt" desc
                  limit $1`,
                 [limit],
               )
@@ -214,7 +214,6 @@ jobs:
                   id: row.id,
                   userId: mask(row.userId),
                   createdAt: row.createdAt,
-                  updatedAt: row.updatedAt,
                   valueType: /^https?:\/\//i.test(stored) ? 'url' : 'key',
                   startsWithIr: stored.startsWith('ir/'),
                   length: stored.length,
