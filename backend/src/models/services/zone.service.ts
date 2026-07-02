@@ -6,6 +6,55 @@ import { db } from '../client'
 import { locations } from '../schema/locations'
 import { b2bPincodes, zoneMappings, zones } from '../schema/zones'
 
+const CANONICAL_B2C_ZONE_CODES = new Set([
+  'METRO_TO_METRO',
+  'ROI',
+  'SPECIAL_ZONE',
+  'WITHIN_CITY',
+  'WITHIN_REGION',
+  'WITHIN_STATE',
+])
+
+const normalizeZoneLabel = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+
+const dedupeB2CZones = <T extends { code?: unknown; name?: unknown; region?: unknown }>(
+  rows: T[],
+) => {
+  const seenCodes = new Set<string>()
+  const seenLabels = new Set<string>()
+
+  const rankedRows = rows
+    .map((row, index) => ({
+      row,
+      index,
+      rank: CANONICAL_B2C_ZONE_CODES.has(String(row.code ?? '').trim().toUpperCase()) ? 0 : 1,
+    }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+
+  const deduped: T[] = []
+
+  for (const { row } of rankedRows) {
+    const codeKey = normalizeZoneLabel(row.code)
+    const labelKeys = Array.from(
+      new Set([normalizeZoneLabel(row.name), normalizeZoneLabel(row.region)].filter(Boolean)),
+    )
+
+    if ((codeKey && seenCodes.has(codeKey)) || labelKeys.some((label) => seenLabels.has(label))) {
+      continue
+    }
+
+    deduped.push(row)
+    if (codeKey) seenCodes.add(codeKey)
+    for (const label of labelKeys) seenLabels.add(label)
+  }
+
+  return deduped
+}
+
 const sanitizeStates = (input: any): string[] => {
   if (!Array.isArray(input)) return []
   const unique = new Set<string>()
@@ -123,6 +172,10 @@ export const getAllZones = async (
     const whereClause = conditions.length ? and(...conditions) : undefined
 
     const result = await db.select().from(zones).where(whereClause).orderBy(asc(zones.code))
+
+    if (normalizedBusinessType === 'B2C') {
+      return dedupeB2CZones(result || [])
+    }
 
     return result || []
   } catch (error) {

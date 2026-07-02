@@ -100,16 +100,36 @@ export const uploadShippingRates = async ({ file, planId, businessType }) => {
 
   const formData = new FormData()
   formData.append('file', file?.file) // must be File or Blob
+  const params = new URLSearchParams()
+  if (planId) {
+    params.set('planId', planId)
+    params.set('plan_id', planId)
+  }
+  if (businessType) {
+    const normalizedBusinessType = businessType.toLowerCase()
+    params.set('businessType', normalizedBusinessType)
+    params.set('business_type', normalizedBusinessType)
+  }
 
-  const { data } = await api.post(
-    `/admin/couriers/shipping-rates/import?planId=${planId}&businessType=${businessType.toLowerCase()}`,
-    formData,
-    {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    },
-  )
+  try {
+    const { data } = await api.post(
+      `/admin/couriers/shipping-rates/import?${params.toString()}`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      },
+    )
 
-  return data
+    return data
+  } catch (error) {
+    const serverMessage =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      'Failed to upload shipping rates'
+
+    throw new Error(serverMessage)
+  }
 }
 // Unified delete function: B2C zone, B2B zone, B2B courier
 export const deleteShippingRateAPI = async ({
