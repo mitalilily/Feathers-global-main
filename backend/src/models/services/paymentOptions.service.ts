@@ -1,6 +1,7 @@
 import { db } from '../client'
 import { paymentOptions } from '../schema/paymentOptions'
 import { normalizeGstPercent } from '../../utils/gst'
+import { normalizeChargePercent } from '../../utils/bookingWalletDebit'
 import { sql } from 'drizzle-orm'
 
 let paymentOptionsSchemaReady: Promise<void> | null = null
@@ -10,20 +11,31 @@ const ensurePaymentOptionsSchema = () => {
     paymentOptionsSchemaReady = db
       .execute(sql`
         ALTER TABLE payment_options
-          ADD COLUMN IF NOT EXISTS gst_percent NUMERIC(6, 2) DEFAULT '0'
+          ADD COLUMN IF NOT EXISTS gst_percent NUMERIC(6, 2) DEFAULT '0',
+          ADD COLUMN IF NOT EXISTS razorpay_charge_enabled BOOLEAN DEFAULT false,
+          ADD COLUMN IF NOT EXISTS razorpay_charge_percent NUMERIC(6, 2) DEFAULT '0'
       `)
       .then(() =>
         db.execute(sql`
           UPDATE payment_options
-          SET gst_percent = '0'
+          SET
+            gst_percent = COALESCE(gst_percent, '0'),
+            razorpay_charge_enabled = COALESCE(razorpay_charge_enabled, false),
+            razorpay_charge_percent = COALESCE(razorpay_charge_percent, '0')
           WHERE gst_percent IS NULL
+            OR razorpay_charge_enabled IS NULL
+            OR razorpay_charge_percent IS NULL
         `),
       )
       .then(() =>
         db.execute(sql`
           ALTER TABLE payment_options
             ALTER COLUMN gst_percent SET DEFAULT '0',
-            ALTER COLUMN gst_percent SET NOT NULL
+            ALTER COLUMN gst_percent SET NOT NULL,
+            ALTER COLUMN razorpay_charge_enabled SET DEFAULT false,
+            ALTER COLUMN razorpay_charge_enabled SET NOT NULL,
+            ALTER COLUMN razorpay_charge_percent SET DEFAULT '0',
+            ALTER COLUMN razorpay_charge_percent SET NOT NULL
         `),
       )
       .then(() => undefined)
@@ -57,6 +69,8 @@ export async function getPaymentOptions() {
       prepaidEnabled: true,
       minWalletRecharge: 0,
       gstPercent: 0,
+      razorpayChargeEnabled: false,
+      razorpayChargePercent: 0,
     })
     .returning()
 
@@ -71,6 +85,8 @@ export async function updatePaymentOptions(updates: {
   prepaidEnabled?: boolean
   minWalletRecharge?: number
   gstPercent?: number
+  razorpayChargeEnabled?: boolean
+  razorpayChargePercent?: number
 }) {
   // Ensure settings exist
   await getPaymentOptions()
@@ -90,6 +106,12 @@ export async function updatePaymentOptions(updates: {
   if (updates.gstPercent !== undefined) {
     updateData.gstPercent = normalizeGstPercent(updates.gstPercent)
   }
+  if (updates.razorpayChargeEnabled !== undefined) {
+    updateData.razorpayChargeEnabled = updates.razorpayChargeEnabled
+  }
+  if (updates.razorpayChargePercent !== undefined) {
+    updateData.razorpayChargePercent = normalizeChargePercent(updates.razorpayChargePercent)
+  }
 
   // Update the first (and only) row
   const [updated] = await db.update(paymentOptions).set(updateData).returning()
@@ -108,6 +130,11 @@ export async function updatePaymentOptions(updates: {
         gstPercent:
           updates.gstPercent !== undefined && !isNaN(Number(updates.gstPercent))
             ? normalizeGstPercent(updates.gstPercent)
+            : 0,
+        razorpayChargeEnabled: updates.razorpayChargeEnabled ?? false,
+        razorpayChargePercent:
+          updates.razorpayChargePercent !== undefined && !isNaN(Number(updates.razorpayChargePercent))
+            ? normalizeChargePercent(updates.razorpayChargePercent)
             : 0,
       })
       .returning()

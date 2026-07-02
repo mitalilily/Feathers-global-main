@@ -5,6 +5,8 @@ export interface PaymentOptions {
   prepaidEnabled: boolean
   minWalletRecharge: number
   gstPercent: number
+  razorpayChargeEnabled: boolean
+  razorpayChargePercent: number
 }
 
 export const paymentOptionsService = {
@@ -13,4 +15,3 @@ export const paymentOptionsService = {
     return response.data
   },
 }
-

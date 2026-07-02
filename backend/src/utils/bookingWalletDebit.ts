@@ -7,6 +7,20 @@ const toAmount = (value: unknown) => {
 
 const isCodPayment = (paymentType: unknown) => String(paymentType || '').toLowerCase() === 'cod'
 
+export const normalizeChargePercent = (value: unknown) => {
+  const parsed = Number(value ?? 0)
+  if (!Number.isFinite(parsed) || parsed < 0) return 0
+  return roundCurrency(parsed)
+}
+
+export const calculatePercentChargeAmount = (baseAmount: unknown, percent: unknown, enabled = true) => {
+  if (!enabled) return 0
+  const base = toAmount(baseAmount)
+  const normalizedPercent = normalizeChargePercent(percent)
+  if (base <= 0 || normalizedPercent <= 0) return 0
+  return roundCurrency((base * normalizedPercent) / 100)
+}
+
 export const getBookingWalletDebitBaseAmount = ({
   paymentType,
   freightCharges = 0,
@@ -32,22 +46,44 @@ export const calculateBookingWalletDebit = ({
   otherCharges = 0,
   codCharges = 0,
   gstPercent = 0,
+  razorpayChargeEnabled = false,
+  razorpayChargePercent = 0,
 }: {
   paymentType?: string | null
   freightCharges?: unknown
   otherCharges?: unknown
   codCharges?: unknown
   gstPercent?: unknown
-}) =>
-  calculateGstBreakup(
-    getBookingWalletDebitBaseAmount({
-      paymentType,
-      freightCharges,
-      otherCharges,
-      codCharges,
-    }),
+  razorpayChargeEnabled?: unknown
+  razorpayChargePercent?: unknown
+}) => {
+  const baseAmountBeforeRazorpay = getBookingWalletDebitBaseAmount({
+    paymentType,
+    freightCharges,
+    otherCharges,
+    codCharges,
+  })
+  const normalizedRazorpayChargePercent = normalizeChargePercent(razorpayChargePercent)
+  const shouldApplyRazorpayCharge =
+    Boolean(razorpayChargeEnabled) && normalizedRazorpayChargePercent > 0
+  const razorpayChargeAmount = calculatePercentChargeAmount(
+    baseAmountBeforeRazorpay,
+    normalizedRazorpayChargePercent,
+    shouldApplyRazorpayCharge,
+  )
+  const breakup = calculateGstBreakup(
+    baseAmountBeforeRazorpay + razorpayChargeAmount,
     gstPercent,
   )
+
+  return {
+    ...breakup,
+    baseAmountBeforeRazorpay,
+    razorpayChargeEnabled: shouldApplyRazorpayCharge,
+    razorpayChargePercent: normalizedRazorpayChargePercent,
+    razorpayChargeAmount,
+  }
+}
 
 export const resolveGstInclusiveWalletDebit = ({
   storedDebit,
@@ -57,6 +93,8 @@ export const resolveGstInclusiveWalletDebit = ({
   codCharges = 0,
   gstPercent = 0,
   gstAmount = 0,
+  razorpayChargeEnabled = false,
+  razorpayChargePercent = 0,
 }: {
   storedDebit?: unknown
   paymentType?: string | null
@@ -65,6 +103,8 @@ export const resolveGstInclusiveWalletDebit = ({
   codCharges?: unknown
   gstPercent?: unknown
   gstAmount?: unknown
+  razorpayChargeEnabled?: unknown
+  razorpayChargePercent?: unknown
 }) => {
   const stored = toAmount(storedDebit)
   const gst = toAmount(gstAmount)
@@ -75,6 +115,8 @@ export const resolveGstInclusiveWalletDebit = ({
     otherCharges,
     codCharges,
     gstPercent: percent,
+    razorpayChargeEnabled,
+    razorpayChargePercent,
   })
 
   if (stored <= 0) return computed.totalAmount

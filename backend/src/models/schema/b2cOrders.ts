@@ -63,6 +63,9 @@ export const b2c_orders = pgTable(
   freight_charges: numeric('freight_charges').$type<number>(), // What platform charges seller (based on rate card)
   shipping_charges: numeric('shipping_charges').$type<number>(), // What seller shows on label (customer-facing)
   other_charges: numeric('other_charges').$type<number>(), // Other charges from courier serviceability API (e.g. fuel surcharge, handling, etc.)
+  razorpay_charge_enabled: boolean('razorpay_charge_enabled').default(false),
+  razorpay_charge_percent: numeric('razorpay_charge_percent').$type<number>().default(0),
+  razorpay_charge_amount: numeric('razorpay_charge_amount').$type<number>().default(0),
   gst_percent: numeric('gst_percent').$type<number>().default(0), // GST percent applied to courier wallet debit
   gst_amount: numeric('gst_amount').$type<number>().default(0), // GST amount added to courier wallet debit
   wallet_debit_amount: numeric('wallet_debit_amount').$type<number>().default(0), // Final seller wallet deduction including GST

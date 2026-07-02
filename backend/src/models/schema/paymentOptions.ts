@@ -18,6 +18,10 @@ export const paymentOptions = pgTable('payment_options', {
   // GST percentage applied to seller courier wallet debit
   gstPercent: numeric('gst_percent').$type<number>().default(0).notNull(),
 
+  // Razorpay charge percentage applied to seller courier wallet debit when enabled
+  razorpayChargeEnabled: boolean('razorpay_charge_enabled').default(false).notNull(),
+  razorpayChargePercent: numeric('razorpay_charge_percent').$type<number>().default(0).notNull(),
+
   // Metadata
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true })

@@ -15,7 +15,6 @@ import {
   sql,
 } from 'drizzle-orm'
 import { DelhiveryManifestError, HttpError } from '../../utils/classes'
-import { calculateGstBreakup } from '../../utils/gst'
 import {
   calculateBookingWalletDebit,
   resolveGstInclusiveWalletDebit,
@@ -53,6 +52,7 @@ import { generateInvoicePDF, Product } from './invoice.service'
 import { formatPickupAddress, loadInvoiceAssets, normalizePickupDetails } from './invoiceHelpers'
 import { resolveInvoiceNumber } from './invoiceNumber.service'
 import { createNotificationService } from './notifications.service'
+import { getPaymentOptions } from './paymentOptions.service'
 import { presignDownload, presignUpload } from './upload.service'
 import { logTrackingEvent } from './trackingEvents.service'
 import { createWalletTransaction } from './wallet.service'
@@ -136,6 +136,39 @@ export const ORIGINAL_WALLET_DEBIT_REASONS = [
 ]
 
 type ShadowfaxForwardModeSelection = 'marketplace' | 'warehouse'
+
+let b2cRazorpayChargeSchemaReady: Promise<void> | null = null
+
+const ensureB2CRazorpayChargeSchema = () => {
+  if (!b2cRazorpayChargeSchemaReady) {
+    b2cRazorpayChargeSchemaReady = db
+      .execute(sql`
+        ALTER TABLE b2c_orders
+          ADD COLUMN IF NOT EXISTS razorpay_charge_enabled BOOLEAN DEFAULT false,
+          ADD COLUMN IF NOT EXISTS razorpay_charge_percent NUMERIC(6, 2) DEFAULT '0',
+          ADD COLUMN IF NOT EXISTS razorpay_charge_amount NUMERIC(12, 2) DEFAULT '0'
+      `)
+      .then(() =>
+        db.execute(sql`
+          UPDATE b2c_orders
+          SET
+            razorpay_charge_enabled = COALESCE(razorpay_charge_enabled, false),
+            razorpay_charge_percent = COALESCE(razorpay_charge_percent, '0'),
+            razorpay_charge_amount = COALESCE(razorpay_charge_amount, '0')
+          WHERE razorpay_charge_enabled IS NULL
+            OR razorpay_charge_percent IS NULL
+            OR razorpay_charge_amount IS NULL
+        `),
+      )
+      .then(() => undefined)
+      .catch((err) => {
+        b2cRazorpayChargeSchemaReady = null
+        throw err
+      })
+  }
+
+  return b2cRazorpayChargeSchemaReady
+}
 
 const normalizeXpressbeesAwb = (value: unknown): string => {
   const normalized = String(value ?? '').trim()
@@ -1238,6 +1271,8 @@ const getExpectedWalletDebitFromOrder = (order: {
   freight_charges?: number | string | null
   other_charges?: number | string | null
   cod_charges?: number | string | null
+  razorpay_charge_enabled?: boolean | null
+  razorpay_charge_percent?: number | string | null
   gst_percent?: number | string | null
   gst_amount?: number | string | null
   wallet_debit_amount?: number | string | null
@@ -1250,6 +1285,8 @@ const getExpectedWalletDebitFromOrder = (order: {
     codCharges: order.cod_charges,
     gstPercent: order.gst_percent ?? WALLET_TRANSACTION_GST_PERCENT,
     gstAmount: order.gst_amount,
+    razorpayChargeEnabled: order.razorpay_charge_enabled ?? false,
+    razorpayChargePercent: order.razorpay_charge_percent ?? 0,
   })
 }
 
@@ -1411,6 +1448,9 @@ const debitManifestSuccessChargeIfNeeded = async ({ tx, order }: { tx: any; orde
       other_charges: Number(order.other_charges ?? 0),
       cod_charges:
         String(order.order_type || '').toLowerCase() === 'cod' ? Number(order.cod_charges ?? 0) : 0,
+      razorpay_charge_enabled: Boolean((order as any).razorpay_charge_enabled ?? false),
+      razorpay_charge_percent: Number((order as any).razorpay_charge_percent ?? 0),
+      razorpay_charge_amount: Number((order as any).razorpay_charge_amount ?? 0),
       gst_percent: Number(order.gst_percent ?? 0),
       gst_amount: Number(order.gst_amount ?? 0),
       wallet_debit_amount: Number(order.wallet_debit_amount ?? 0),
@@ -5671,6 +5711,9 @@ export interface InsertB2COrderParams {
   shippingCharges?: number // What seller charges customer (total shipping including other_charges)
   otherCharges?: number // Other charges from courier serviceability API
   freightCharges?: number // What platform charges seller (based on rate card)
+  razorpayChargeEnabled?: boolean
+  razorpayChargePercent?: number
+  razorpayChargeAmount?: number
   gstPercent?: number
   gstAmount?: number
   walletDebitAmount?: number
@@ -5703,6 +5746,9 @@ export async function createB2COrder({
   shippingCharges = 0,
   otherCharges = 0,
   freightCharges = 0,
+  razorpayChargeEnabled = false,
+  razorpayChargePercent = 0,
+  razorpayChargeAmount = 0,
   gstPercent = 0,
   gstAmount = 0,
   walletDebitAmount = 0,
@@ -5866,6 +5912,9 @@ export async function createB2COrder({
         shipping_charges: shippingCharges, // What seller charges customer (total shipping including other_charges)
         other_charges: otherCharges, // Other charges from courier serviceability API
         freight_charges: freightCharges, // What platform charges seller (based on rate card)
+        razorpay_charge_enabled: razorpayChargeEnabled,
+        razorpay_charge_percent: razorpayChargePercent,
+        razorpay_charge_amount: razorpayChargeAmount,
         gst_percent: gstPercent,
         gst_amount: gstAmount,
         wallet_debit_amount: walletDebitAmount,
@@ -5947,6 +5996,9 @@ async function updateExistingB2COrderWithShipment({
   shippingCharges = 0,
   otherCharges = 0,
   freightCharges = 0,
+  razorpayChargeEnabled = false,
+  razorpayChargePercent = 0,
+  razorpayChargeAmount = 0,
   gstPercent = 0,
   gstAmount = 0,
   walletDebitAmount = 0,
@@ -6085,6 +6137,9 @@ async function updateExistingB2COrderWithShipment({
       shipping_charges: shippingCharges,
       other_charges: otherCharges,
       freight_charges: freightCharges,
+      razorpay_charge_enabled: razorpayChargeEnabled,
+      razorpay_charge_percent: razorpayChargePercent,
+      razorpay_charge_amount: razorpayChargeAmount,
       gst_percent: gstPercent,
       gst_amount: gstAmount,
       wallet_debit_amount: walletDebitAmount,
@@ -6139,6 +6194,7 @@ export const createB2CShipmentService = async (
   options: ExistingB2COrderBookingOptions = {},
 ) => {
   await requireMerchantOrderReadiness(userId, { requireMinimumWalletBalance: false })
+  await ensureB2CRazorpayChargeSchema()
 
   // 🔹 Handle provider_code: Convert provider_code to integration_type if provided
   // Users can send either integration_type (direct) or provider_code (opaque code from serviceability API)
@@ -7047,9 +7103,14 @@ export const createB2CShipmentService = async (
     )
   }
 
-  const configuredGstPercent = WALLET_TRANSACTION_GST_PERCENT
+  const paymentSettings = await getPaymentOptions()
+  const configuredGstPercent = Number(paymentSettings.gstPercent ?? WALLET_TRANSACTION_GST_PERCENT)
+  const configuredRazorpayChargeEnabled = Boolean(paymentSettings.razorpayChargeEnabled)
+  const configuredRazorpayChargePercent = Number(paymentSettings.razorpayChargePercent ?? 0)
   let estimatedWalletDebit = 0
   let estimatedWalletBaseDebit = 0
+  let estimatedWalletBaseDebitBeforeRazorpay = 0
+  let estimatedWalletRazorpayChargeAmount = 0
   let estimatedWalletGstAmount = 0
   {
     const estimatedTaxBreakup = calculateBookingWalletDebit({
@@ -7058,8 +7119,12 @@ export const createB2CShipmentService = async (
       otherCharges,
       codCharges,
       gstPercent: configuredGstPercent,
+      razorpayChargeEnabled: configuredRazorpayChargeEnabled,
+      razorpayChargePercent: configuredRazorpayChargePercent,
     })
     estimatedWalletBaseDebit = estimatedTaxBreakup.baseAmount
+    estimatedWalletBaseDebitBeforeRazorpay = estimatedTaxBreakup.baseAmountBeforeRazorpay
+    estimatedWalletRazorpayChargeAmount = estimatedTaxBreakup.razorpayChargeAmount
     estimatedWalletDebit = estimatedTaxBreakup.totalAmount
     estimatedWalletGstAmount = estimatedTaxBreakup.gstAmount
 
@@ -7079,6 +7144,10 @@ export const createB2CShipmentService = async (
         payment_type: params.payment_type,
         wallet_balance: walletBalance,
         estimated_wallet_base_debit: estimatedWalletBaseDebit,
+        estimated_wallet_base_debit_before_razorpay: estimatedWalletBaseDebitBeforeRazorpay,
+        razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+        razorpay_charge_percent: configuredRazorpayChargePercent,
+        razorpay_charge_amount: estimatedWalletRazorpayChargeAmount,
         gst_percent: configuredGstPercent,
         gst_amount: estimatedWalletGstAmount,
         gst_included_in_wallet_debit: true,
@@ -7099,6 +7168,9 @@ export const createB2CShipmentService = async (
           wallet_balance: walletBalance,
           required_amount: estimatedWalletDebit,
           shortfall: estimatedWalletDebit - walletBalance,
+          razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+          razorpay_charge_percent: configuredRazorpayChargePercent,
+          razorpay_charge_amount: estimatedWalletRazorpayChargeAmount,
           gst_percent: configuredGstPercent,
           gst_amount: estimatedWalletGstAmount,
           gst_included_in_wallet_debit: true,
@@ -7130,6 +7202,9 @@ export const createB2CShipmentService = async (
             shippingCharges: totalShippingCharges,
             otherCharges,
             freightCharges,
+            razorpayChargeEnabled: configuredRazorpayChargeEnabled,
+            razorpayChargePercent: configuredRazorpayChargePercent,
+            razorpayChargeAmount: estimatedWalletRazorpayChargeAmount,
             gstPercent: configuredGstPercent,
             gstAmount: estimatedWalletGstAmount,
             walletDebitAmount: estimatedWalletDebit,
@@ -7160,6 +7235,9 @@ export const createB2CShipmentService = async (
           shippingCharges: totalShippingCharges,
           otherCharges,
           freightCharges,
+          razorpayChargeEnabled: configuredRazorpayChargeEnabled,
+          razorpayChargePercent: configuredRazorpayChargePercent,
+          razorpayChargeAmount: estimatedWalletRazorpayChargeAmount,
           gstPercent: configuredGstPercent,
           gstAmount: estimatedWalletGstAmount,
           walletDebitAmount: estimatedWalletDebit,
@@ -8313,28 +8391,52 @@ export const createB2CShipmentService = async (
 
       let walletDebit = 0
       let walletDebitBaseAmount = 0
+      let walletDebitBaseAmountBeforeRazorpay = 0
+      let walletRazorpayChargeAmount = 0
       let walletGstAmount = 0
-      const applyConfiguredGstToWalletDebit = (baseAmount: number) => {
-        const walletTaxBreakup = calculateGstBreakup(baseAmount, configuredGstPercent)
+      const applyConfiguredChargesToWalletDebit = ({
+        freight,
+        other,
+        cod = 0,
+      }: {
+        freight: number
+        other: number
+        cod?: number
+      }) => {
+        const walletTaxBreakup = calculateBookingWalletDebit({
+          paymentType: params.payment_type,
+          freightCharges: freight,
+          otherCharges: other,
+          codCharges: cod,
+          gstPercent: configuredGstPercent,
+          razorpayChargeEnabled: configuredRazorpayChargeEnabled,
+          razorpayChargePercent: configuredRazorpayChargePercent,
+        })
         walletDebitBaseAmount = walletTaxBreakup.baseAmount
+        walletDebitBaseAmountBeforeRazorpay = walletTaxBreakup.baseAmountBeforeRazorpay
+        walletRazorpayChargeAmount = walletTaxBreakup.razorpayChargeAmount
         walletGstAmount = walletTaxBreakup.gstAmount
         walletDebit = walletTaxBreakup.totalAmount
       }
 
       if (isReverseShipment) {
-        applyConfiguredGstToWalletDebit(freightCharges + otherCharges)
+        applyConfiguredChargesToWalletDebit({ freight: freightCharges, other: otherCharges })
 
         console.log('Reverse pickup wallet deduction:', {
           order_number: params.order_number,
           wallet_balance: walletBalance,
           freight_charges: freightCharges,
           other_charges: otherCharges,
+          razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+          razorpay_charge_percent: configuredRazorpayChargePercent,
+          razorpay_charge_amount: walletRazorpayChargeAmount,
           gst_percent: configuredGstPercent,
           gst_amount: walletGstAmount,
           gst_included_in_wallet_debit: true,
+          wallet_base_debit_before_razorpay: walletDebitBaseAmountBeforeRazorpay,
           wallet_base_debit: walletDebitBaseAmount,
           wallet_debit: walletDebit,
-          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + gst (${walletGstAmount}) = ${walletDebit}`,
+          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + razorpay (${walletRazorpayChargeAmount}) + gst (${walletGstAmount}) = ${walletDebit}`,
           reason: 'reverse_shipment',
         })
 
@@ -8345,7 +8447,7 @@ export const createB2CShipmentService = async (
         // Prepaid: Seller wallet debited for freight charges + other charges (all courier costs)
         // Customer pays: order_amount + shipping + transaction_fee + gift_wrap - discount - prepaid
         // Seller wallet debited: freight_charges (Shiplifi rate-card freight) + other_charges (fuel surcharge, handling, etc.)
-        applyConfiguredGstToWalletDebit(freightCharges + otherCharges)
+        applyConfiguredChargesToWalletDebit({ freight: freightCharges, other: otherCharges })
 
         // Validate that otherCharges are included
         if (otherCharges > 0) {
@@ -8361,12 +8463,16 @@ export const createB2CShipmentService = async (
           wallet_balance: walletBalance,
           freight_charges: freightCharges,
           other_charges: otherCharges,
+          razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+          razorpay_charge_percent: configuredRazorpayChargePercent,
+          razorpay_charge_amount: walletRazorpayChargeAmount,
           gst_percent: configuredGstPercent,
           gst_amount: walletGstAmount,
           gst_included_in_wallet_debit: true,
+          wallet_base_debit_before_razorpay: walletDebitBaseAmountBeforeRazorpay,
           wallet_base_debit: walletDebitBaseAmount,
           wallet_debit: walletDebit,
-          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + gst (${walletGstAmount}) = ${walletDebit}`,
+          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + razorpay (${walletRazorpayChargeAmount}) + gst (${walletGstAmount}) = ${walletDebit}`,
           reason: 'B2C Prepaid Order Payment',
         })
 
@@ -8377,7 +8483,11 @@ export const createB2CShipmentService = async (
         // COD: Seller wallet debited for freight charges + other charges + COD charges
         // Customer pays: order_amount + shipping + transaction_fee + gift_wrap - discount
         // Seller wallet debited: freight_charges (Shiplifi rate-card freight) + other_charges (fuel surcharge, handling, etc.) + cod_charges (courier COD fee)
-        applyConfiguredGstToWalletDebit(freightCharges + otherCharges + codCharges)
+        applyConfiguredChargesToWalletDebit({
+          freight: freightCharges,
+          other: otherCharges,
+          cod: codCharges,
+        })
 
         // Validate that otherCharges are included
         if (otherCharges > 0) {
@@ -8394,12 +8504,16 @@ export const createB2CShipmentService = async (
           freight_charges: freightCharges,
           other_charges: otherCharges,
           cod_charges: codCharges,
+          razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+          razorpay_charge_percent: configuredRazorpayChargePercent,
+          razorpay_charge_amount: walletRazorpayChargeAmount,
           gst_percent: configuredGstPercent,
           gst_amount: walletGstAmount,
           gst_included_in_wallet_debit: true,
+          wallet_base_debit_before_razorpay: walletDebitBaseAmountBeforeRazorpay,
           wallet_base_debit: walletDebitBaseAmount,
           wallet_debit: walletDebit,
-          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + cod (${codCharges}) + gst (${walletGstAmount}) = ${walletDebit}`,
+          breakdown: `freight (${freightCharges}) + other (${otherCharges}) + cod (${codCharges}) + razorpay (${walletRazorpayChargeAmount}) + gst (${walletGstAmount}) = ${walletDebit}`,
           reason: 'B2C COD Service Charges',
         })
 
@@ -8424,6 +8538,8 @@ export const createB2CShipmentService = async (
         codCharges,
         gstPercent: configuredGstPercent,
         gstAmount: walletGstAmount,
+        razorpayChargeEnabled: configuredRazorpayChargeEnabled,
+        razorpayChargePercent: configuredRazorpayChargePercent,
       })
       if (walletBalance < finalWalletDebit) {
         throw new Error(
@@ -8443,6 +8559,9 @@ export const createB2CShipmentService = async (
         shippingCharges: totalShippingCharges, // Total shipping (base + other charges)
         otherCharges, // Store other_charges separately
         freightCharges,
+        razorpayChargeEnabled: configuredRazorpayChargeEnabled,
+        razorpayChargePercent: configuredRazorpayChargePercent,
+        razorpayChargeAmount: walletRazorpayChargeAmount,
         gstPercent: configuredGstPercent,
         gstAmount: walletGstAmount,
         walletDebitAmount: finalWalletDebit,
@@ -8531,9 +8650,13 @@ export const createB2CShipmentService = async (
             freight_charges: freightCharges,
             other_charges: otherCharges,
             cod_charges: isCodOrder ? codCharges : 0,
+            razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+            razorpay_charge_percent: configuredRazorpayChargePercent,
+            razorpay_charge_amount: walletRazorpayChargeAmount,
             gst_percent: configuredGstPercent,
             gst_amount: walletGstAmount,
             gst_included_in_wallet_debit: true,
+            wallet_base_debit_before_razorpay: walletDebitBaseAmountBeforeRazorpay,
             wallet_base_debit: walletDebitBaseAmount,
             charged_weight: finalSlabbedFreight.chargeable_weight,
             volumetric_weight: finalSlabbedFreight.volumetric_weight,
@@ -8549,9 +8672,13 @@ export const createB2CShipmentService = async (
             freight_charges: freightCharges,
             other_charges: otherCharges,
             cod_charges: isCodOrder ? codCharges : 0,
+            razorpay_charge_enabled: configuredRazorpayChargeEnabled,
+            razorpay_charge_percent: configuredRazorpayChargePercent,
+            razorpay_charge_amount: walletRazorpayChargeAmount,
             gst_percent: configuredGstPercent,
             gst_amount: walletGstAmount,
             gst_included_in_wallet_debit: true,
+            wallet_base_debit_before_razorpay: walletDebitBaseAmountBeforeRazorpay,
             wallet_base_debit: walletDebitBaseAmount,
           },
           charged_weight: finalSlabbedFreight.chargeable_weight,

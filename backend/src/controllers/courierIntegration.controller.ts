@@ -32,7 +32,7 @@ import {
   getDelhiveryCourierDisplayName,
   resolveDelhiveryShippingMode,
 } from '../utils/delhiveryCourier'
-import { calculateGstBreakup } from '../utils/gst'
+import { calculateBookingWalletDebit } from '../utils/bookingWalletDebit'
 import { extractOrderAmountFromBody } from '../utils/orderAmount'
 
 const parseOptionalBoolean = (value: unknown): boolean | undefined => {
@@ -189,15 +189,32 @@ const applyGstToB2CCouriers = async (couriers: any[], paymentType?: string) => {
 
   const paymentSettings = await getPaymentOptions()
   const gstPercent = Number(paymentSettings.gstPercent ?? 0)
+  const razorpayChargeEnabled = Boolean(paymentSettings.razorpayChargeEnabled)
+  const razorpayChargePercent = Number(paymentSettings.razorpayChargePercent ?? 0)
 
   return couriers.map((courier) => {
     const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
     const activeRateKey = isReverse ? 'rto' : 'forward'
-    const breakup = calculateGstBreakup(getCourierBillingBaseAmount(courier, paymentType), gstPercent)
     const activeRate = courier?.localRates?.[activeRateKey]
+    const breakup = calculateBookingWalletDebit({
+      paymentType,
+      freightCharges: getOptionalNumber(activeRate?.rate ?? courier?.rate ?? courier?.freight_charges) ?? 0,
+      otherCharges: getOptionalNumber(activeRate?.other_charges ?? courier?.other_charges) ?? 0,
+      codCharges:
+        String(paymentType || '').toLowerCase() === 'cod'
+          ? getOptionalNumber(activeRate?.cod_charges ?? courier?.cod_charges) ?? 0
+          : 0,
+      gstPercent,
+      razorpayChargeEnabled,
+      razorpayChargePercent,
+    })
     const taxFields = {
       gst_percent: breakup.gstPercent,
       gst_amount: breakup.gstAmount,
+      razorpay_charge_enabled: breakup.razorpayChargeEnabled,
+      razorpay_charge_percent: breakup.razorpayChargePercent,
+      razorpay_charge_amount: breakup.razorpayChargeAmount,
+      total_charges_before_razorpay: breakup.baseAmountBeforeRazorpay,
       total_charges_without_gst: breakup.baseAmount,
       total_charges_with_gst: breakup.totalAmount,
       wallet_debit_amount: breakup.totalAmount,

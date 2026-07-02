@@ -27,6 +27,8 @@ export default function PaymentOptionsSettings() {
     prepaidEnabled: true,
     minWalletRecharge: 0,
     gstPercent: 0,
+    razorpayChargeEnabled: false,
+    razorpayChargePercent: 0,
   })
 
   useEffect(() => {
@@ -36,6 +38,8 @@ export default function PaymentOptionsSettings() {
         prepaidEnabled: paymentOptions.settings.prepaidEnabled ?? true,
         minWalletRecharge: paymentOptions.settings.minWalletRecharge ?? 0,
         gstPercent: paymentOptions.settings.gstPercent ?? 0,
+        razorpayChargeEnabled: paymentOptions.settings.razorpayChargeEnabled ?? false,
+        razorpayChargePercent: paymentOptions.settings.razorpayChargePercent ?? 0,
       })
     } else if (paymentOptions) {
       // Handle direct response format
@@ -44,6 +48,8 @@ export default function PaymentOptionsSettings() {
         prepaidEnabled: paymentOptions.prepaidEnabled ?? true,
         minWalletRecharge: paymentOptions.minWalletRecharge ?? 0,
         gstPercent: paymentOptions.gstPercent ?? 0,
+        razorpayChargeEnabled: paymentOptions.razorpayChargeEnabled ?? false,
+        razorpayChargePercent: paymentOptions.razorpayChargePercent ?? 0,
       })
     }
   }, [paymentOptions])
@@ -66,6 +72,11 @@ export default function PaymentOptionsSettings() {
       gstPercent:
         formData.gstPercent !== '' && Number(formData.gstPercent) >= 0
           ? Number(formData.gstPercent)
+          : 0,
+      razorpayChargeEnabled: formData.razorpayChargeEnabled,
+      razorpayChargePercent:
+        formData.razorpayChargePercent !== '' && Number(formData.razorpayChargePercent) >= 0
+          ? Number(formData.razorpayChargePercent)
           : 0,
     }
 
@@ -266,6 +277,50 @@ export default function PaymentOptionsSettings() {
                 placeholder="0"
               />
             </Box>
+          </Flex>
+
+          <Flex
+            justify="space-between"
+            align="center"
+            mt={4}
+            p={4}
+            bg={grayBg}
+            borderRadius="md"
+            gap={4}
+          >
+            <Box flex="1">
+              <Text fontWeight="semibold" mb={1}>
+                Razorpay Charges (%)
+              </Text>
+              <Text fontSize="sm" color="gray.500">
+                Enable a percentage-based Razorpay charge on the final freight wallet debit for every
+                booking.
+              </Text>
+            </Box>
+            <Flex align="center" gap={4}>
+              <Switch
+                isChecked={formData.razorpayChargeEnabled}
+                onChange={() => handleToggle('razorpayChargeEnabled')}
+                colorScheme="purple"
+                size="lg"
+              />
+              <Box width="150px">
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={formData.razorpayChargePercent}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      razorpayChargePercent: e.target.value === '' ? '' : Number(e.target.value),
+                    }))
+                  }
+                  placeholder="0"
+                  isDisabled={!formData.razorpayChargeEnabled}
+                />
+              </Box>
+            </Flex>
           </Flex>
         </Box>
 
