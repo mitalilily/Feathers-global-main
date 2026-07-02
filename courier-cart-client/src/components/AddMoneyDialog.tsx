@@ -31,6 +31,24 @@ interface AddMoneyDialogProps {
 
 const quickAmounts = [500, 1000, 2000, 10000]
 
+const getRechargeErrorMessage = (error: unknown) => {
+  const apiMessage =
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error &&
+    typeof (error as { response?: { data?: { error?: unknown } } }).response?.data?.error === 'string'
+      ? (error as { response?: { data?: { error?: string } } }).response?.data?.error
+      : ''
+
+  if (apiMessage) return apiMessage
+
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return 'Recharge failed. Please try again.'
+}
+
 const AddMoneyDialog: React.FC<AddMoneyDialogProps> = ({ open, setOpen, currentBalance }) => {
   const { user } = useAuth()
   const [amount, setAmount] = useState<number>(500)
@@ -44,6 +62,26 @@ const AddMoneyDialog: React.FC<AddMoneyDialogProps> = ({ open, setOpen, currentB
   const isBelowMin = minWalletRecharge > 0 && effectiveAmount < minWalletRecharge
   const kycStatus = profile?.domesticKyc?.status
   const isKycBlocked = kycStatus !== 'verified'
+  const resolvedName =
+    profile?.companyInfo?.businessName ||
+    user?.companyInfo?.businessName ||
+    profile?.companyInfo?.brandName ||
+    user?.companyInfo?.brandName ||
+    profile?.companyInfo?.contactPerson ||
+    user?.companyInfo?.contactPerson ||
+    'Feather Global Customer'
+  const resolvedEmail =
+    profile?.companyInfo?.contactEmail ||
+    user?.companyInfo?.contactEmail ||
+    profile?.companyInfo?.companyEmail ||
+    user?.companyInfo?.companyEmail ||
+    ''
+  const resolvedContact =
+    profile?.companyInfo?.contactNumber ||
+    user?.companyInfo?.contactNumber ||
+    profile?.companyInfo?.companyContactNumber ||
+    user?.companyInfo?.companyContactNumber ||
+    ''
 
   const handleRecharge = async () => {
     if (isKycBlocked) {
@@ -69,14 +107,14 @@ const AddMoneyDialog: React.FC<AddMoneyDialogProps> = ({ open, setOpen, currentB
       await recharge.mutateAsync({
         amount,
         prefill: {
-          name: user?.companyInfo?.businessName,
-          email: user.companyInfo?.contactEmail ?? '',
-          contact: user.companyInfo?.contactNumber ?? '',
+          name: resolvedName,
+          email: resolvedEmail,
+          contact: resolvedContact,
         },
       })
     } catch (err: unknown) {
       console.error('Recharge error:', err)
-      toast.open({ message: 'Recharge failed!', severity: 'error' })
+      toast.open({ message: getRechargeErrorMessage(err), severity: 'error' })
     }
   }
 

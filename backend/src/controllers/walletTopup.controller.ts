@@ -9,11 +9,13 @@ export const createTopup = async (req: Request, res: Response): Promise<any> => 
   if (!amt || amt <= 0) {
     return res.status(400).json({ error: 'Invalid amount' })
   }
-  if (!name || !email || !phone) {
-    return res.status(400).json({ error: 'Missing customer details' })
-  }
 
   try {
+    const userId = (req as any).user?.sub
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+
     // Enforce minimum wallet recharge amount (if configured)
     const paymentSettings = await getPaymentOptions()
     const minWalletRecharge = paymentSettings.minWalletRecharge ?? 0
@@ -24,8 +26,6 @@ export const createTopup = async (req: Request, res: Response): Promise<any> => 
         minWalletRecharge,
       })
     }
-
-    const userId = (req as any).user?.sub
 
     // Razorpay order creation
     const data = await createWalletOrder(userId, amt, { name, email, phone })

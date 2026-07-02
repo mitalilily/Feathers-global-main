@@ -7,6 +7,7 @@ import {
   verifyCheckoutSignature,
 } from '../../utils/razorpay'
 import { db } from '../client'
+import { userProfiles } from '../schema/userProfile'
 import { wallets, walletTopups } from '../schema/wallet'
 import { users } from '../schema/users'
 import { sendWalletRechargeEventEmail } from './eventEmail.service'
@@ -26,6 +27,77 @@ const httpError = (message: string, statusCode = 400) => {
   const error = new Error(message) as Error & { statusCode: number }
   error.statusCode = statusCode
   return error
+}
+
+const pickText = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? '').trim()
+    if (text) return text
+  }
+  return ''
+}
+
+const normalizePhone = (value: unknown) => String(value ?? '').replace(/\D+/g, '')
+
+type WalletOrderCustomerDetails = {
+  name: string
+  email: string
+  phone: string
+}
+
+async function resolveWalletOrderCustomerDetails(
+  userId: string,
+  details: Partial<WalletOrderCustomerDetails>,
+): Promise<WalletOrderCustomerDetails> {
+  const [profileRow] = await db
+    .select({
+      userEmail: users.email,
+      userPhone: users.phone,
+      companyInfo: userProfiles.companyInfo,
+    })
+    .from(users)
+    .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+    .where(eq(users.id, userId))
+    .limit(1)
+
+  if (!profileRow) {
+    throw httpError('User not found for wallet recharge', 404)
+  }
+
+  const companyInfo = (profileRow.companyInfo ?? {}) as Record<string, unknown>
+  const email = pickText(
+    details.email,
+    companyInfo.contactEmail,
+    companyInfo.companyEmail,
+    profileRow.userEmail,
+  )
+  const phone = normalizePhone(
+    details.phone || companyInfo.contactNumber || companyInfo.companyContactNumber || profileRow.userPhone,
+  )
+  const name = pickText(
+    details.name,
+    companyInfo.businessName,
+    companyInfo.brandName,
+    companyInfo.contactPerson,
+    companyInfo.companyName,
+    email ? email.split('@')[0] : '',
+    'Feather Global Customer',
+  )
+
+  const missingFields: string[] = []
+  if (!email) missingFields.push('contact email')
+  if (!phone) missingFields.push('contact number')
+
+  if (missingFields.length) {
+    throw httpError(
+      `Missing wallet recharge ${missingFields.join(
+        ' and ',
+      )}. Please update your profile before trying again.`,
+      400,
+    )
+  }
+
+  return { name, email, phone }
 }
 
 export async function walletOfUser(userId: string, tx: any = db) {
@@ -64,11 +136,12 @@ export async function getOrCreateWalletOfUser(userId: string, tx: any = db) {
 export async function createWalletOrder(
   userId: string,
   amount: number,
-  details: { name: string; email: string; phone: string },
+  details: Partial<WalletOrderCustomerDetails>,
 ) {
   assertRazorpayConfigured()
 
   const wallet = await getOrCreateWalletOfUser(userId)
+  const resolvedDetails = await resolveWalletOrderCustomerDetails(userId, details)
 
   // Generate unique order ID
   const orderId = `wallet_${Date.now()}_${Math.floor(Math.random() * 1000)}`
@@ -105,9 +178,9 @@ export async function createWalletOrder(
     name: 'Feather Global',
     description: 'Wallet Recharge',
     prefill: {
-      name: details.name,
-      email: details.email,
-      contact: details.phone,
+      name: resolvedDetails.name,
+      email: resolvedDetails.email,
+      contact: resolvedDetails.phone,
     },
     theme: {
       color: '#047b85',
