@@ -50,9 +50,9 @@ export default function AdminPageShell({
           overflow: 'hidden',
           border: '1px solid rgba(17, 17, 19, 0.08)',
           background:
-            'linear-gradient(135deg, #18181B 0%, #111113 55%, #26090D 100%)',
-          color: '#F7F3F1',
-          boxShadow: '0 26px 60px rgba(17, 17, 19, 0.18)',
+            'linear-gradient(135deg, #FFF9F4 0%, #FFF4EE 56%, #FDE8E4 100%)',
+          color: '#1C1C1F',
+          boxShadow: '0 26px 60px rgba(17, 17, 19, 0.1)',
         }}
       >
         <Box
@@ -60,7 +60,7 @@ export default function AdminPageShell({
             px: { xs: 2, md: 3 },
             py: { xs: 2.2, md: 2.8 },
             background:
-              'radial-gradient(circle at top right, rgba(217,4,22,0.22) 0%, transparent 28%)',
+              'radial-gradient(circle at top right, rgba(217,4,22,0.08) 0%, transparent 28%), linear-gradient(180deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0) 100%)',
           }}
         >
           <Stack spacing={2}>
@@ -78,7 +78,7 @@ export default function AdminPageShell({
                       fontWeight: 800,
                       letterSpacing: '0.16em',
                       textTransform: 'uppercase',
-                      color: alpha('#FFFFFF', 0.7),
+                      color: alpha('#5F524F', 0.92),
                     }}
                   >
                     {eyebrow}
@@ -90,9 +90,9 @@ export default function AdminPageShell({
                       sx={{
                         height: 24,
                         borderRadius: 1.5,
-                        bgcolor: alpha('#FFFFFF', 0.08),
-                        color: '#FFF4F2',
-                        border: `1px solid ${alpha('#FFFFFF', 0.1)}`,
+                        bgcolor: alpha('#FFFFFF', 0.58),
+                        color: '#2D2321',
+                        border: `1px solid ${alpha('#7F645E', 0.22)}`,
                         '& .MuiChip-label': {
                           px: 1,
                           fontWeight: 700,
@@ -105,10 +105,11 @@ export default function AdminPageShell({
 
                 <Typography
                   sx={{
-                    fontSize: { xs: '1.3rem', md: '1.75rem' },
-                    lineHeight: 1.04,
+                    fontSize: { xs: '1.55rem', md: '2.15rem' },
+                    lineHeight: 1.08,
                     letterSpacing: '-0.04em',
                     fontWeight: 800,
+                    color: '#17171A',
                   }}
                 >
                   {title}
@@ -117,10 +118,10 @@ export default function AdminPageShell({
                 {description ? (
                   <Typography
                     sx={{
-                      color: alpha('#FFF7F5', 0.76),
-                      fontSize: { xs: '0.92rem', md: '0.98rem' },
+                      color: alpha('#302A29', 0.86),
+                      fontSize: { xs: '0.98rem', md: '1.05rem' },
                       maxWidth: 760,
-                      lineHeight: 1.6,
+                      lineHeight: 1.72,
                     }}
                   >
                     {description}
@@ -150,12 +151,12 @@ export default function AdminPageShell({
                         height: '100%',
                         p: 1.6,
                         borderRadius: 3,
-                        color: '#FFF8F6',
+                        color: '#1F1B1A',
                         background:
-                          'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.10) 100%)',
-                        border: `1px solid ${alpha('#FFFFFF', 0.18)}`,
+                          'linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(255,248,245,0.94) 100%)',
+                        border: `1px solid ${alpha('#7F645E', 0.18)}`,
                         boxShadow:
-                          'inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 26px rgba(0,0,0,0.12)',
+                          'inset 0 1px 0 rgba(255,255,255,0.55), 0 10px 26px rgba(17,17,19,0.06)',
                         backdropFilter: 'blur(10px)',
                       }}
                     >
@@ -164,18 +165,31 @@ export default function AdminPageShell({
                           fontSize: '0.76rem',
                           letterSpacing: '0.1em',
                           textTransform: 'uppercase',
-                          color: alpha('#FFFFFF', 0.82),
+                          color: alpha('#6C5D58', 0.92),
                           fontWeight: 700,
                           mb: 0.8,
                         }}
                       >
                         {metric.label}
                       </Typography>
-                      <Typography sx={{ fontSize: '1.45rem', fontWeight: 800, lineHeight: 1.1 }}>
+                      <Typography
+                        sx={{
+                          fontSize: '1.45rem',
+                          fontWeight: 800,
+                          lineHeight: 1.1,
+                          color: '#17171A',
+                        }}
+                      >
                         {metric.value}
                       </Typography>
                       {metric.hint ? (
-                        <Typography sx={{ mt: 0.7, fontSize: '0.82rem', color: alpha('#FFFFFF', 0.8) }}>
+                        <Typography
+                          sx={{
+                            mt: 0.7,
+                            fontSize: '0.82rem',
+                            color: alpha('#3B3432', 0.76),
+                          }}
+                        >
                           {metric.hint}
                         </Typography>
                       ) : null}
@@ -214,12 +228,12 @@ export function AdminGhostButton({
       sx={{
         minHeight: 44,
         borderRadius: 2,
-        borderColor: alpha('#FFFFFF', 0.16),
-        color: '#FFFFFF',
-        backgroundColor: alpha('#FFFFFF', 0.04),
+        borderColor: alpha('#7F645E', 0.18),
+        color: '#1C1C1F',
+        backgroundColor: alpha('#FFFFFF', 0.62),
         '&:hover': {
-          borderColor: alpha('#FFFFFF', 0.24),
-          backgroundColor: alpha('#FFFFFF', 0.08),
+          borderColor: alpha('#7F645E', 0.28),
+          backgroundColor: alpha('#FFFFFF', 0.9),
         },
       }}
       {...props}
