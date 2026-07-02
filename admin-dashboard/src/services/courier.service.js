@@ -180,6 +180,12 @@ export const updateXpressbeesCredentials = async (payload) => {
   return data.data
 }
 
+export const testXpressbeesCredentials = async (payload) => {
+  const { data } = await api.post('/admin/couriers/credentials/xpressbees/test', payload)
+  if (!data?.success) throw new Error(data?.message || 'Failed to test Xpressbees credentials')
+  return data.data
+}
+
 export const updateXpressbeesAwbRange = async (payload) => {
   const { data } = await api.put('/admin/couriers/credentials/xpressbees/awb-range', payload)
   if (!data?.success) throw new Error(data?.message || 'Failed to update Xpressbees AWB range')

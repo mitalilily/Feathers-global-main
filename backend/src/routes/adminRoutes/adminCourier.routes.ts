@@ -7,6 +7,7 @@ import {
   getAllCouriersController,
   getShippingRatesController,
   importShippingRatesController,
+  testXpressbeesCredentialsController,
   updateAmazonCredentialsController,
   updateDelhiveryCredentialsController,
   updateEkartCredentialsController,
@@ -62,6 +63,12 @@ router.put(
   requireAuth,
   isAdminMiddleware,
   updateXpressbeesCredentialsController,
+)
+router.post(
+  '/credentials/xpressbees/test',
+  requireAuth,
+  isAdminMiddleware,
+  testXpressbeesCredentialsController,
 )
 router.put(
   '/credentials/xpressbees/awb-range',

@@ -1028,6 +1028,68 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
   }
 }
 
+export const testXpressbeesCredentialsController = async (req: Request, res: Response) => {
+  try {
+    const body = req.body || {}
+    const paymentType =
+      String(body.paymentType || body.payment_type || 'cod').trim().toLowerCase() === 'prepaid'
+        ? 'prepaid'
+        : 'cod'
+
+    const xpressbees = new XpressbeesService({
+      configOverrides: {
+        apiBase: optionalCredentialString(body.apiBase),
+        email:
+          optionalCredentialString(body.username) || optionalCredentialString(body.email) || '',
+        password: optionalCredentialString(body.password),
+        apiToken:
+          optionalCredentialString(body.apiKey) || optionalCredentialString(body.apiToken) || '',
+        authBearer: optionalCredentialString(body.authBearer),
+        secretKey: optionalCredentialString(body.secretKey),
+        xbKey: optionalCredentialString(body.xbKey),
+        xbAccessKey: optionalCredentialString(body.xbAccessKey),
+        businessUnit: optionalCredentialString(body.businessUnit),
+        businessFlow: optionalCredentialString(body.businessFlow),
+        businessService: optionalCredentialString(body.businessService),
+        businessServices: optionalCredentialString(body.businessServices),
+        businessAccountName: optionalCredentialString(body.businessAccountName),
+        pickupVendorCode: optionalCredentialString(body.pickupVendorCode),
+        manifestServiceType: optionalCredentialString(body.manifestServiceType),
+        manifestPickupType: optionalCredentialString(body.manifestPickupType),
+        pincodeBusinessUnit: optionalCredentialString(body.pincodeBusinessUnit),
+        pincodeBusinessFlow: optionalCredentialString(body.pincodeBusinessFlow),
+        pickupBusinessService: optionalCredentialString(body.pickupBusinessService),
+        deliveryBusinessService: optionalCredentialString(body.deliveryBusinessService),
+        serviceabilityVersion: optionalCredentialString(body.serviceabilityVersion),
+        trackingVersion: optionalCredentialString(body.trackingVersion),
+      },
+      skipTokenPersist: true,
+    })
+
+    const result = await xpressbees.testConnection({
+      origin: optionalCredentialString(body.origin) || optionalCredentialString(body.pickupPincode),
+      destination:
+        optionalCredentialString(body.destination) ||
+        optionalCredentialString(body.deliveryPincode),
+      paymentType,
+      orderAmount:
+        optionalCredentialString(body.orderAmount) || optionalCredentialString(body.order_amount),
+      weight: optionalCredentialString(body.weight),
+    })
+
+    res.json({
+      success: true,
+      data: result,
+    })
+  } catch (err: any) {
+    console.error('Failed to test Xpressbees credentials:', err)
+    res.status(500).json({
+      success: false,
+      message: err?.message || 'Failed to test Xpressbees credentials',
+    })
+  }
+}
+
 export const updateShadowfaxCredentialsController = async (req: Request, res: Response) => {
   const { apiBase, clientName, apiKey, webhookSecret } = req.body || {}
 

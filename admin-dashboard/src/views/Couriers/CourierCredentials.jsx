@@ -17,6 +17,7 @@ import {
   useUpdateDelhiveryCredentials,
   useUpdateEkartCredentials,
   useUpdateShadowfaxCredentials,
+  useTestXpressbeesCredentials,
   useUpdateXpressbeesAwbRange,
   useUpdateXpressbeesCredentials,
 } from 'hooks/useCouriers'
@@ -28,6 +29,7 @@ const CourierCredentials = () => {
   const updateEkart = useUpdateEkartCredentials()
   const updateShadowfax = useUpdateShadowfaxCredentials()
   const updateXpressbees = useUpdateXpressbeesCredentials()
+  const testXpressbees = useTestXpressbeesCredentials()
   const updateXpressbeesAwbRange = useUpdateXpressbeesAwbRange()
 
   const [form, setForm] = useState({
@@ -71,6 +73,7 @@ const CourierCredentials = () => {
     startAwb: '',
     endAwb: '',
   })
+  const [xpressbeesTestResult, setXpressbeesTestResult] = useState(null)
   const [shadowfaxForm, setShadowfaxForm] = useState({
     apiBase: '',
     clientName: '',
@@ -214,6 +217,7 @@ const CourierCredentials = () => {
       {
         onSuccess: () => {
           toast({ title: 'Xpressbees credentials updated', status: 'success' })
+          setXpressbeesTestResult(null)
           setXpressbeesForm((prev) => ({
             ...prev,
             password: '',
@@ -228,6 +232,61 @@ const CourierCredentials = () => {
         onError: (err) => {
           toast({
             title: 'Failed to update Xpressbees credentials',
+            description: err?.message,
+            status: 'error',
+          })
+        },
+      },
+    )
+  }
+
+  const handleTestXpressbees = () => {
+    testXpressbees.mutate(
+      {
+        apiBase: xpressbeesForm.apiBase,
+        username: xpressbeesForm.username,
+        ...(xpressbeesForm.password ? { password: xpressbeesForm.password } : {}),
+        ...(xpressbeesForm.apiKey ? { apiKey: xpressbeesForm.apiKey } : {}),
+        ...(xpressbeesForm.authBearer ? { authBearer: xpressbeesForm.authBearer } : {}),
+        ...(xpressbeesForm.secretKey ? { secretKey: xpressbeesForm.secretKey } : {}),
+        ...(xpressbeesForm.xbKey ? { xbKey: xpressbeesForm.xbKey } : {}),
+        ...(xpressbeesForm.xbAccessKey ? { xbAccessKey: xpressbeesForm.xbAccessKey } : {}),
+        businessAccountName: xpressbeesForm.businessAccountName,
+        pickupVendorCode: xpressbeesForm.pickupVendorCode,
+        businessUnit: xpressbeesForm.businessUnit,
+        businessFlow: xpressbeesForm.businessFlow,
+        businessService: xpressbeesForm.businessService,
+        businessServices: xpressbeesForm.businessServices,
+        manifestServiceType: xpressbeesForm.manifestServiceType,
+        manifestPickupType: xpressbeesForm.manifestPickupType,
+        pincodeBusinessUnit: xpressbeesForm.pincodeBusinessUnit,
+        pincodeBusinessFlow: xpressbeesForm.pincodeBusinessFlow,
+        pickupBusinessService: xpressbeesForm.pickupBusinessService,
+        deliveryBusinessService: xpressbeesForm.deliveryBusinessService,
+        serviceabilityVersion: xpressbeesForm.serviceabilityVersion,
+        trackingVersion: xpressbeesForm.trackingVersion,
+        origin: '122001',
+        destination: '400001',
+        paymentType: 'cod',
+        orderAmount: '499',
+        weight: '500',
+      },
+      {
+        onSuccess: (result) => {
+          setXpressbeesTestResult(result)
+          toast({
+            title: result?.ok
+              ? 'Xpressbees connection test passed'
+              : 'Xpressbees connection test completed with issues',
+            description: result?.ok
+              ? 'Auth, courier list, and serviceability checks succeeded.'
+              : 'Review the step-by-step result below for the failing check.',
+            status: result?.ok ? 'success' : 'warning',
+          })
+        },
+        onError: (err) => {
+          toast({
+            title: 'Failed to test Xpressbees credentials',
             description: err?.message,
             status: 'error',
           })
@@ -939,14 +998,71 @@ const CourierCredentials = () => {
               secret blank to keep the saved value.
             </Text>
 
-            <Button
-              colorScheme="blue"
-              onClick={handleSaveXpressbees}
-              isLoading={updateXpressbees.isPending}
-              alignSelf="flex-start"
-            >
-              Save Xpressbees Credentials
-            </Button>
+            <Text fontSize="xs" color="gray.500">
+              Connection test uses a sample COD lane from `122001` to `400001` with `500g`
+              weight, and it does not create a shipment.
+            </Text>
+
+            {xpressbeesTestResult && (
+              <Box borderWidth="1px" borderRadius="md" p={3}>
+                <Flex justify="space-between" align="center" gap={3} mb={3}>
+                  <Text fontWeight="semibold">Latest Connection Test</Text>
+                  <Badge colorScheme={xpressbeesTestResult.ok ? 'green' : 'orange'}>
+                    {xpressbeesTestResult.ok ? 'Passed' : 'Needs attention'}
+                  </Badge>
+                </Flex>
+
+                <Text fontSize="xs" color="gray.500" mb={3}>
+                  Sample lane: {xpressbeesTestResult.sampleServiceability?.origin} to{' '}
+                  {xpressbeesTestResult.sampleServiceability?.destination} (
+                  {String(xpressbeesTestResult.sampleServiceability?.paymentType || '').toUpperCase()}
+                  )
+                </Text>
+
+                <VStack spacing={2} align="stretch">
+                  {(xpressbeesTestResult.checks || []).map((check) => (
+                    <Flex key={check.key} justify="space-between" align="flex-start" gap={3}>
+                      <Box>
+                        <Text fontSize="sm" fontWeight="semibold">
+                          {check.key === 'auth'
+                            ? 'Auth'
+                            : check.key === 'couriers'
+                              ? 'Courier List'
+                              : 'Serviceability'}
+                        </Text>
+                        <Text fontSize="xs" color="gray.500">
+                          {check.message}
+                        </Text>
+                      </Box>
+                      <Badge colorScheme={check.ok ? 'green' : 'red'}>
+                        {check.statusCode ? `HTTP ${check.statusCode}` : check.ok ? 'OK' : 'Failed'}
+                      </Badge>
+                    </Flex>
+                  ))}
+                </VStack>
+              </Box>
+            )}
+
+            <Flex gap={3} flexWrap="wrap">
+              <Button
+                colorScheme="blue"
+                variant="outline"
+                onClick={handleTestXpressbees}
+                isLoading={testXpressbees.isPending}
+                alignSelf="flex-start"
+              >
+                Test Xpressbees Connection
+              </Button>
+
+              <Button
+                colorScheme="blue"
+                onClick={handleSaveXpressbees}
+                isLoading={updateXpressbees.isPending}
+                alignSelf="flex-start"
+              >
+                Save Xpressbees Credentials
+              </Button>
+            </Flex>
           </VStack>
         </Box>
 

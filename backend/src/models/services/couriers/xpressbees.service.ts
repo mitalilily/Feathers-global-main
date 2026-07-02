@@ -45,6 +45,45 @@ export type XpressbeesShipmentResponse = {
   [key: string]: any
 }
 
+export type XpressbeesConnectionCheck = {
+  key: 'auth' | 'couriers' | 'serviceability'
+  ok: boolean
+  statusCode: number | null
+  message: string
+  details?: Record<string, any>
+}
+
+export type XpressbeesConnectionTestResult = {
+  ok: boolean
+  config: {
+    baseApi: string
+    hasApiToken: boolean
+    hasAuthBearer: boolean
+    hasUsername: boolean
+    hasPassword: boolean
+    hasSecretKey: boolean
+    hasXbKey: boolean
+    hasXbAccessKey: boolean
+    hasBusinessAccountName: boolean
+    hasPickupVendorCode: boolean
+  }
+  sampleServiceability: {
+    origin: string
+    destination: string
+    paymentType: 'cod' | 'prepaid'
+    orderAmount: string
+    weight: string
+  }
+  checks: XpressbeesConnectionCheck[]
+}
+
+type XpressbeesServiceOptions = {
+  configOverrides?: Partial<XpressbeesConfig> & {
+    apiToken?: string
+  }
+  skipTokenPersist?: boolean
+}
+
 export class XpressbeesService {
   private baseApi = process.env.XPRESSBEES_API_BASE || 'https://shipment.xpressbees.com'
   private apiToken = process.env.XPRESSBEES_API_TOKEN || ''
@@ -83,9 +122,16 @@ export class XpressbeesService {
   private reverseShipmentEndpoint =
     process.env.XPRESSBEES_REVERSE_SHIPMENT_ENDPOINT || '/api/reverseshipments'
   private shipmentApiBase = 'https://shipment.xpressbees.com'
+  private readonly runtimeConfigOverrides: XpressbeesServiceOptions['configOverrides']
+  private readonly skipTokenPersist: boolean
 
   private static cachedConfig: XpressbeesConfig | null | undefined
   private static pincodeMasterCache = new Map<string, { expiresAt: number; raw: any }>()
+
+  constructor(options: XpressbeesServiceOptions = {}) {
+    this.runtimeConfigOverrides = options.configOverrides
+    this.skipTokenPersist = options.skipTokenPersist === true
+  }
 
   static clearCachedConfig() {
     XpressbeesService.cachedConfig = undefined
@@ -168,6 +214,85 @@ export class XpressbeesService {
     return value
   }
 
+  private applyConfigOverrides() {
+    const cfg = this.runtimeConfigOverrides
+    if (!cfg) return
+
+    const applyString = (value: unknown, setter: (next: string) => void) => {
+      if (typeof value !== 'string') return
+      const normalized = value.trim()
+      if (!normalized) return
+      setter(normalized)
+    }
+
+    applyString(cfg.apiBase, (value) => {
+      this.baseApi = value
+    })
+    applyString(cfg.apiToken, (value) => {
+      this.apiToken = value
+    })
+    applyString(cfg.authBearer, (value) => {
+      this.authBearer = value
+    })
+    applyString(cfg.email, (value) => {
+      this.username = value
+    })
+    applyString(cfg.password, (value) => {
+      this.password = value
+    })
+    applyString(cfg.secretKey, (value) => {
+      this.secretKey = value
+    })
+    applyString(cfg.xbKey, (value) => {
+      this.xbKey = value
+    })
+    applyString(cfg.xbAccessKey, (value) => {
+      this.xbAccessKey = value
+    })
+    applyString(cfg.businessUnit, (value) => {
+      this.businessUnit = value
+    })
+    applyString(cfg.businessFlow, (value) => {
+      this.businessFlow = value
+    })
+    applyString(cfg.businessService, (value) => {
+      this.businessService = value
+    })
+    applyString(cfg.businessServices, (value) => {
+      this.businessServices = value
+    })
+    applyString(cfg.businessAccountName, (value) => {
+      this.businessAccountName = value
+    })
+    applyString(cfg.pickupVendorCode, (value) => {
+      this.pickupVendorCode = value
+    })
+    applyString(cfg.manifestServiceType, (value) => {
+      this.manifestServiceType = value
+    })
+    applyString(cfg.manifestPickupType, (value) => {
+      this.manifestPickupType = value
+    })
+    applyString(cfg.pincodeBusinessUnit, (value) => {
+      this.pincodeBusinessUnit = value
+    })
+    applyString(cfg.pincodeBusinessFlow, (value) => {
+      this.pincodeBusinessFlow = value
+    })
+    applyString(cfg.pickupBusinessService, (value) => {
+      this.pickupBusinessService = value
+    })
+    applyString(cfg.deliveryBusinessService, (value) => {
+      this.deliveryBusinessService = value
+    })
+    applyString(cfg.serviceabilityVersion, (value) => {
+      this.serviceabilityVersion = value
+    })
+    applyString(cfg.trackingVersion, (value) => {
+      this.trackingVersion = value
+    })
+  }
+
   private async ensureConfigLoaded() {
     if (XpressbeesService.cachedConfig === undefined) {
       XpressbeesService.cachedConfig = await getEffectiveCourierConfig<XpressbeesConfig>(
@@ -201,6 +326,7 @@ export class XpressbeesService {
       this.serviceabilityVersion = cfg.serviceabilityVersion || this.serviceabilityVersion
       this.trackingVersion = cfg.trackingVersion || this.trackingVersion
     }
+    this.applyConfigOverrides()
     this.baseApi = this.normalizeBaseApi(this.baseApi)
     this.log('Config loaded', {
       baseApi: this.baseApi,
@@ -213,7 +339,13 @@ export class XpressbeesService {
       hasXbAccessKey: Boolean(this.xbAccessKey),
       hasBusinessAccountName: Boolean(this.businessAccountName),
       hasPickupVendorCode: Boolean(this.pickupVendorCode),
-      source: cfg ? 'courier_credentials_or_env_fallback' : 'env_only',
+      source: this.runtimeConfigOverrides
+        ? cfg
+          ? 'runtime_overrides+courier_credentials_or_env_fallback'
+          : 'runtime_overrides+env_only'
+        : cfg
+          ? 'courier_credentials_or_env_fallback'
+          : 'env_only',
     })
   }
 
@@ -784,6 +916,7 @@ export class XpressbeesService {
   private async persistGeneratedToken(token: string) {
     if (
       process.env.NODE_ENV === 'test' ||
+      this.skipTokenPersist ||
       String(process.env.XPRESSBEES_SKIP_TOKEN_PERSIST || '').toLowerCase() === 'true' ||
       (this.secretKey &&
         String(process.env.XPRESSBEES_PERSIST_GENERATED_TOKEN || '').toLowerCase() !== 'true')
@@ -1496,6 +1629,167 @@ export class XpressbeesService {
         '/courier',
       ]),
     })
+  }
+
+  private buildConnectionConfigSummary() {
+    return {
+      baseApi: this.baseApi,
+      hasApiToken: Boolean(String(this.apiToken || '').trim()),
+      hasAuthBearer: Boolean(String(this.authBearer || '').trim()),
+      hasUsername: Boolean(String(this.username || '').trim()),
+      hasPassword: Boolean(String(this.password || '').trim()),
+      hasSecretKey: Boolean(String(this.secretKey || '').trim()),
+      hasXbKey: Boolean(String(this.xbKey || '').trim()),
+      hasXbAccessKey: Boolean(String(this.xbAccessKey || '').trim()),
+      hasBusinessAccountName: Boolean(String(this.businessAccountName || '').trim()),
+      hasPickupVendorCode: Boolean(String(this.pickupVendorCode || '').trim()),
+    }
+  }
+
+  private buildConnectionFailure(
+    key: XpressbeesConnectionCheck['key'],
+    err: any,
+    fallbackMessage: string,
+  ): XpressbeesConnectionCheck {
+    const rawMessage = this.extractErrorMessage(err, fallbackMessage)
+    const normalizedMessage = rawMessage.toLowerCase()
+    let message = rawMessage
+
+    if (key === 'auth') {
+      if (normalizedMessage.includes('secretkey')) {
+        message =
+          'Auth failed: this Xpressbees account needs a Secret Key for token generation.'
+      } else if (normalizedMessage.includes('invalid email or password')) {
+        message =
+          'Auth failed: the shipment login rejected the provided email/password, and no alternate login endpoint accepted them.'
+      } else if (normalizedMessage.includes('failed to generate xpressbees api token')) {
+        message =
+          'Auth failed: no supported Xpressbees login endpoint accepted the supplied credentials.'
+      }
+    }
+
+    return {
+      key,
+      ok: false,
+      statusCode:
+        typeof err?.statusCode === 'number'
+          ? err.statusCode
+          : Number(err?.response?.status || 0) || null,
+      message,
+      details: message === rawMessage ? undefined : { rawMessage },
+    }
+  }
+
+  async testConnection(input: {
+    origin?: string | number
+    destination?: string | number
+    paymentType?: 'cod' | 'prepaid' | string
+    orderAmount?: string | number
+    weight?: string | number
+  } = {}): Promise<XpressbeesConnectionTestResult> {
+    await this.ensureConfigLoaded()
+
+    const paymentType: 'cod' | 'prepaid' =
+      String(input.paymentType || 'cod').trim().toLowerCase() === 'prepaid' ? 'prepaid' : 'cod'
+    const sampleServiceability = {
+      origin: String(input.origin || '122001').trim(),
+      destination: String(input.destination || '400001').trim(),
+      paymentType,
+      orderAmount: String(input.orderAmount || '499').trim(),
+      weight: String(input.weight || '500').trim(),
+    }
+
+    const checks: XpressbeesConnectionCheck[] = []
+    let authPassed = false
+
+    try {
+      const token = await this.getApiToken()
+      checks.push({
+        key: 'auth',
+        ok: true,
+        statusCode: 200,
+        message: token
+          ? 'Credentials resolved and token is available for Xpressbees requests.'
+          : 'Credentials resolved.',
+        details: {
+          tokenLength: String(token || '').trim().length,
+        },
+      })
+      authPassed = true
+    } catch (err: any) {
+      checks.push(this.buildConnectionFailure('auth', err, 'Xpressbees auth check failed'))
+    }
+
+    if (authPassed) {
+      try {
+        const response = await this.listCouriers()
+        const records = Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response)
+            ? response
+            : Array.isArray(response?.couriers)
+              ? response.couriers
+              : []
+
+        checks.push({
+          key: 'couriers',
+          ok: true,
+          statusCode: 200,
+          message: `Courier list fetched successfully (${records.length} courier${records.length === 1 ? '' : 's'}).`,
+          details: {
+            count: records.length,
+          },
+        })
+      } catch (err: any) {
+        checks.push(
+          this.buildConnectionFailure('couriers', err, 'Xpressbees courier list check failed'),
+        )
+      }
+
+      try {
+        const response = await this.checkServiceability({
+          origin: sampleServiceability.origin,
+          destination: sampleServiceability.destination,
+          payment_type: sampleServiceability.paymentType,
+          order_amount: sampleServiceability.orderAmount,
+          weight: sampleServiceability.weight,
+          length: '10',
+          breadth: '10',
+          height: '10',
+        })
+
+        checks.push({
+          key: 'serviceability',
+          ok: true,
+          statusCode: 200,
+          message: response.serviceable
+            ? 'Serviceability check completed and the sample lane is serviceable.'
+            : 'Serviceability check completed, but the sample lane is not serviceable.',
+          details: {
+            serviceable: response.serviceable,
+            records: response.records?.length ?? 0,
+            mode: response.mode || null,
+            codAvailable: response.codAvailable,
+            prepaidAvailable: response.prepaidAvailable,
+          },
+        })
+      } catch (err: any) {
+        checks.push(
+          this.buildConnectionFailure(
+            'serviceability',
+            err,
+            'Xpressbees serviceability check failed',
+          ),
+        )
+      }
+    }
+
+    return {
+      ok: checks.length > 0 && checks.every((check) => check.ok),
+      config: this.buildConnectionConfigSummary(),
+      sampleServiceability,
+      checks,
+    }
   }
 
   private formatXpressbeesDateTime(value: any): string {
