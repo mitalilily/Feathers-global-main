@@ -16,9 +16,13 @@ import {
   amazonShippingTrackingWebhookHandler,
 } from './controllers/webhooks/amazonShipping.webhook'
 import { AMAZON_SHIPPING_WEBHOOK_PATH } from './config/amazonShippingWebhook'
+import { XPRESSBEES_WEBHOOK_PATH } from './config/xpressbeesWebhook'
 import { ekartWebhookHandler } from './controllers/webhooks/ekart.webhook'
 import { shadowfaxWebhookHandler } from './controllers/webhooks/shadowfax.webhook'
-import { xpressbeesWebhookHandler } from './controllers/webhooks/xpressbees.webhook'
+import {
+  xpressbeesWebhookHandler,
+  xpressbeesWebhookHealthHandler,
+} from './controllers/webhooks/xpressbees.webhook'
 import {
   shopifyComplianceWebhookController,
   shopifyOrderWebhookController,
@@ -225,6 +229,18 @@ app.use('/api/v1', externalApiRoutes)
 app.get(AMAZON_SHIPPING_WEBHOOK_PATH, amazonShippingTrackingWebhookHealthHandler)
 app.post(AMAZON_SHIPPING_WEBHOOK_PATH, express.json(), amazonShippingTrackingWebhookHandler)
 app.post('/api/webhook/amazon-shipping/tracking', express.json(), amazonShippingTrackingWebhookHandler)
+// Xpressbees tracking webhook. The public production URL is:
+// https://api.fgship.in/webhooks/xpressbees/tracking
+app.get(XPRESSBEES_WEBHOOK_PATH, xpressbeesWebhookHealthHandler)
+app.post(
+  XPRESSBEES_WEBHOOK_PATH,
+  express.json({
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf.toString('utf8')
+    },
+  }),
+  xpressbeesWebhookHandler,
+)
 // Ekart webhook
 app.post('/api/webhook/ekart', express.json(), ekartWebhookHandler)
 app.post('/api/webhook/ekart/track', express.json(), ekartWebhookHandler)

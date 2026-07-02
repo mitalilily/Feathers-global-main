@@ -25,6 +25,10 @@ import { EkartService } from '../../models/services/couriers/ekart.service'
 import { XpressbeesService } from '../../models/services/couriers/xpressbees.service'
 import { ShadowfaxService } from '../../models/services/couriers/shadowfax.service'
 import {
+  XPRESSBEES_WEBHOOK_PATH,
+  XPRESSBEES_WEBHOOK_SIGNATURE_HEADER,
+} from '../../config/xpressbeesWebhook'
+import {
   createXpressbeesManualAwbRange,
   getXpressbeesManualAwbSummary,
 } from '../../models/services/xpressbeesAwbRange.service'
@@ -433,6 +437,32 @@ const buildDelhiveryWebhookConfig = () => ({
   ],
 })
 
+const buildXpressbeesWebhookConfig = () => ({
+  trackingUrl: resolvePublicWebhookUrl('XPRESSBEES_WEBHOOK_URL', XPRESSBEES_WEBHOOK_PATH),
+  legacyUrl: resolvePublicWebhookUrl('XPRESSBEES_LEGACY_WEBHOOK_URL', '/api/webhook/xpressbees'),
+  trackAliasUrl: resolvePublicWebhookUrl(
+    'XPRESSBEES_TRACK_WEBHOOK_URL',
+    '/api/webhook/xpressbees/track',
+  ),
+  method: 'POST',
+  contentType: 'application/json',
+  expectedResponse: '200 OK',
+  authentication: {
+    type: 'hmac_sha256',
+    headerName: XPRESSBEES_WEBHOOK_SIGNATURE_HEADER,
+    encoding: 'base64',
+    secretRequired: true,
+  },
+  samplePayloadFields: [
+    'awb_number',
+    'status',
+    'event_time',
+    'location',
+    'message',
+    'rto_awb',
+  ],
+})
+
 export const getCourierCredentialsController = async (req: Request, res: Response) => {
   try {
     const xpressbeesManualAwb = await getXpressbeesManualAwbSummary().catch((err: any) => {
@@ -510,6 +540,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         serviceabilityVersion: 'v1',
         trackingVersion: 'v1',
         manualAwb: xpressbeesManualAwb,
+        webhookConfig: buildXpressbeesWebhookConfig(),
       },
       shadowfax: {
         provider: 'shadowfax',
@@ -596,6 +627,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
           serviceabilityVersion: metadata.serviceabilityVersion || 'v1',
           trackingVersion: metadata.trackingVersion || 'v1',
           manualAwb: xpressbeesManualAwb,
+          webhookConfig: buildXpressbeesWebhookConfig(),
         }
       } else if (provider === 'shadowfax') {
         const apiKey = row.apiKey || ''
@@ -1020,6 +1052,7 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
         deliveryBusinessService: (saved?.metadata as any)?.deliveryBusinessService || 'Delivery',
         serviceabilityVersion: (saved?.metadata as any)?.serviceabilityVersion || 'v1',
         trackingVersion: (saved?.metadata as any)?.trackingVersion || 'v1',
+        webhookConfig: buildXpressbeesWebhookConfig(),
       },
     })
   } catch (err) {

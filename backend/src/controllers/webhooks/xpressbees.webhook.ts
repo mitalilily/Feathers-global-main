@@ -1,12 +1,17 @@
 import { Request, Response } from 'express'
 import { and, eq, gte, isNull } from 'drizzle-orm'
 import crypto from 'crypto'
+import {
+  XPRESSBEES_WEBHOOK_SIGNATURE_HEADER,
+  XPRESSBEES_WEBHOOK_URL,
+} from '../../config/xpressbeesWebhook'
 import { db } from '../../models/client'
 import { processXpressbeesWebhook } from '../../models/services/webhookProcessor'
 import { courier_credentials } from '../../models/schema/courierCredentials'
 import { pending_webhooks } from '../../schema/schema'
 
 const XPRESSBEES_WEBHOOK_SECRET_HEADERS = [
+  'x-hmac-sha256',
   'x-xpressbees-webhook-secret',
   'x-xpressbees-webhook-signature',
   'x-xpressbees-signature',
@@ -50,6 +55,44 @@ const extractEventPayload = (payload: any) => {
   return payload
 }
 
+const timingSafeStringEqual = (actual: string, expected: string) => {
+  const actualBuffer = Buffer.from(actual)
+  const expectedBuffer = Buffer.from(expected)
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(actualBuffer, expectedBuffer)
+  )
+}
+
+const buildExpectedSignatureCandidates = (configuredSecret: string, rawBody: string) => {
+  const digest = crypto.createHmac('sha256', configuredSecret).update(rawBody).digest()
+  const base64Signature = digest.toString('base64')
+  const hexSignature = digest.toString('hex')
+
+  return [
+    configuredSecret,
+    base64Signature,
+    `sha256=${hexSignature}`,
+    hexSignature,
+  ]
+}
+
+export const xpressbeesWebhookHealthHandler = (_req: Request, res: Response) =>
+  res.status(200).json({
+    success: true,
+    provider: 'xpressbees',
+    webhookUrl: XPRESSBEES_WEBHOOK_URL,
+    authentication: {
+      type: 'hmac_sha256',
+      headerName: XPRESSBEES_WEBHOOK_SIGNATURE_HEADER,
+      encoding: 'base64',
+      fallbackHeaders: XPRESSBEES_WEBHOOK_SECRET_HEADERS.filter(
+        (header) => header !== 'x-hmac-sha256',
+      ),
+    },
+    expectedResponse: '200 OK',
+  })
+
 export const xpressbeesWebhookHandler = async (req: Request, res: Response) => {
   const timestamp = new Date().toISOString()
   const payload = req.body
@@ -91,20 +134,20 @@ export const xpressbeesWebhookHandler = async (req: Request, res: Response) => {
         const normalizedHeader = receivedSecret.startsWith('Bearer ')
           ? receivedSecret.slice('Bearer '.length).trim()
           : receivedSecret
-        const expectedHmac =
-          'sha256=' + crypto.createHmac('sha256', configuredSecret).update(rawBody).digest('hex')
-        const candidateValues = [
-          normalizedHeader,
-          normalizedHeader.startsWith('sha256=') ? normalizedHeader : `sha256=${normalizedHeader}`,
-        ]
-        const matchesRawSecret = candidateValues.some((value) => value === configuredSecret)
-        const matchesHmac = candidateValues.some((value) => {
-          const expectedBuf = Buffer.from(expectedHmac)
-          const providedBuf = Buffer.from(value)
-          return expectedBuf.length === providedBuf.length && crypto.timingSafeEqual(expectedBuf, providedBuf)
-        })
+        const candidateValues = Array.from(
+          new Set([
+            normalizedHeader,
+            normalizedHeader.startsWith('sha256=')
+              ? normalizedHeader
+              : `sha256=${normalizedHeader}`,
+          ]),
+        )
+        const expectedValues = buildExpectedSignatureCandidates(configuredSecret, rawBody)
+        const matchesExpectedSignature = candidateValues.some((candidate) =>
+          expectedValues.some((expectedValue) => timingSafeStringEqual(candidate, expectedValue)),
+        )
 
-        if (!matchesRawSecret && !matchesHmac) {
+        if (!matchesExpectedSignature) {
           console.warn('⚠️ Xpressbees webhook rejected: invalid secret/signature')
           return res.status(401).json({ success: false, message: 'invalid webhook secret' })
         }
@@ -114,7 +157,12 @@ export const xpressbeesWebhookHandler = async (req: Request, res: Response) => {
     const result = await processXpressbeesWebhook(payload)
 
     if (!result.success && result.reason === 'missing_awb') {
-      return res.status(400).json({ success: false, message: 'Missing AWB/order reference' })
+      return res.status(200).json({
+        success: true,
+        accepted: true,
+        ignored: true,
+        reason: 'missing_awb',
+      })
     }
 
     if (!result.success && result.reason === 'order_not_found') {
@@ -148,11 +196,16 @@ export const xpressbeesWebhookHandler = async (req: Request, res: Response) => {
         )
       }
 
-      return res.status(202).json({ success: true, queued: true })
+      return res.status(200).json({ success: true, accepted: true, queued: true })
     }
 
     if (!result.success) {
-      return res.status(202).json({ success: false, reason: result.reason })
+      return res.status(200).json({
+        success: true,
+        accepted: true,
+        processed: false,
+        reason: result.reason,
+      })
     }
 
     return res.status(200).json({ success: true })
