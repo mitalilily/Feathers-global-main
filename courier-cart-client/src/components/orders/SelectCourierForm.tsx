@@ -114,7 +114,7 @@ export const SelectCourierForm = ({ shipment_type }: { shipment_type: 'b2b' | 'b
   )
 
   const preferredShadowfaxForwardMode: 'marketplace' | 'warehouse' | undefined =
-    selectedShadowfaxForwardMode ?? (shipment_type === 'b2b' ? 'warehouse' : undefined)
+    selectedShadowfaxForwardMode ?? 'marketplace'
 
   // COURIER API payload
   const courierPayload: UseAvailableCouriersParams = {

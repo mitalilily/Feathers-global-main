@@ -922,6 +922,34 @@ const normalizeShadowfaxServiceModeValue = (
   return fallback
 }
 
+const isShadowfaxReverseShipment = (params: {
+  isReverse?: boolean | null
+  payment_type?: string | null
+  order_type?: string | null
+}) =>
+  params.isReverse === true ||
+  String(params.payment_type || '')
+    .trim()
+    .toLowerCase() === 'reverse' ||
+  String(params.order_type || '')
+    .trim()
+    .toLowerCase() === 'reverse'
+
+const resolveShadowfaxOrderMode = (
+  params: {
+    isReverse?: boolean | null
+    payment_type?: string | null
+    order_type?: string | null
+  },
+  explicitMode?: unknown,
+): ShadowfaxForwardModeSelection => {
+  if (isShadowfaxReverseShipment(params)) return 'warehouse'
+  if (explicitMode !== undefined && explicitMode !== null && String(explicitMode).trim()) {
+    return 'marketplace'
+  }
+  return 'marketplace'
+}
+
 const resolveCourierBookingLifecycle = (
   integrationType: string,
   options: {
@@ -3534,7 +3562,10 @@ export const fetchAvailableCouriersWithRates = async (
     const normalizeShadowfaxMode = normalizeShadowfaxForwardModeValue
 
     const explicitShadowfaxForwardMode = String(params.shadowfax_forward_mode || '').trim()
-    let shadowfaxRequestedMode = normalizeShadowfaxMode(explicitShadowfaxForwardMode)
+    let shadowfaxRequestedMode = resolveShadowfaxOrderMode(
+      params,
+      explicitShadowfaxForwardMode,
+    )
     const explicitShadowfaxServiceMode = String(params.shadowfax_service_mode || '').trim()
     let shadowfaxRequestedService = normalizeShadowfaxServiceModeValue(
       explicitShadowfaxServiceMode || 'surface',
@@ -3672,6 +3703,7 @@ export const fetchAvailableCouriersWithRates = async (
     }
 
     const inferDefaultShadowfaxModeFromBuckets = (rateCards: any[] = []) => {
+      const reverseShadowfaxShipment = isShadowfaxReverseShipment(params)
       const shadowfaxBucket = providerCourierBuckets.get('shadowfax')
       if (!shadowfaxBucket?.rows.length) return
       const shadowfaxRateCards = rateCards.filter(
@@ -3684,21 +3716,21 @@ export const fetchAvailableCouriersWithRates = async (
         const hasMarketplaceRate = shadowfaxRateCards.some(
           (rate) => !String(rate.courier_name || '').toLowerCase().includes('warehouse'),
         )
-        if (explicitShadowfaxForwardMode) {
-          const explicitWarehouse = explicitShadowfaxForwardMode === 'warehouse'
+        if (explicitShadowfaxForwardMode && shadowfaxRequestedMode === 'warehouse') {
+          const explicitWarehouse = normalizeShadowfaxMode(explicitShadowfaxForwardMode) === 'warehouse'
           if (explicitWarehouse && hasWarehouseRate) return
           if (!explicitWarehouse && hasMarketplaceRate) return
           if (explicitWarehouse && !hasWarehouseRate && hasMarketplaceRate) {
             shadowfaxRequestedMode = 'marketplace'
             return
           }
-          if (!explicitWarehouse && !hasMarketplaceRate && hasWarehouseRate) {
+          if (reverseShadowfaxShipment && !explicitWarehouse && !hasMarketplaceRate && hasWarehouseRate) {
             shadowfaxRequestedMode = 'warehouse'
             return
           }
           return
         }
-        if (hasWarehouseRate && !hasMarketplaceRate) {
+        if (reverseShadowfaxShipment && hasWarehouseRate && !hasMarketplaceRate) {
           shadowfaxRequestedMode = 'warehouse'
           return
         }
@@ -3707,14 +3739,14 @@ export const fetchAvailableCouriersWithRates = async (
           return
         }
       }
-      if (explicitShadowfaxForwardMode) return
+      if (explicitShadowfaxForwardMode && shadowfaxRequestedMode === 'warehouse') return
       const hasWarehouseCourier = shadowfaxBucket.rows.some((row) =>
         String(row.name || '').toLowerCase().includes('warehouse'),
       )
       const hasMarketplaceCourier = shadowfaxBucket.rows.some(
         (row) => !String(row.name || '').toLowerCase().includes('warehouse'),
       )
-      if (hasWarehouseCourier && !hasMarketplaceCourier) {
+      if (reverseShadowfaxShipment && hasWarehouseCourier && !hasMarketplaceCourier) {
         shadowfaxRequestedMode = 'warehouse'
       }
     }
@@ -4226,9 +4258,7 @@ export const fetchAvailableCouriersWithRates = async (
 
       if (originPincode && destinationPincode) {
         try {
-          const isReverseShipment =
-            params.isReverse === true ||
-            String(params.payment_type || '').toLowerCase() === 'reverse'
+          const isReverseShipment = isShadowfaxReverseShipment(params)
           shadowfaxResp = isReverseShipment
             ? await shadowfax.checkReverseServiceability({
                 origin: originPincode,
@@ -5232,8 +5262,9 @@ export const fetchAvailableCouriersWithRatesB2B = async (
     }) =>
       `${String(courier.id)}__${normalizeProviderKey(courier.integration_type || courier.serviceProvider || null)}__${courier.max_slab_weight ?? 'base'}`
 
-    const requestedShadowfaxMode = normalizeShadowfaxForwardModeValue(
-      (params as any).shadowfax_forward_mode || 'warehouse',
+    const requestedShadowfaxMode = resolveShadowfaxOrderMode(
+      params as any,
+      (params as any).shadowfax_forward_mode,
     )
     const requestedShadowfaxService =
       String((params as any).shadowfax_service_mode || '')
@@ -6277,15 +6308,7 @@ export const createB2CShipmentService = async (
   }
 
   const resolveShadowfaxForwardMode = (): 'marketplace' | 'warehouse' => {
-    if (String(params.shadowfax_forward_mode || '').trim()) {
-      return normalizeShadowfaxForwardModeValue(params.shadowfax_forward_mode)
-    }
-
-    const tagValue = String(params.tags || '').toLowerCase()
-    if (tagValue.includes('shadowfax_mode=warehouse')) return 'warehouse'
-    if (tagValue.includes('shadowfax_mode=marketplace')) return 'marketplace'
-
-    return 'marketplace'
+    return resolveShadowfaxOrderMode(params, params.shadowfax_forward_mode)
   }
 
   const resolveShadowfaxServiceMode = (): 'regular' | 'surface' => {
@@ -9540,8 +9563,7 @@ export const createB2BShipmentService = async (
       rto_details: rtoDetails,
       is_rto_different: params.is_rto_different === 'yes',
       is_external_api: is_external_api ?? false,
-      provider_mode:
-        normalizeShadowfaxForwardModeValue(params.shadowfax_forward_mode || 'warehouse'),
+      provider_mode: resolveShadowfaxOrderMode(params as any, params.shadowfax_forward_mode),
       provider_service: normalizeShadowfaxServiceModeValue(
         params.shadowfax_service_mode || params.shipping_mode || params.transport_speed || 'surface',
       ),
@@ -9601,8 +9623,9 @@ export const createB2BShipmentService = async (
       gst: params.consignee?.gstin || params.company?.gst || '',
     },
   }
-  const shadowfaxForwardMode = normalizeShadowfaxForwardModeValue(
-    params.shadowfax_forward_mode || 'warehouse',
+  const shadowfaxForwardMode = resolveShadowfaxOrderMode(
+    params as any,
+    params.shadowfax_forward_mode,
   )
   const shadowfaxServiceMode = normalizeShadowfaxServiceModeValue(
     params.shadowfax_service_mode || params.shipping_mode || params.transport_speed || 'surface',
