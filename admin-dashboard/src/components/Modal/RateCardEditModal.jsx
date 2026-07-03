@@ -26,6 +26,12 @@ const normalizeMode = (value) => {
 }
 const makeCourierKey = (courierId, serviceProvider) =>
   `${courierId || ''}__${normalizeProvider(serviceProvider)}`
+const B2C_RATE_TYPES = ['forward', 'rto', 'reverse_pickup']
+const B2C_RATE_TYPE_LABELS = {
+  forward: 'Forward',
+  rto: 'RTO',
+  reverse_pickup: 'Reverse Pickup',
+}
 
 export const RateCardEditModal = ({
   isOpen,
@@ -77,10 +83,12 @@ export const RateCardEditModal = ({
       initialForm[zone.name] = {
         forward: data?.rates?.[zone.name]?.forward ?? '',
         rto: data?.rates?.[zone.name]?.rto ?? '',
+        reverse_pickup: data?.rates?.[zone.name]?.reverse_pickup ?? '',
       }
       initialForm.zone_slabs[zone.name] = {
         forward: data?.zone_slabs?.[zone.name]?.forward ?? [],
         rto: data?.zone_slabs?.[zone.name]?.rto ?? [],
+        reverse_pickup: data?.zone_slabs?.[zone.name]?.reverse_pickup ?? [],
       }
     })
 
@@ -141,7 +149,7 @@ export const RateCardEditModal = ({
   const handleSave = () => {
     const hasZoneRate = zones.some((zone) => {
       if (isB2C) {
-        return ['forward', 'rto'].some((type) =>
+        return B2C_RATE_TYPES.some((type) =>
           (form.zone_slabs?.[zone.name]?.[type] || []).some((slab) => hasValue(slab.rate)),
         )
       }
@@ -160,9 +168,11 @@ export const RateCardEditModal = ({
       if (isB2C) {
         const forwardSlabs = form.zone_slabs?.[zone.name]?.forward || []
         const rtoSlabs = form.zone_slabs?.[zone.name]?.rto || []
+        const reversePickupSlabs = form.zone_slabs?.[zone.name]?.reverse_pickup || []
         rates[zone.name] = {
           forward: forwardSlabs[0]?.rate ?? '',
           rto: rtoSlabs[0]?.rate ?? '',
+          reverse_pickup: reversePickupSlabs[0]?.rate ?? '',
         }
       } else {
         rates[zone.name] = { ...form[zone.name] }
@@ -495,12 +505,12 @@ export const RateCardEditModal = ({
             </Text>
             {isB2C ? (
               <Stack spacing={4}>
-                {['forward', 'rto'].map((type) => (
+                {B2C_RATE_TYPES.map((type) => (
                   <Box key={type} p={3} bg="gray.50" borderRadius="md">
                     <Flex align="center" justify="space-between" mb={3}>
                       <Box>
                         <Text fontWeight="semibold" textTransform="uppercase">
-                          {type}
+                          {B2C_RATE_TYPE_LABELS[type]}
                         </Text>
                         <Text fontSize="xs" color="gray.500">
                           Example: `0-0.5`, `0.5-2`, `5-10`

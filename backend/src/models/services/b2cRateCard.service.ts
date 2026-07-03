@@ -16,6 +16,9 @@ export interface RateCardSlabInput {
   extra_weight_unit?: number | null
 }
 
+export const B2C_RATE_TYPES = ['forward', 'rto', 'reverse_pickup'] as const
+export type B2CRateType = (typeof B2C_RATE_TYPES)[number]
+
 export interface ResolvedRateCardSlab {
   id?: string
   weight_from: number
@@ -324,7 +327,7 @@ export async function fetchResolvedB2CRateCards(filters: {
   courierId?: number
   serviceProvider?: string | null
   mode?: string | null
-  type?: 'forward' | 'rto'
+  type?: B2CRateType
 }) {
   const requestedServiceProvider = normalizeB2CServiceProvider(filters.serviceProvider)
   const requestedMode = normalizeB2CShippingMode(filters.mode)

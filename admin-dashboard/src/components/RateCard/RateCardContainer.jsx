@@ -33,6 +33,16 @@ import { fetchAllCouriersList } from 'services/courier.service'
 import { PlansService } from 'services/plan.service'
 
 const normalizeProvider = (value) => String(value || '').trim().toLowerCase()
+const normalizeCourierName = (value) => String(value || '').trim().toLowerCase()
+
+const B2C_ZONE_LABELS = {
+  METRO_TO_METRO: 'Metro to Metro',
+  ROI: 'Rest of India',
+  SPECIAL_ZONE: 'Special Zone',
+  WITHIN_CITY: 'Within City',
+  WITHIN_REGION: 'Within Region',
+  WITHIN_STATE: 'Within State',
+}
 
 const normalizeMode = (value) => {
   const raw = String(value || '').trim().toLowerCase()
@@ -42,16 +52,62 @@ const normalizeMode = (value) => {
   return raw
 }
 
-const findMatchingRateRow = (existingRows = [], courier = {}, businessType = '', planId = '') =>
-  existingRows.find(
+const canonicalZoneCode = (value) => String(value || '').trim().toUpperCase().replace(/_B2C$/, '')
+
+const getB2CZoneLabel = (zone = {}) =>
+  B2C_ZONE_LABELS[canonicalZoneCode(zone.code)] || zone.name || zone.region || zone.code || ''
+
+const dedupeB2CZones = (zones = []) => {
+  const seenLabels = new Set()
+
+  return zones.filter((zone) => {
+    const label = getB2CZoneLabel(zone)
+    if (!label || seenLabels.has(label)) return false
+    seenLabels.add(label)
+    return true
+  })
+}
+
+const getZoneLookupKeys = (zone = {}) =>
+  Array.from(new Set([getB2CZoneLabel(zone), zone.name, zone.region].filter(Boolean)))
+
+const getZoneSlabs = (existing = {}, zone = {}, type = 'forward') => {
+  for (const key of getZoneLookupKeys(zone)) {
+    const slabs = existing.zone_slabs?.[key]?.[type]
+    if (Array.isArray(slabs) && slabs.length) return slabs
+  }
+
+  return []
+}
+
+const findMatchingRateRow = (existingRows = [], courier = {}, businessType = '', planId = '') => {
+  const matches = existingRows.filter(
     (row) =>
       row.business_type === businessType &&
       (!planId || row.plan_id === planId) &&
       Number(row.courier_id) === Number(courier.id) &&
       normalizeProvider(row.service_provider || row.serviceProvider || '') ===
-        normalizeProvider(courier.serviceProvider || courier.service_provider || '') &&
-      normalizeMode(row.mode || '') === normalizeMode(courier.mode || ''),
-  ) || null
+        normalizeProvider(courier.serviceProvider || courier.service_provider || ''),
+  )
+
+  if (!matches.length) return null
+
+  const courierMode = normalizeMode(courier.mode || '')
+  if (courierMode) {
+    const modeMatch = matches.find((row) => normalizeMode(row.mode || '') === courierMode)
+    if (modeMatch) return modeMatch
+  }
+
+  const courierName = normalizeCourierName(courier.name || courier.courier_name || '')
+  if (courierName) {
+    const nameMatch = matches.find(
+      (row) => normalizeCourierName(row.courier_name || row.courierName || '') === courierName,
+    )
+    if (nameMatch) return nameMatch
+  }
+
+  return matches[0] || null
+}
 
 // Default slab weights used in the B2C sample template
 const DEFAULT_B2C_SLABS = [
@@ -84,10 +140,13 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
   const type = filters?.businessType?.toLowerCase()
 
   if (type === 'b2c') {
+    const b2cZones = dedupeB2CZones(allZones)
+    if (!b2cZones.length) return
+
     const headers = [
       'Slab', 'Courier ID', 'Courier', 'Service Provider', 'Mode', 'Weight (KG)', 'Slab Type',
-      ...allZones.map((z) => z.name),
-      'COD Rs', 'COD %', 'RTO %',
+      ...b2cZones.map((zone) => getB2CZoneLabel(zone)),
+      'COD Rs', 'COD %', 'RTO %', 'Reverse Pickup %',
     ]
 
     const rows = []
@@ -96,15 +155,22 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
       const existing = findMatchingRateRow(existingData, courier, type, filters.planId) || {}
       const mode = normalizeMode(courier.mode || existing.mode || '') || 'surface'
 
-      // Derive RTO% from first zone slab pair
+      // Derive RTO% and reverse pickup % from first zone slab pair
       let rtoPercent = ''
-      const firstZone = allZones[0]
-      const exFwd = existing.zone_slabs?.[firstZone?.name]?.forward || []
-      const exRto = existing.zone_slabs?.[firstZone?.name]?.rto || []
+      let reversePickupPercent = ''
+      const firstZone = b2cZones[0]
+      const exFwd = getZoneSlabs(existing, firstZone, 'forward')
+      const exRto = getZoneSlabs(existing, firstZone, 'rto')
+      const exReversePickup = getZoneSlabs(existing, firstZone, 'reverse_pickup')
       if (exFwd.length && exRto.length) {
         const fRate = Number(exFwd[0]?.rate || 0)
         const rRate = Number(exRto[0]?.rate || 0)
         if (fRate > 0) rtoPercent = String(Math.round((rRate / fRate) * 100))
+      }
+      if (exFwd.length && exReversePickup.length) {
+        const fRate = Number(exFwd[0]?.rate || 0)
+        const reversePickupRate = Number(exReversePickup[0]?.rate || 0)
+        if (fRate > 0) reversePickupPercent = String(Math.round((reversePickupRate / fRate) * 100))
       }
 
       // Build slab list from existing forward slabs or defaults
@@ -117,17 +183,13 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
 
       for (let i = 0; i < slabDefs.length; i++) {
         const slab = slabDefs[i]
-        const firstZoneRates = allZones.map((z) => {
-          const slabs = existing.zone_slabs?.[z.name]?.forward || []
-          return slabs[i]?.rate ?? ''
-        })
-        const addZoneRates = allZones.map((z) => {
-          const slabs = existing.zone_slabs?.[z.name]?.forward || []
-          return slabs[i]?.extra_rate ?? ''
-        })
+        const firstZoneRates = b2cZones.map((zone) => getZoneSlabs(existing, zone, 'forward')[i]?.rate ?? '')
+        const addZoneRates = b2cZones.map(
+          (zone) => getZoneSlabs(existing, zone, 'forward')[i]?.extra_rate ?? '',
+        )
 
-        rows.push([slab.label, courier.id ?? '', courier.name ?? '', courier.serviceProvider || courier.service_provider || existing.service_provider || '', mode, slab.weight, 'First', ...firstZoneRates, codRs, codPct, rtoPercent])
-        rows.push([slab.label, courier.id ?? '', courier.name ?? '', courier.serviceProvider || courier.service_provider || existing.service_provider || '', mode, slab.weight, 'Additional', ...addZoneRates, '', '', ''])
+        rows.push([slab.label, courier.id ?? '', courier.name ?? '', courier.serviceProvider || courier.service_provider || existing.service_provider || '', mode, slab.weight, 'First', ...firstZoneRates, codRs, codPct, rtoPercent, reversePickupPercent])
+        rows.push([slab.label, courier.id ?? '', courier.name ?? '', courier.serviceProvider || courier.service_provider || existing.service_provider || '', mode, slab.weight, 'Additional', ...addZoneRates, '', '', '', ''])
       }
     }
 

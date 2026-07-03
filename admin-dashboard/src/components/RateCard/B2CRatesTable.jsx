@@ -4,6 +4,12 @@ import { useDeleteB2CZone } from 'hooks/useCouriers'
 import { useMemo } from 'react'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 
+const B2C_RATE_SUMMARY_TYPES = [
+  { key: 'forward', label: 'F' },
+  { key: 'rto', label: 'RTO' },
+  { key: 'reverse_pickup', label: 'RP' },
+]
+
 export const B2CTable = ({ data, zones, onEdit, planId, loading }) => {
   const deleteB2CZoneMutation = useDeleteB2CZone(planId)
 
@@ -18,12 +24,15 @@ export const B2CTable = ({ data, zones, onEdit, planId, loading }) => {
     const zoneColumns =
       zones?.map((zone) => ({
         key: zone.code,
-        label: `${zone.name} (F | RTO)`,
+        label: `${zone.name} (F | RTO | RP)`,
         width: '180px',
         renderer: (_, row) => {
           const rates = row.rates?.[zone.name] || {}
           const zoneSlabs = row.zone_slabs?.[zone.name] || {}
-          return `${renderSlabSummary(zoneSlabs.forward, rates.forward)} | ${renderSlabSummary(zoneSlabs.rto, rates.rto)}`
+          return B2C_RATE_SUMMARY_TYPES.map(
+            ({ key, label }) =>
+              `${label}: ${renderSlabSummary(zoneSlabs[key], rates[key])}`,
+          ).join(' | ')
         },
       })) || []
 

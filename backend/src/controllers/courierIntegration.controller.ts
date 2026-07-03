@@ -167,11 +167,22 @@ const getOptionalNumber = (value: unknown): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+const getActiveB2CLocalRate = (courier: any, isReverse: boolean) => {
+  if (!courier?.localRates) return null
+  if (isReverse) {
+    return (
+      courier.localRates.reverse_pickup ??
+      courier.localRates.rto ??
+      courier.localRates.forward ??
+      null
+    )
+  }
+  return courier.localRates.forward ?? null
+}
+
 const getCourierBillingBaseAmount = (courier: any, paymentType?: string) => {
   const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
-  const activeRate = isReverse
-    ? courier?.localRates?.rto ?? courier?.localRates?.forward ?? {}
-    : courier?.localRates?.forward ?? {}
+  const activeRate = getActiveB2CLocalRate(courier, isReverse) ?? {}
   const explicitTotal = getOptionalNumber(activeRate.total_charges ?? courier?.total_charges)
   if (explicitTotal !== undefined) return Math.max(0, explicitTotal)
 
@@ -194,8 +205,9 @@ const applyGstToB2CCouriers = async (couriers: any[], paymentType?: string) => {
 
   return couriers.map((courier) => {
     const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
-    const activeRateKey = isReverse ? 'rto' : 'forward'
-    const activeRate = courier?.localRates?.[activeRateKey]
+    const activeRate = getActiveB2CLocalRate(courier, isReverse)
+    const activeRateKey =
+      isReverse && courier?.localRates?.reverse_pickup ? 'reverse_pickup' : isReverse ? 'rto' : 'forward'
     const breakup = calculateBookingWalletDebit({
       paymentType,
       freightCharges: getOptionalNumber(activeRate?.rate ?? courier?.rate ?? courier?.freight_charges) ?? 0,
@@ -385,20 +397,23 @@ const buildLastResortB2CCouriersFromRateCards = async (
   userId?: string,
 ) => {
   const isReverse = serviceParams?.isReverse === true || serviceParams?.payment_type === 'reverse'
-  const rateType = isReverse ? 'rto' : 'forward'
+  const preferredRateTypes = isReverse ? ['reverse_pickup', 'rto', 'forward'] : ['forward']
   const planIds = await fetchB2CFallbackPlanIds(userId)
   let rateRows: Array<typeof shippingRates.$inferSelect> = []
 
-  for (const planId of planIds) {
-    rateRows = await fetchB2CRateRowsForFallback({ planId, rateType })
+  for (const rateType of preferredRateTypes) {
+    for (const planId of planIds) {
+      rateRows = await fetchB2CRateRowsForFallback({ planId, rateType })
+      if (rateRows.length) break
+    }
     if (rateRows.length) break
   }
 
   if (!rateRows.length) {
-    rateRows = await fetchB2CRateRowsForFallback({ rateType })
-  }
-  if (!rateRows.length && rateType !== 'forward') {
-    rateRows = await fetchB2CRateRowsForFallback({ rateType: 'forward' })
+    for (const rateType of preferredRateTypes) {
+      rateRows = await fetchB2CRateRowsForFallback({ rateType })
+      if (rateRows.length) break
+    }
   }
 
   if (!rateRows.length) return []
@@ -521,7 +536,7 @@ const buildLastResortB2CCouriersFromRateCards = async (
       cod: true,
       prepaid: true,
       edd: '3-5 Days',
-      localRates: { [rateType]: rateDetails, forward: rateDetails },
+      localRates: { [row.type || 'forward']: rateDetails },
       approxZone: null,
       zone: null,
       zone_id: row.zone_id,

@@ -8,6 +8,8 @@ import { shippingRates } from '../schema/shippingRates'
 import { userPlans } from '../schema/userPlans'
 import { zones } from '../schema/zones'
 import {
+  B2C_RATE_TYPES,
+  type B2CRateType,
   fetchShippingRateSlabs,
   normalizeB2CShippingMode,
   normalizeB2CServiceProvider,
@@ -273,7 +275,7 @@ export interface ShippingRateUpdatePayload {
   previous_service_provider?: string
   businessType?: 'b2b' | 'b2c'
   rates?: any
-  zone_slabs?: Record<string, { forward?: RateCardSlabInput[]; rto?: RateCardSlabInput[] }>
+  zone_slabs?: Record<string, Partial<Record<B2CRateType, RateCardSlabInput[]>>>
 }
 
 const toMoney = (v: any): string => {
@@ -367,7 +369,7 @@ export const updateShippingRate = async (
       const zoneRate = rates[zn.name] || {}
       const zoneSlabs = zone_slabs?.[zn.name] || {}
 
-      for (const type of ['forward', 'rto'] as const) {
+      for (const type of B2C_RATE_TYPES) {
         const value = zoneRate[type]
         const explicitSlabs = normaliseRateCardSlabs(zoneSlabs[type] || [])
         validateRateCardSlabs(explicitSlabs)
@@ -476,8 +478,8 @@ interface RateInput {
   min_weight?: string
   cod_percent?: number | null
   other_charges?: number | null
-  rates: { zone_id: string; type: 'forward' | 'rto'; rate: number }[]
-  zone_slabs?: Record<string, { forward?: RateCardSlabInput[]; rto?: RateCardSlabInput[] }>
+  rates: { zone_id: string; type: B2CRateType; rate: number }[]
+  zone_slabs?: Record<string, Partial<Record<B2CRateType, RateCardSlabInput[]>>>
 }
 
 export const upsertShippingRate = async (input: RateInput) => {

@@ -302,6 +302,25 @@ const firstNonEmptyText = (...values: unknown[]): string => {
   return ''
 }
 
+const REVERSE_B2C_RATE_TYPES = ['reverse_pickup', 'rto'] as const
+const FORWARD_B2C_RATE_TYPES = ['forward'] as const
+
+const getPreferredB2CRateTypes = (isReverse: boolean) =>
+  (isReverse ? REVERSE_B2C_RATE_TYPES : FORWARD_B2C_RATE_TYPES)
+
+const getActiveB2CLocalRateForShipment = (courier: any, isReverse: boolean) => {
+  if (!courier?.localRates) return null
+  if (isReverse) {
+    return (
+      courier.localRates.reverse_pickup ??
+      courier.localRates.rto ??
+      courier.localRates.forward ??
+      null
+    )
+  }
+  return courier.localRates.forward ?? null
+}
+
 const getAmazonLabelReference = (...values: unknown[]): string | null => {
   for (const value of values) {
     const normalized = String(value ?? '').trim()
@@ -3126,7 +3145,7 @@ export const computeB2CFreightForOrder = async (params: {
     )
   }
 
-  const rateType = params.isReverse ? 'rto' : 'forward'
+  const preferredRateTypes = getPreferredB2CRateTypes(Boolean(params.isReverse))
   const resolvedServiceProvider =
     params.serviceProvider?.trim() ||
     (params.courierId !== undefined && params.courierId !== null
@@ -3139,15 +3158,22 @@ export const computeB2CFreightForOrder = async (params: {
         )[0]?.serviceProvider ?? null)
       : null)
 
-  const [rateCard] = await fetchResolvedB2CRateCards({
-    planId: activePlanId,
-    zoneId: resolvedZoneRow.id,
-    shippingRateId: params.selectedRateCardId ?? null,
-    courierId: Number(params.courierId),
-    serviceProvider: resolvedServiceProvider,
-    mode: params.mode?.trim() || null,
-    type: rateType,
-  })
+  let rateCard: Awaited<ReturnType<typeof fetchResolvedB2CRateCards>>[number] | undefined
+  for (const rateType of preferredRateTypes) {
+    const [matchedRateCard] = await fetchResolvedB2CRateCards({
+      planId: activePlanId,
+      zoneId: resolvedZoneRow.id,
+      shippingRateId: params.selectedRateCardId ?? null,
+      courierId: Number(params.courierId),
+      serviceProvider: resolvedServiceProvider,
+      mode: params.mode?.trim() || null,
+      type: rateType,
+    })
+    if (matchedRateCard) {
+      rateCard = matchedRateCard
+      break
+    }
+  }
 
   if (!rateCard) {
     throw new HttpError(400, 'No rate card found for selected courier/zone')
@@ -3308,7 +3334,7 @@ async function filterCouriersByBusinessType(
       expectedBusinessType === 'b2c' &&
       c?.isRateCardBackedB2C === true &&
       visibility?.isEnabled === true &&
-      Boolean(c?.localRates?.forward || c?.localRates?.rto)
+      Boolean(c?.localRates?.forward || c?.localRates?.rto || c?.localRates?.reverse_pickup)
 
     if (!hasBusinessType && !hasB2CRateCardBackedVisibility) {
       console.log('🚫 Removing courier - wrong business_type', {
@@ -4843,7 +4869,8 @@ export const fetchAvailableCouriersWithRates = async (
               String(r.service_provider).toLowerCase().trim() === providerKey),
         )
 
-        const rateType = isReverseShipment ? 'rto' : 'forward'
+        const preferredRateTypes = Array.from(getPreferredB2CRateTypes(isReverseShipment))
+        const preferredRateTypeSet = new Set<string>(preferredRateTypes)
         const matchedCourierRates = providerMode
           ? courierRates.filter((r) => normalizeB2CShippingMode(r.mode) === providerMode)
           : courierRates
@@ -4883,7 +4910,7 @@ export const fetchAvailableCouriersWithRates = async (
             courierId: courier.id,
             courierName: courier.name,
             providerMode,
-            rateType,
+            preferredRateTypes,
             localRateCount: localRates.length,
             courierRateCount: courierRates.length,
             matchedCourierRateCount: matchedCourierRates.length,
@@ -4899,7 +4926,9 @@ export const fetchAvailableCouriersWithRates = async (
 
         // Build localRates object from matching rates
         // Compute slabbed freight if we have a matching rate
-        const applicableRateCards = effectiveCourierRates.filter((r) => r.type === rateType)
+        const applicableRateCards = effectiveCourierRates.filter((r) =>
+          preferredRateTypeSet.has(r.type),
+        )
         const applicableRateOptions = applicableRateCards.flatMap((r) =>
           buildServiceabilityRateOptions(r),
         )
@@ -4964,10 +4993,7 @@ export const fetchAvailableCouriersWithRates = async (
             rate_card_id: applicableRate.shipping_rate_id ?? null,
             name: courierOptionName,
             displayName: courierOptionName,
-            localRates:
-              rateType === 'forward'
-                ? { forward: responseRate }
-                : { [rateType]: responseRate },
+            localRates: { [applicableRate.type || 'forward']: responseRate },
             approxZone,
             zone: approxZone?.name || approxZone?.code || null,
             zone_id: approxZone?.id || null,
@@ -5024,8 +5050,8 @@ export const fetchAvailableCouriersWithRates = async (
     combined = combined.filter((c: any) => {
       const providerKey = (c.integration_type || '').toLowerCase()
       const inSystem = isCourierInSystem(providerKey, c.id)
-      const requiredRateType = isReverseShipment ? 'rto' : 'forward'
-      const localRatesAvailable = !requireLocalRates || Boolean(c.localRates?.[requiredRateType])
+      const localRatesAvailable =
+        !requireLocalRates || Boolean(getActiveB2CLocalRateForShipment(c, isReverseShipment))
 
       if (!inSystem || !localRatesAvailable) {
         console.log('🚫 Removing courier from final list', {
@@ -5042,13 +5068,15 @@ export const fetchAvailableCouriersWithRates = async (
     // ✅ Final filter: Ensure all couriers have correct business_type
     combined = await filterCouriersByBusinessType(combined, 'b2c')
 
-    const activeLocalRateKey = isReverseShipment ? 'rto' : 'forward'
-    const getActiveLocalRate = (courier: any) =>
-      courier?.localRates?.[activeLocalRateKey] ?? courier?.localRates?.forward ?? null
-
     combined = combined.map((courier: any) => {
-      const activeRate = getActiveLocalRate(courier)
+      const activeRate = getActiveB2CLocalRateForShipment(courier, isReverseShipment)
       if (!activeRate) return courier
+      const activeLocalRateKey =
+        isReverseShipment && courier?.localRates?.reverse_pickup
+          ? 'reverse_pickup'
+          : isReverseShipment
+            ? 'rto'
+            : 'forward'
 
       return {
         ...courier,
@@ -5120,12 +5148,14 @@ export const fetchAvailableCouriersWithRates = async (
         } else if (profile.name === 'economy') {
           combined = combined.sort(
             (a: any, b: any) =>
-              (getActiveLocalRate(a)?.rate ?? Infinity) - (getActiveLocalRate(b)?.rate ?? Infinity),
+              (getActiveB2CLocalRateForShipment(a, isReverseShipment)?.rate ?? Infinity) -
+              (getActiveB2CLocalRateForShipment(b, isReverseShipment)?.rate ?? Infinity),
           )
         } else {
           combined = combined.sort(
             (a: any, b: any) =>
-              (getActiveLocalRate(a)?.rate ?? Infinity) - (getActiveLocalRate(b)?.rate ?? Infinity),
+              (getActiveB2CLocalRateForShipment(a, isReverseShipment)?.rate ?? Infinity) -
+              (getActiveB2CLocalRateForShipment(b, isReverseShipment)?.rate ?? Infinity),
           )
         }
       }
@@ -5141,7 +5171,8 @@ export const fetchAvailableCouriersWithRates = async (
 
       const sortedByRate = [...combined].sort(
         (a, b) =>
-          (getActiveLocalRate(a)?.rate ?? Infinity) - (getActiveLocalRate(b)?.rate ?? Infinity),
+          (getActiveB2CLocalRateForShipment(a, isReverseShipment)?.rate ?? Infinity) -
+          (getActiveB2CLocalRateForShipment(b, isReverseShipment)?.rate ?? Infinity),
       )
       if (sortedByRate.length) cheapestCourierId = makeCourierIdentityKey(sortedByRate[0])
 

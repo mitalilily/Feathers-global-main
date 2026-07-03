@@ -336,20 +336,26 @@ export async function quoteReverseForOrder(
 
   const provider = (order.integration_type || '').toLowerCase().trim()
 
-  let rates = planId
-    ? await fetchResolvedB2CRateCards({
+  let rates: Awaited<ReturnType<typeof fetchResolvedB2CRateCards>> = []
+  const reverseRateTypes = ['reverse_pickup', 'rto'] as const
+
+  if (planId) {
+    for (const rateType of reverseRateTypes) {
+      rates = await fetchResolvedB2CRateCards({
         planId,
         zoneId: zoneRow.id,
         courierId: resolvedCourierId,
         serviceProvider: provider || null,
         mode: shippingMode,
-        type: 'rto',
+        type: rateType,
       })
-    : []
+      if (rates.length) break
+    }
+  }
 
   if (!rates?.length) {
     console.warn(
-      '[ReverseQuote] No RTO rows for zone=%s provider=%s plan=%s',
+      '[ReverseQuote] No reverse pricing rows for zone=%s provider=%s plan=%s',
       zoneRow.code,
       provider,
       planId || 'none',

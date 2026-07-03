@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 import { upsertShippingRate } from './courierIntegration.service'
-import { normalizeB2CServiceProvider } from './b2cRateCard.service'
+import { type B2CRateType, normalizeB2CServiceProvider } from './b2cRateCard.service'
 import {
   getCanonicalDelhiveryCourierIdByMode,
   getDelhiveryCourierDisplayName,
@@ -196,7 +196,7 @@ const canonicalizeImportedCourier = (input: {
   }
 }
 
-const rtoMultiplierFromCell = (value: RateCardCell) => {
+const rateMultiplierFromCell = (value: RateCardCell) => {
   const raw = toRateCardNumber(value, 0)
   if (!raw) return 0
   return raw <= 1 ? raw : raw / 100
@@ -320,17 +320,22 @@ export const importB2CSlabFormat = async (
     const mode = cell(first, 'Mode')
     const codCharges = toRateCardNumber(first['COD Rs'] ?? first['COD Charges'], 0) || null
     const codPercent = toRateCardNumber(first['COD %'] ?? first['COD Percent'], 0) || null
-    const rtoMultiplier = rtoMultiplierFromCell(first['RTO %'])
+    const rtoMultiplier = rateMultiplierFromCell(first['RTO %'])
+    const reversePickupMultiplier = rateMultiplierFromCell(
+      first['Reverse Pickup %'] ?? first['Reverse %'],
+    )
 
     const preparedFirstRows = prepareFirstSlabRows(rows)
     const zoneHeaders = resolveZoneHeaders(first, zonesList)
 
     const zoneForwardSlabs: Record<string, any[]> = {}
     const zoneRtoSlabs: Record<string, any[]> = {}
+    const zoneReversePickupSlabs: Record<string, any[]> = {}
 
     for (const zone of zonesList) {
       const fwdSlabs: any[] = []
       const rtoSlabs: any[] = []
+      const reversePickupSlabs: any[] = []
 
       for (const preparedSlab of preparedFirstRows) {
         const {
@@ -366,11 +371,22 @@ export const importB2CSlabFormat = async (
             extra_weight_unit: extraWeightUnit,
           })
         }
+
+        if (reversePickupMultiplier > 0) {
+          reversePickupSlabs.push({
+            weight_from: weightFrom,
+            weight_to: weightTo,
+            rate: roundMoney(fwdRate * reversePickupMultiplier),
+            extra_rate: extraRate ? roundMoney(extraRate * reversePickupMultiplier) : null,
+            extra_weight_unit: extraWeightUnit,
+          })
+        }
       }
 
       if (fwdSlabs.length) {
         zoneForwardSlabs[zone.id] = fwdSlabs
         if (rtoSlabs.length) zoneRtoSlabs[zone.id] = rtoSlabs
+        if (reversePickupSlabs.length) zoneReversePickupSlabs[zone.id] = reversePickupSlabs
       }
     }
 
@@ -408,6 +424,23 @@ export const importB2CSlabFormat = async (
           zone_slabs: { [zone.id]: { rto: rtoSlabs } },
         })
       }
+
+      const reversePickupSlabs = zoneReversePickupSlabs[zone.id]
+      if (reversePickupSlabs?.length) {
+        savedRows += await upsertShippingRate({
+          courier_id: courierId,
+          courier_name: courierName,
+          service_provider: serviceProvider,
+          plan_id,
+          mode,
+          business_type: 'b2c',
+          cod_charges: null,
+          cod_percent: null,
+          other_charges: null,
+          rates: [{ zone_id: zone.id, type: 'reverse_pickup', rate: reversePickupSlabs[0]?.rate ?? 0 }],
+          zone_slabs: { [zone.id]: { reverse_pickup: reversePickupSlabs } },
+        })
+      }
     }
   }
 
@@ -436,12 +469,14 @@ export const importFlatFormat = async (
       mode,
     })
 
-    type RateItem = { zone_id: string; type: 'forward' | 'rto'; rate: number }
+    type RateItem = { zone_id: string; type: B2CRateType; rate: number }
     const rates: RateItem[] = Object.entries(row)
       .filter(([key]) =>
         business_type === 'b2b'
           ? key.toLowerCase().includes('forward') || key.toLowerCase().includes('rto')
-          : key.includes('(Forward)') || key.includes('(RTO)'),
+          : key.includes('(Forward)') ||
+            key.includes('(RTO)') ||
+            key.includes('(Reverse Pickup)'),
       )
       .flatMap(([zoneKey, value]): RateItem[] => {
         if (!value) return []
@@ -450,6 +485,8 @@ export const importFlatFormat = async (
         const rate = toRateCardNumber(value)
         if (!rate) return []
         if (zoneKey.toLowerCase().includes('forward')) return [{ zone_id: zone.id, type: 'forward', rate }]
+        if (zoneKey.toLowerCase().includes('reversepickup') || zoneKey.toLowerCase().includes('reverse pickup'))
+          return [{ zone_id: zone.id, type: 'reverse_pickup', rate }]
         if (zoneKey.toLowerCase().includes('rto')) return [{ zone_id: zone.id, type: 'rto', rate }]
         return []
       })
