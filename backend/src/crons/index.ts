@@ -9,6 +9,7 @@ import {
 } from './weightReconciliationEmails'
 import { pollCourierTracking } from './courierTracking'
 import { retryPendingSalesChannelStatusSync } from '../models/services/salesChannelSync.service'
+import { syncShopifyOrdersForAllStores } from '../models/services/shopify.service'
 
 const parseTrackingProviders = () =>
   String(process.env.COURIER_TRACKING_POLL_PROVIDERS || '')
@@ -53,6 +54,17 @@ cron.schedule(process.env.SALES_CHANNEL_SYNC_RETRY_CRON || '*/10 * * * *', async
     }
   } catch (err) {
     console.error('[Cron] Sales channel status sync retry failed:', err)
+  }
+})
+
+cron.schedule(process.env.SHOPIFY_ORDER_SYNC_CRON || '*/30 * * * *', async () => {
+  try {
+    const result = await syncShopifyOrdersForAllStores()
+    if (result.stores > 0) {
+      console.log('[Cron] Shopify order refresh complete', result)
+    }
+  } catch (err) {
+    console.error('[Cron] Shopify order refresh failed:', err)
   }
 })
 

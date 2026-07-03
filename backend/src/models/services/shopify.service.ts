@@ -827,6 +827,11 @@ const getStoresForUser = async (userId: string, tx: any = db) => {
   return rows as ShopifyStore[]
 }
 
+const getAllShopifyStores = async (tx: any = db) => {
+  const rows = await tx.select().from(stores).where(eq(stores.platformId, SHOPIFY_PLATFORM_ID))
+  return rows as ShopifyStore[]
+}
+
 const getStoreByDomain = async (domain: string, tx: any = db) => {
   const [store] = await tx
     .select()
@@ -1241,12 +1246,54 @@ const resolveOrderType = (order: any, settings: any): 'cod' | 'prepaid' => {
   return String(order?.financial_status || '').toLowerCase() === 'paid' ? 'prepaid' : 'cod'
 }
 
+const normalizeShopifyFulfillmentStatus = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+
 const mapShopifyStatus = (order: any): string => {
   if (order?.cancelled_at) return 'cancelled'
-  const fulfillmentStatus = String(order?.fulfillment_status || '').toLowerCase()
-  if (fulfillmentStatus === 'fulfilled' || fulfillmentStatus === 'fulfilled_status') return 'delivered'
-  if (fulfillmentStatus.includes('fulfilled') && fulfillmentStatus.includes('partial')) return 'in_transit'
-  if (fulfillmentStatus === 'partial' || fulfillmentStatus === 'partially_fulfilled') return 'in_transit'
+  const fulfillmentStatus = normalizeShopifyFulfillmentStatus(order?.fulfillment_status)
+
+  if (!fulfillmentStatus || fulfillmentStatus === 'unfulfilled' || fulfillmentStatus === 'on_hold') {
+    return 'pending'
+  }
+
+  if (
+    ['label_purchased', 'label_printed', 'confirmed', 'open', 'scheduled'].includes(
+      fulfillmentStatus,
+    )
+  ) {
+    return 'booked'
+  }
+
+  if (
+    fulfillmentStatus === 'partial' ||
+    fulfillmentStatus === 'partially_fulfilled' ||
+    fulfillmentStatus === 'fulfilled' ||
+    fulfillmentStatus === 'fulfilled_status' ||
+    fulfillmentStatus === 'ready_for_pickup' ||
+    fulfillmentStatus === 'shipment_created'
+  ) {
+    return 'in_transit'
+  }
+
+  if (fulfillmentStatus === 'in_transit') return 'in_transit'
+  if (fulfillmentStatus === 'out_for_delivery') return 'out_for_delivery'
+  if (fulfillmentStatus === 'delivered') return 'delivered'
+
+  if (
+    fulfillmentStatus === 'attempted_delivery' ||
+    fulfillmentStatus === 'delivery_attempted' ||
+    fulfillmentStatus === 'failure'
+  ) {
+    return 'ndr'
+  }
+
+  if (fulfillmentStatus.includes('delivered')) return 'delivered'
+  if (fulfillmentStatus.includes('transit')) return 'in_transit'
+  if (fulfillmentStatus.includes('attempt') || fulfillmentStatus.includes('fail')) return 'ndr'
   return 'pending'
 }
 
@@ -2012,6 +2059,40 @@ export const syncShopifyOrdersForUser = async (
   }
 
   return result
+}
+
+export const syncShopifyOrdersForAllStores = async (
+  limit = Number(process.env.SHOPIFY_ORDER_SYNC_LIMIT || 100),
+  tx: any = db,
+) => {
+  const storesToSync = await getAllShopifyStores(tx)
+  const clampedLimit = Math.min(Math.max(Number(limit) || 100, 1), 250)
+  const summary = {
+    stores: storesToSync.length,
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    failedStores: 0,
+  }
+
+  for (const store of storesToSync) {
+    try {
+      const result = await syncShopifyOrdersForUser(store.userId, clampedLimit, store.id, tx)
+      summary.created += result.created
+      summary.updated += result.updated
+      summary.skipped += result.skipped
+    } catch (err: any) {
+      summary.failedStores += 1
+      console.warn('[Shopify] Store sync failed during global refresh', {
+        storeId: store.id,
+        userId: store.userId,
+        domain: store.domain,
+        message: err?.message || err,
+      })
+    }
+  }
+
+  return summary
 }
 
 export const verifyShopifyWebhookSignature = (rawBody: Buffer, receivedHmac?: string) => {
