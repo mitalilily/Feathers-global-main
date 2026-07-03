@@ -5,6 +5,7 @@ import { fetchAvailableCouriers } from '../../api/courier'
 import { useBookExistingB2COrderCourier } from '../../hooks/Orders/useOrders'
 import { toast } from '../UI/Toast'
 import CustomDrawer from '../UI/drawer/CustomDrawer'
+import DeliveryDetailsForm from './DeliveryDetailsForm'
 import PickupLocationForm from './PickupLocationForm'
 import { SelectCourierForm } from './SelectCourierForm'
 import type { B2CFormData, Product } from './b2c/B2COrderForm'
@@ -232,6 +233,15 @@ export default function SourceOrderCourierDrawer({
         pickup_location_id: data.pickupLocationId,
         pickup_date: data.pickupDate,
         pickup_time: data.pickupTime,
+        consignee: {
+          name: data.buyerName,
+          phone: data.buyerPhone,
+          email: data.buyerEmail || undefined,
+          address: data.address,
+          city: data.city,
+          state: data.state,
+          pincode: data.pincode,
+        },
         pickup: {
           warehouse_name: data.pickupLocationName ?? '',
           address: data.pickupAddress ?? '',
@@ -273,6 +283,8 @@ export default function SourceOrderCourierDrawer({
       <FormProvider {...methods}>
         <Box component="form" onSubmit={handleSubmit(onSubmit)}>
           <Stack spacing={2}>
+            <DeliveryDetailsForm type="b2c" allowResolvedLocationEdit />
+            <Divider />
             <PickupLocationForm compact />
             <Divider />
             <PackageDimensionsForm />

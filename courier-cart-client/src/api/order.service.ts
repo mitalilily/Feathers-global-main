@@ -109,7 +109,7 @@ export const createShipment = async (
 
 export const bookExistingB2COrderCourier = async (
   orderId: string,
-  data: Omit<CreateShipmentParams, 'order_number' | 'order_date' | 'order_amount' | 'consignee' | 'order_items'>,
+  data: Omit<CreateShipmentParams, 'order_number' | 'order_date' | 'order_amount' | 'order_items'>,
 ): Promise<CreateShipmentResponse> => {
   try {
     const res = await axiosInstance.post<CreateShipmentResponse>(

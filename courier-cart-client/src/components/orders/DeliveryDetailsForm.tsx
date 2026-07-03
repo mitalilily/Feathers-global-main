@@ -13,7 +13,13 @@ type FormType = 'b2b' | 'b2c'
 const getExactLocation = (rows: ServiceabilityLocation[] = [], pincode: string) =>
   rows.find((row) => String(row?.pincode || '') === pincode) ?? rows[0]
 
-const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
+const DeliveryDetailsForm = ({
+  type = 'b2c',
+  allowResolvedLocationEdit = false,
+}: {
+  type?: FormType
+  allowResolvedLocationEdit?: boolean
+}) => {
   const {
     control,
     setValue,
@@ -97,7 +103,8 @@ const DeliveryDetailsForm = ({ type = 'b2c' }: { type?: FormType }) => {
   return (
     <Grid container spacing={0.65}>
       {fields.map((fieldItem) => {
-        const isNonEditable = fieldItem.name === 'city' || fieldItem.name === 'state'
+        const isNonEditable =
+          !allowResolvedLocationEdit && (fieldItem.name === 'city' || fieldItem.name === 'state')
         const showLoader = fieldItem.name === 'pincode' ? pinFetching : false
 
         return (
