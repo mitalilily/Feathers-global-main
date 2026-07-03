@@ -4,9 +4,11 @@ import {
   connectMagento,
   connectWooCommerce,
   integrateShopifyStore,
+  startShopifyOAuth,
   syncShopifyOrders,
   syncWooCommerceOrders,
   integrateWixStore,
+  updateShopifySettings,
 } from "../api/integrations";
 import type { ShopifyForm } from "../components/integrations/ShopifyIntegration";
 import type { WooCommerceForm } from "../components/integrations/woocommerce/WooCommerceIntegration";
@@ -23,6 +25,24 @@ export const useIntegrateShopify = () => {
     },
   });
 };
+
+export const useStartShopifyOAuth = () => {
+  return useMutation({
+    mutationFn: startShopifyOAuth,
+  })
+}
+
+export const useUpdateShopifySettings = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: updateShopifySettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stores'] })
+      queryClient.invalidateQueries({ queryKey: ['userInfo'] })
+    },
+  })
+}
 
 export const useIntegrateWooCommerce = () => {
   const queryClient = useQueryClient();

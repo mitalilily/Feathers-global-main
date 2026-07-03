@@ -1,18 +1,16 @@
 import {
+  Alert,
   Box,
   Card,
   Grid,
   Link,
-  List,
-  ListItem,
-  ListItemText,
   Stack,
   Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
 import { type Dispatch, type SetStateAction } from 'react'
-import { BiKey, BiLink } from 'react-icons/bi'
+import { BiLink } from 'react-icons/bi'
 import { FaConnectdevelop } from 'react-icons/fa6'
 import { FcInfo } from 'react-icons/fc'
 import { RiDeleteBin2Fill } from 'react-icons/ri'
@@ -84,7 +82,7 @@ const ShopifyConnectionModal = ({
             disabled={integrating}
             text={isEditing && !forOnboarding ? 'Update' : 'Connect'}
             loading={integrating}
-            loadingText={isEditing && !forOnboarding ? 'Saving...' : 'Connecting...'}
+            loadingText={isEditing && !forOnboarding ? 'Saving...' : 'Redirecting...'}
           />
         </Stack>
       }
@@ -103,44 +101,31 @@ const ShopifyConnectionModal = ({
           >
             <Typography variant="h6" gutterBottom>
               <FcInfo style={{ marginRight: 8 }} />
-              How to get Shopify API credentials
+              Shopify app authorization
             </Typography>
             <Typography variant="body2" color="text.secondary" mb={2}>
-              Follow these steps to get your Shopify Admin API access token and API key:
+              Connect with Shopify's current OAuth flow. Feather Global redirects you to
+              Shopify, Shopify asks the merchant to approve the configured scopes, and
+              the backend stores the access token securely.
             </Typography>
 
-            <List dense>
-              {[
-                {
-                  primary: '1. Log in to your Shopify admin',
-                  secondary: (
-                    <Link
-                      href="https://your-store.myshopify.com/admin"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      https://your-store.myshopify.com/admin
-                    </Link>
-                  ),
-                },
-                { primary: "2. Go to 'Apps' section" },
-                { primary: "3. Click on 'Develop apps'" },
-                { primary: '4. Create a new custom app' },
-                {
-                  primary: '5. Configure Admin API permissions',
-                  secondary: 'Select required scopes (read/write permissions).',
-                },
-                { primary: '6. Install the app' },
-                {
-                  primary: '7. Get your credentials',
-                  secondary: "You’ll find API key & Admin API token under 'API credentials'",
-                },
-              ].map((step, index) => (
-                <ListItem key={index}>
-                  <ListItemText primary={step.primary} secondary={step.secondary} />
-                </ListItem>
-              ))}
-            </List>
+            <Stack spacing={1.5}>
+              <Alert severity="info" variant="outlined">
+                You only need the store's myshopify.com domain here. Do not paste Admin API
+                tokens or app secrets into this screen.
+              </Alert>
+              <Typography variant="body2" color="text.secondary">
+                Example: <strong>feather-global-test.myshopify.com</strong>
+              </Typography>
+              <Link
+                href="https://admin.shopify.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                fontSize="0.875rem"
+              >
+                Open Shopify admin
+              </Link>
+            </Stack>
           </Box>
         </Grid>
 
@@ -155,31 +140,16 @@ const ShopifyConnectionModal = ({
             }}
           >
             <Typography variant="subtitle1" fontWeight={600} mb={2}>
-              Enter Shopify Credentials
+              {isEditing && !forOnboarding ? 'Shopify store settings' : 'Connect Shopify store'}
             </Typography>
             <Stack spacing={2}>
-              {isEditing && !forOnboarding ? (
-                <CustomInput
-                  required
-                  prefix={<BiLink />}
-                  label="Store Name"
-                  value={shopifyDetails?.name ?? ''}
-                  onChange={(e) =>
-                    setShopifyDetails((prev) => ({
-                      ...prev,
-                      name: e.target.value,
-                    }))
-                  }
-                  error={!!inputErrors?.name}
-                  helperText={inputErrors?.name}
-                />
-              ) : null}
               <CustomInput
                 required
                 prefix={<BiLink />}
                 label="Shopify Store URL"
                 placeholder="feather-global-test.myshopify.com"
                 value={shopifyDetails.storeUrl ?? shopifyDetails?.domain}
+                disabled={isEditing && !forOnboarding}
                 onChange={(e) =>
                   setShopifyDetails((prev) => ({
                     ...prev,
@@ -188,59 +158,11 @@ const ShopifyConnectionModal = ({
                 }
                 error={!!inputErrors?.storeUrl}
                 helperText={inputErrors?.storeUrl}
-              />
-              <CustomInput
-                required
-                prefix={<BiKey />}
-                label="Shopify API Key"
-                type="password"
-                placeholder="Enter your API Key"
-                value={shopifyDetails.apiKey}
-                onChange={(e) =>
-                  setShopifyDetails((prev) => ({
-                    ...prev,
-                    apiKey: e.target.value,
-                  }))
+                helpText={
+                  isEditing && !forOnboarding
+                    ? 'Reconnect from the Shopify card if this domain needs to change.'
+                    : 'You will review and approve access on Shopify next.'
                 }
-                error={!!inputErrors?.apiKey}
-                helperText={inputErrors?.apiKey}
-              />
-              <CustomInput
-                required
-                prefix={<BiKey />}
-                type="password"
-                label="Admin API Access Token"
-                placeholder="Enter Admin API Token"
-                value={shopifyDetails.adminApiAccessToken}
-                onChange={(e) =>
-                  setShopifyDetails((prev) => ({
-                    ...prev,
-                    adminApiAccessToken: e.target.value,
-                  }))
-                }
-                error={!!inputErrors?.adminApiAccessToken}
-                helperText={inputErrors?.adminApiAccessToken}
-              />
-              <CustomInput
-                required
-                prefix={<BiKey />}
-                type="password"
-                label="Webhook Secret (API Secret Key)"
-                placeholder="Enter webhook signing secret"
-                value={
-                  shopifyDetails.webhookSecret ??
-                  shopifyDetails?.metadata?.shopifyWebhookSecret ??
-                  shopifyDetails?.metadata?.webhookSecret ??
-                  ""
-                }
-                onChange={(e) =>
-                  setShopifyDetails((prev) => ({
-                    ...prev,
-                    webhookSecret: e.target.value,
-                  }))
-                }
-                error={!!inputErrors?.webhookSecret}
-                helperText={inputErrors?.webhookSecret}
               />
               {/* <CustomInput
                 required

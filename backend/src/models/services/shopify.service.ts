@@ -23,7 +23,7 @@ export const SHOPIFY_PLATFORM = {
   name: 'Shopify',
   slug: 'shopify',
 } as const
-export const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-04'
+export const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-07'
 
 const SHOPIFY_API_TIMEOUT_MS = Number(process.env.PLATFORM_API_TIMEOUT_MS || 15000)
 const SHOPIFY_WEBHOOK_TOPICS = ['ORDERS_CREATE', 'ORDERS_UPDATED', 'ORDERS_CANCELLED'] as const
@@ -104,6 +104,8 @@ type ShopifyAccessTokenResponse = {
   refresh_token_expires_in?: number
 }
 
+const shopifyTokenRefreshLocks = new Map<string, Promise<string>>()
+
 const toNumber = (value: unknown, fallback = 0): number => {
   const n = Number(value)
   return Number.isFinite(n) ? n : fallback
@@ -142,6 +144,25 @@ const parseShopifyScopes = () =>
       .filter(Boolean),
   ].filter((scope, index, scopes) => scopes.indexOf(scope) === index)
 
+const normalizeScopeList = (value: unknown) =>
+  String(value || '')
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean)
+
+const getShopifyOAuthScopeStatus = (grantedScopes: unknown, requiredScopes: string[]) => {
+  const normalizedGrantedScopes = normalizeScopeList(grantedScopes)
+  const missingScopes = requiredScopes.filter((scope) => !normalizedGrantedScopes.includes(scope))
+
+  return {
+    grantedScopes: normalizedGrantedScopes,
+    missingScopes,
+    warning: missingScopes.length
+      ? `Shopify connected, but the app is still missing some permissions: ${missingScopes.join(', ')}. Open the latest Shopify app version in Shopify admin, approve the updated permissions, and reconnect if order sync or fulfillment updates are limited.`
+      : null,
+  }
+}
+
 export const getShopifyOAuthConfig = () => {
   const clientId = String(process.env.SHOPIFY_CLIENT_ID || '').trim()
   const clientSecret = String(process.env.SHOPIFY_CLIENT_SECRET || '').trim()
@@ -161,7 +182,7 @@ export const getShopifyOAuthConfig = () => {
   ).trim()
 
   const sendScopeValue = String(
-    process.env.SHOPIFY_SEND_OAUTH_SCOPE ?? process.env.SHOPIFY_USE_LEGACY_INSTALL_FLOW ?? '',
+    process.env.SHOPIFY_SEND_OAUTH_SCOPE ?? process.env.SHOPIFY_USE_LEGACY_INSTALL_FLOW ?? 'true',
   )
     .trim()
     .toLowerCase()
@@ -353,6 +374,21 @@ export const completeShopifyOAuthInstall = async (query: Record<string, any>) =>
   const tokenResponse = await exchangeShopifyOAuthCode({ shop, code })
   const accessToken = String(tokenResponse.access_token || '').trim()
   if (!accessToken) throw new Error('Shopify did not return an Admin API access token')
+  const scopeStatus = getShopifyOAuthScopeStatus(tokenResponse.scope, config.scopes)
+  if (!scopeStatus.grantedScopes.length || scopeStatus.missingScopes.length) {
+    console.warn('Shopify OAuth scope validation warning', {
+      shop,
+      requiredScopes: config.scopes,
+      grantedScopes: scopeStatus.grantedScopes,
+      missingScopes: scopeStatus.missingScopes,
+      scopeResponse: tokenResponse.scope || null,
+    })
+  }
+  const refreshToken = String(tokenResponse.refresh_token || '').trim()
+
+  if (config.useExpiringOfflineTokens && !refreshToken) {
+    throw new Error('Shopify did not return an offline refresh token. Confirm expiring offline tokens are enabled.')
+  }
 
   const result = await connectShopifyStore({
     storeUrl: shop,
@@ -363,11 +399,12 @@ export const completeShopifyOAuthInstall = async (query: Record<string, any>) =>
     userId: statePayload.userId,
     authMethod: 'oauth',
     oauth: {
-      scope: tokenResponse.scope,
+      scope: scopeStatus.grantedScopes.join(','),
+      missingScopes: scopeStatus.missingScopes,
       tokenType: config.useExpiringOfflineTokens ? 'expiring_offline' : 'offline',
       expiresIn: tokenResponse.expires_in,
       expiresAt: toFutureIso(tokenResponse.expires_in),
-      refreshToken: tokenResponse.refresh_token,
+      refreshToken,
       refreshTokenExpiresIn: tokenResponse.refresh_token_expires_in,
       refreshTokenExpiresAt: toFutureIso(tokenResponse.refresh_token_expires_in),
       installedAt: new Date().toISOString(),
@@ -376,10 +413,12 @@ export const completeShopifyOAuthInstall = async (query: Record<string, any>) =>
 
   return {
     ...result,
+    warning: [result.warning, scopeStatus.warning].filter(Boolean).join(' | ') || null,
     shop,
     userId: statePayload.userId,
     returnTo: statePayload.returnTo,
-    scope: tokenResponse.scope,
+    scope: scopeStatus.grantedScopes.join(','),
+    missingScopes: scopeStatus.missingScopes,
   }
 }
 
@@ -808,6 +847,25 @@ const getStoreOAuthMetadata = (store: ShopifyStore): Record<string, any> => {
   return metadata.oauth && typeof metadata.oauth === 'object' ? metadata.oauth : {}
 }
 
+const syncStoreOAuthState = (store: ShopifyStore, accessToken: string, metadata: Record<string, any>) => {
+  ;(store as any).adminApiAccessToken = accessToken
+  ;(store as any).metadata = metadata
+}
+
+const getShopifyRefreshLockKey = (store: ShopifyStore) =>
+  [String(store.id || '').trim(), normalizeShopifyDomain(store.domain)].filter(Boolean).join(':')
+
+const getStoreById = async (storeId: string, tx: any = db) => {
+  const [store] = await tx.select().from(stores).where(eq(stores.id, String(storeId))).limit(1)
+  return store as ShopifyStore | undefined
+}
+
+const isShopifyTokenExpired = (expiresAt?: unknown, safetyBufferMs = 0) => {
+  const expiresAtMs = expiresAt ? new Date(String(expiresAt)).getTime() : 0
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return false
+  return expiresAtMs - Date.now() <= safetyBufferMs
+}
+
 const shouldRefreshShopifyToken = (oauth: Record<string, any>) => {
   if (oauth.tokenType !== 'expiring_offline') return false
   if (!String(oauth.refreshToken || '').trim()) return false
@@ -819,71 +877,128 @@ const shouldRefreshShopifyToken = (oauth: Record<string, any>) => {
   return expiresAtMs - Date.now() <= safetyBufferMs
 }
 
-const refreshShopifyOfflineAccessToken = async (store: ShopifyStore, tx: any = db) => {
-  const config = getShopifyOAuthConfig()
-  const oauth = getStoreOAuthMetadata(store)
-  const refreshToken = String(oauth.refreshToken || '').trim()
-  if (!refreshToken) {
-    throw new Error(`Shopify refresh token is missing for ${store.domain}. Reconnect the Shopify store.`)
-  }
+const refreshShopifyOfflineAccessToken = async (
+  store: ShopifyStore,
+  tx: any = db,
+  options: { force?: boolean } = {},
+) => {
+  const lockKey = getShopifyRefreshLockKey(store)
+  const existingRefresh = shopifyTokenRefreshLocks.get(lockKey)
+  if (existingRefresh) return existingRefresh
 
-  const params = new URLSearchParams({
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken,
+  const refreshPromise = (async () => {
+    const config = getShopifyOAuthConfig()
+    const latestStore = (await getStoreById(String(store.id), tx)) || store
+    const latestMetadata = ((latestStore as any)?.metadata || {}) as Record<string, any>
+    const latestOauth = getStoreOAuthMetadata(latestStore)
+    const latestAccessToken = String(latestStore.adminApiAccessToken || '').trim()
+    const safetyBufferMs = Number(process.env.SHOPIFY_TOKEN_REFRESH_BUFFER_MS || 5 * 60 * 1000)
+
+    if (!options.force && latestAccessToken && !shouldRefreshShopifyToken(latestOauth)) {
+      syncStoreOAuthState(store, latestAccessToken, latestMetadata)
+      return latestAccessToken
+    }
+
+    if (
+      options.force &&
+      latestAccessToken &&
+      latestAccessToken !== String(store.adminApiAccessToken || '').trim() &&
+      !isShopifyTokenExpired(latestOauth.expiresAt, safetyBufferMs)
+    ) {
+      syncStoreOAuthState(store, latestAccessToken, latestMetadata)
+      return latestAccessToken
+    }
+
+    if (isShopifyTokenExpired(latestOauth.refreshTokenExpiresAt)) {
+      throw new Error(`Shopify refresh token expired for ${store.domain}. Reconnect the Shopify store.`)
+    }
+
+    const refreshToken = String(latestOauth.refreshToken || '').trim()
+    if (!refreshToken) {
+      throw new Error(`Shopify refresh token is missing for ${store.domain}. Reconnect the Shopify store.`)
+    }
+
+    const params = new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    })
+
+    const response = await axios.post<ShopifyAccessTokenResponse>(
+      `https://${normalizeShopifyDomain(latestStore.domain)}/admin/oauth/access_token`,
+      params.toString(),
+      {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: SHOPIFY_API_TIMEOUT_MS,
+      },
+    )
+
+    const accessToken = String(response.data?.access_token || '').trim()
+    if (!accessToken) {
+      throw new Error(`Shopify refresh did not return an access token for ${store.domain}`)
+    }
+
+    const refreshedScopeStatus = response.data?.scope
+      ? getShopifyOAuthScopeStatus(response.data.scope, config.scopes)
+      : {
+          grantedScopes: normalizeScopeList(latestOauth.scope),
+          missingScopes: Array.isArray(latestOauth.missingScopes) ? latestOauth.missingScopes : [],
+          warning: null,
+        }
+    const refreshedScopes = refreshedScopeStatus.grantedScopes.join(',')
+
+    if (response.data?.scope && (!refreshedScopeStatus.grantedScopes.length || refreshedScopeStatus.missingScopes.length)) {
+      console.warn('Shopify token refresh scope warning', {
+        shop: normalizeShopifyDomain(latestStore.domain),
+        requiredScopes: config.scopes,
+        grantedScopes: refreshedScopeStatus.grantedScopes,
+        missingScopes: refreshedScopeStatus.missingScopes,
+        scopeResponse: response.data.scope,
+      })
+    }
+
+    const refreshedOAuth = {
+      ...latestOauth,
+      tokenType: 'expiring_offline',
+      scope: refreshedScopes,
+      missingScopes: refreshedScopeStatus.missingScopes,
+      expiresIn: response.data?.expires_in,
+      expiresAt: toFutureIso(response.data?.expires_in),
+      refreshToken: response.data?.refresh_token || refreshToken,
+      refreshTokenExpiresIn: response.data?.refresh_token_expires_in,
+      refreshTokenExpiresAt:
+        toFutureIso(response.data?.refresh_token_expires_in) || latestOauth.refreshTokenExpiresAt,
+      refreshedAt: new Date().toISOString(),
+    }
+
+    const nextMetadata = {
+      ...latestMetadata,
+      oauth: refreshedOAuth,
+    }
+
+    await tx
+      .update(stores)
+      .set({
+        adminApiAccessToken: accessToken,
+        metadata: nextMetadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(stores.id, latestStore.id))
+
+    syncStoreOAuthState(latestStore, accessToken, nextMetadata)
+    syncStoreOAuthState(store, accessToken, nextMetadata)
+
+    return accessToken
+  })().finally(() => {
+    shopifyTokenRefreshLocks.delete(lockKey)
   })
 
-  const response = await axios.post<ShopifyAccessTokenResponse>(
-    `https://${normalizeShopifyDomain(store.domain)}/admin/oauth/access_token`,
-    params.toString(),
-    {
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      timeout: SHOPIFY_API_TIMEOUT_MS,
-    },
-  )
-
-  const accessToken = String(response.data?.access_token || '').trim()
-  if (!accessToken) {
-    throw new Error(`Shopify refresh did not return an access token for ${store.domain}`)
-  }
-
-  const metadata = ((store as any)?.metadata || {}) as Record<string, any>
-  const refreshedOAuth = {
-    ...oauth,
-    tokenType: 'expiring_offline',
-    scope: response.data?.scope || oauth.scope,
-    expiresIn: response.data?.expires_in,
-    expiresAt: toFutureIso(response.data?.expires_in),
-    refreshToken: response.data?.refresh_token || refreshToken,
-    refreshTokenExpiresIn: response.data?.refresh_token_expires_in,
-    refreshTokenExpiresAt:
-      toFutureIso(response.data?.refresh_token_expires_in) || oauth.refreshTokenExpiresAt,
-    refreshedAt: new Date().toISOString(),
-  }
-
-  await tx
-    .update(stores)
-    .set({
-      adminApiAccessToken: accessToken,
-      metadata: {
-        ...metadata,
-        oauth: refreshedOAuth,
-      },
-      updatedAt: new Date(),
-    })
-    .where(eq(stores.id, store.id))
-
-  ;(store as any).adminApiAccessToken = accessToken
-  ;(store as any).metadata = {
-    ...metadata,
-    oauth: refreshedOAuth,
-  }
-
-  return accessToken
+  shopifyTokenRefreshLocks.set(lockKey, refreshPromise)
+  return refreshPromise
 }
 
 const getShopifyAccessTokenForStore = async (store: ShopifyStore, tx: any = db) => {
@@ -925,7 +1040,7 @@ const shopifyStoreGraphqlRequest = async <T = any>({
     } catch (error: any) {
       const oauth = getStoreOAuthMetadata(store)
       if (error?.statusCode === 401 && String(oauth.refreshToken || '').trim()) {
-        return request(await refreshShopifyOfflineAccessToken(store, tx))
+        return request(await refreshShopifyOfflineAccessToken(store, tx, { force: true }))
       }
       throw error
     }
@@ -1379,6 +1494,34 @@ const isSameShopifyOrderRow = (
   )
 }
 
+const canAttachShopifyToExistingOrderNumber = (
+  row: {
+    order_id?: string | null
+    order_status?: string | null
+    awb_number?: string | null
+    integration_type?: string | null
+    provider_meta?: any
+  } | undefined,
+) => {
+  if (!row) return false
+
+  const providerMeta = row.provider_meta && typeof row.provider_meta === 'object' ? row.provider_meta : {}
+  const existingSource = String(providerMeta.source || '').toLowerCase()
+  const existingOrderId = String(row.order_id || '').trim().toLowerCase()
+  const existingStatus = String(row.order_status || '').trim().toLowerCase()
+
+  if (existingSource === 'shopify' || String(row.integration_type || '').trim().toLowerCase() === 'shopify') {
+    return false
+  }
+  if (String(row.awb_number || '').trim()) return false
+  if (existingOrderId.startsWith('shopify_')) return false
+  if (['shipment_created', 'booked', 'in_transit', 'out_for_delivery', 'delivered', 'cancelled'].includes(existingStatus)) {
+    return false
+  }
+
+  return true
+}
+
 const SHOPIFY_ORDERS_QUERY = `
   query ShiplifiOrders($first: Int!) {
     orders(first: $first, sortKey: CREATED_AT, reverse: true) {
@@ -1721,9 +1864,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
         ...payload,
         created_at: new Date(),
       } as any)
-      .onConflictDoNothing({
-        target: [b2c_orders.user_id, b2c_orders.order_number],
-      })
+      .onConflictDoNothing()
       .returning({ id: b2c_orders.id })
 
     return inserted?.id ? 'created' as const : null
@@ -1731,6 +1872,32 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
 
   const inserted = await tryInsertOrder(updatePayload)
   if (inserted) return inserted
+
+  const [postInsertOrderIdConflict] = await tx
+    .select({
+      id: b2c_orders.id,
+      order_id: b2c_orders.order_id,
+      order_status: b2c_orders.order_status,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+      provider_meta: b2c_orders.provider_meta,
+      provider_service: b2c_orders.provider_service,
+    })
+    .from(b2c_orders)
+    .where(eq(b2c_orders.order_id, internalOrderId))
+    .limit(1)
+
+  if (
+    isSameShopifyOrderRow(postInsertOrderIdConflict, {
+      storeId: String(store.id),
+      shopifyOrderId,
+      internalOrderId,
+      legacyInternalOrderId,
+    })
+  ) {
+    return updateExistingOrder(postInsertOrderIdConflict)
+  }
 
   const [orderNumberConflict] = await tx
     .select({
@@ -1756,6 +1923,13 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
     })
   ) {
     return updateExistingOrder(orderNumberConflict)
+  }
+
+  if (canAttachShopifyToExistingOrderNumber(orderNumberConflict)) {
+    return updateExistingOrder(orderNumberConflict, {
+      ...updatePayload,
+      order_number: resolvedOrderNumber,
+    })
   }
 
   const fallbackOrderNumber = await resolveShopifyOrderNumber({
@@ -2195,7 +2369,7 @@ const buildTrackingUrl = (trackingNumber: string) => {
     process.env.FRONTEND_URL ||
       process.env.CLIENT_URL ||
       process.env.APP_URL ||
-      'https://app.shiplifi.com',
+      'https://client.fgship.in',
   )
     .trim()
     .replace(/\/+$/, '')

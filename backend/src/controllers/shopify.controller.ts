@@ -18,6 +18,7 @@ import {
   updateShopifyStoreSettingsForUser,
   isValidShopifyDomain,
   normalizeShopifyDomain,
+  verifyShopifyOAuthState,
   verifyShopifyOAuthQueryHmac,
   verifyShopifyWebhookSignatureForDomain,
 } from '../models/services/shopify.service'
@@ -55,6 +56,21 @@ const getShopifyAdminStatusPayload = () => {
   }
 }
 
+const getShopifyOAuthFrontendUrl = () => {
+  const config = getShopifyOAuthConfig()
+  const rawUrl = config.frontendUrl || 'http://localhost:5173/channels/connected'
+
+  try {
+    const url = new URL(rawUrl)
+    if (!url.pathname || url.pathname === '/') {
+      url.pathname = '/channels/connected'
+    }
+    return url.toString()
+  } catch {
+    return 'http://localhost:5173/channels/connected'
+  }
+}
+
 const buildShopifyOAuthFrontendRedirect = ({
   status,
   shop,
@@ -66,8 +82,7 @@ const buildShopifyOAuthFrontendRedirect = ({
   message?: string
   returnTo?: string
 }) => {
-  const config = getShopifyOAuthConfig()
-  const fallbackUrl = config.frontendUrl || 'http://localhost:5173/channels/connected'
+  const fallbackUrl = getShopifyOAuthFrontendUrl()
   const target = String(returnTo || '').trim()
   let url: URL
 
@@ -103,8 +118,7 @@ export const shopifyOAuthInstallController = async (req: Request, res: Response)
       throw new Error('Invalid Shopify install request')
     }
 
-    const config = getShopifyOAuthConfig()
-    const url = new URL(config.frontendUrl || 'http://localhost:5173/channels/connected')
+    const url = new URL(getShopifyOAuthFrontendUrl())
     url.searchParams.set('shopifyInstall', '1')
     url.searchParams.set('shop', shop)
     return res.redirect(302, url.toString())
@@ -159,9 +173,23 @@ export const shopifyOAuthCallbackController = async (req: Request, res: Response
     return res.redirect(302, redirectUrl)
   } catch (error: any) {
     console.error('Shopify OAuth callback failed:', error?.response?.data || error?.message || error)
+    const shop = normalizeShopifyDomain(String(req.query?.shop || ''))
+    let returnTo: string | undefined
+
+    try {
+      const state = String(req.query?.state || '')
+      if (state) {
+        returnTo = verifyShopifyOAuthState(state).returnTo
+      }
+    } catch {
+      returnTo = undefined
+    }
+
     const redirectUrl = buildShopifyOAuthFrontendRedirect({
       status: 'error',
+      shop: isValidShopifyDomain(shop) ? shop : undefined,
       message: error?.message || 'Shopify OAuth failed',
+      returnTo,
     })
     return res.redirect(302, redirectUrl)
   }

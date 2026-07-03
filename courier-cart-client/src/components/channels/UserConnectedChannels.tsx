@@ -9,10 +9,10 @@ import {
   useUserChannelIntegrations,
 } from '../../hooks/Integrations/useUserChannelIntegrations'
 import {
-  useIntegrateShopify,
   useIntegrateWooCommerce,
   useSyncShopifyOrders,
   useSyncWooCommerceOrders,
+  useUpdateShopifySettings,
 } from '../../hooks/useIntegrations'
 import { channelIntegrationImageMapping } from '../../utils/utility'
 import ShopifyConnectionModal from '../integrations/ShopifyConnectionModal'
@@ -21,14 +21,6 @@ import WooCommerceConnectionModal from '../integrations/woocommerce/WooCommerceC
 import type { WooCommerceForm } from '../integrations/woocommerce/WooCommerceIntegration'
 import TableSkeleton from '../UI/table/TableSkeleton'
 import { toast } from '../UI/Toast'
-
-const normalizeShopifyStoreUrl = (value?: string) =>
-  String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '')
-    .replace(/\/admin(?:\/.*)?$/, '')
 
 const getApiErrorMessage = (error: any, fallback: string) =>
   error?.response?.data?.error ||
@@ -42,7 +34,8 @@ const UserConnectedChannels = () => {
 
   const { data: stores, isLoading } = useUserChannelIntegrations()
 
-  const { mutate: integrateShopify, isPending: integrating } = useIntegrateShopify()
+  const { mutate: updateShopifySettings, isPending: updatingShopifySettings } =
+    useUpdateShopifySettings()
   const { mutate: syncShopifyOrders, isPending: syncingShopify } = useSyncShopifyOrders()
   const { mutate: integrateWooCommerce, isPending: integratingWooCommerce } =
     useIntegrateWooCommerce()
@@ -101,11 +94,6 @@ const UserConnectedChannels = () => {
                     }
                   : {
                       storeUrl: row?.domain,
-                      webhookSecret:
-                        (row as any)?.webhookSecret ||
-                        metadata?.shopifyWebhookSecret ||
-                        metadata?.webhookSecret ||
-                        '',
                     }
 
               setDetails({
@@ -175,21 +163,16 @@ const UserConnectedChannels = () => {
   ]
 
   const handleUpdateShopify = () => {
-    const storeUrl = normalizeShopifyStoreUrl(
-      (details as any)?.storeUrl || (details as any)?.domain,
-    )
-    const payload = {
-      ...(details as any),
-      storeUrl,
-      webhookSecret:
-        (details as any)?.webhookSecret ||
-        (details as any)?.metadata?.shopifyWebhookSecret ||
-        (details as any)?.metadata?.webhookSecret ||
-        '',
-      userId: userData?.userId,
-    } as ShopifyForm
+    const settings = {
+      fulfillTrigger: 'do_not_fulfill',
+      customerNotifyOnFulfill: 'do_not_notify',
+      ...(details as ShopifyForm)?.settings,
+    }
 
-    integrateShopify(payload, {
+    updateShopifySettings({
+      storeId: selectedStore.channelId,
+      settings,
+    }, {
       onSuccess: (data) => {
         toast.open({
           message: data?.warning ? `${data?.message}. ${data.warning}` : data?.message,
@@ -198,8 +181,8 @@ const UserConnectedChannels = () => {
         setSelectedStore({ channelId: '', platform: null })
       },
       onError: (error: any) => {
-        const message = getApiErrorMessage(error, 'Error integrating Shopify store')
-        console.error('Error integrating Shopify store:', message)
+        const message = getApiErrorMessage(error, 'Error saving Shopify settings')
+        console.error('Error saving Shopify settings:', message)
         toast.open({
           message,
           severity: 'error',
@@ -280,7 +263,7 @@ const UserConnectedChannels = () => {
         <ShopifyConnectionModal
           deleting={deleting}
           handleDelete={handleDeleteStore}
-          integrating={integrating}
+          integrating={updatingShopifySettings}
           handleConnect={handleUpdateShopify}
           isEditing={selectedStore?.platform ? true : false}
           setShopifyDetails={setDetails}

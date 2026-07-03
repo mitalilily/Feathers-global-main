@@ -15,7 +15,7 @@ type CliOptions = {
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
 
-const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-04'
+const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2026-07'
 
 const SHOP_QUERY = `
   query ShiplifiCheckShop {
@@ -194,7 +194,7 @@ const startMockShopifyServer = async () => {
                   node: {
                     id: 'gid://shopify/WebhookSubscription/111',
                     topic: 'ORDERS_CREATE',
-                    uri: 'https://api.shiplifi.com/api/webhooks/shopify/order-created',
+                    uri: 'https://api.fgship.in/api/webhooks/shopify/order-created',
                   },
                 },
               ],
