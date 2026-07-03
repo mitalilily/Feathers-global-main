@@ -91,58 +91,48 @@ const CreateOrderWrapper = () => {
 
         <Box sx={{ height: { md: 'calc(100% - 36px)' }, minHeight: 0 }}>
           {activeTab === 'b2c' ? (
-            <Stack sx={{ height: '100%', minHeight: 0 }} spacing={1.2}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: { xs: 'flex-start', md: 'center' },
-                  justifyContent: 'space-between',
-                  gap: 1.5,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <Box>
-                  <Typography variant="body2" fontWeight={800} color="text.primary">
-                    Pickup Mode
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Forward pickup is selected by default. Switch to reverse pickup to create a
-                    return shipment.
-                  </Typography>
+            <Stack sx={{ height: '100%', minHeight: 0 }} spacing={1}>
+              {pickupMode === 'forward' ? (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      variant="contained"
+                      onClick={() => setPickupMode('forward')}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        px: 2,
+                        boxShadow: 'none',
+                      }}
+                    >
+                      Forward Order
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setPickupMode('reverse')}
+                      sx={{
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        px: 2,
+                      }}
+                    >
+                      Reverse Pickup
+                    </Button>
+                  </Stack>
                 </Box>
-
-                <Stack direction="row" spacing={1}>
-                  <Button
-                    variant={pickupMode === 'forward' ? 'contained' : 'outlined'}
-                    onClick={() => setPickupMode('forward')}
-                    sx={{
-                      textTransform: 'none',
-                      fontWeight: 700,
-                      borderRadius: 999,
-                      px: 2,
-                      boxShadow: pickupMode === 'forward' ? 'none' : undefined,
-                    }}
-                  >
-                    Forward Pickup
-                  </Button>
-                  <Button
-                    variant={pickupMode === 'reverse' ? 'contained' : 'outlined'}
-                    onClick={() => setPickupMode('reverse')}
-                    sx={{
-                      textTransform: 'none',
-                      fontWeight: 700,
-                      borderRadius: 999,
-                      px: 2,
-                      boxShadow: pickupMode === 'reverse' ? 'none' : undefined,
-                    }}
-                  >
-                    Reverse Pickup
-                  </Button>
-                </Stack>
-              </Box>
+              ) : null}
 
               <Box sx={{ flex: 1, minHeight: 0 }}>
-                {pickupMode === 'forward' ? <B2COrderFormSteps /> : <ReversePickupForm />}
+                {pickupMode === 'forward' ? (
+                  <B2COrderFormSteps />
+                ) : (
+                  <ReversePickupForm
+                    onSwitchToForward={() => setPickupMode('forward')}
+                    onSwitchToReverse={() => setPickupMode('reverse')}
+                  />
+                )}
               </Box>
             </Stack>
           ) : (
