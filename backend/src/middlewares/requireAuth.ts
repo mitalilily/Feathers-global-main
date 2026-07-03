@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { findUserById } from "../models/services/userService";
 import { verifyAccessToken } from "../utils/jwt";
 
 export const requireAuth = async (
@@ -20,10 +21,34 @@ export const requireAuth = async (
       return res.status(401).json({ error: "Invalid token payload" });
     }
 
+    const userId = typeof (decoded as any).sub === 'string' ? (decoded as any).sub.trim() : '';
+    if (!userId) {
+      return res.status(401).json({
+        error: "Session invalid. Please log in again.",
+        code: "SESSION_INVALID",
+      });
+    }
+
+    const user = await findUserById(userId);
+    if (!user) {
+      console.error("Session token references missing user:", {
+        userId,
+        path: req.originalUrl || req.url,
+        method: req.method,
+      });
+      return res.status(401).json({
+        error: "Session invalid. Please log in again.",
+        code: "SESSION_INVALID",
+      });
+    }
+
     // Attach decoded token to request
-    (req as any).user = decoded;
+    (req as any).user = {
+      ...decoded,
+      sub: user.id,
+    };
     // Also expose userId for controllers that expect req.userId (for consistency with requireApiKey)
-    (req as any).userId = (decoded as any).sub;
+    (req as any).userId = user.id;
 
     next();
   } catch (err: any) {

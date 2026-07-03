@@ -62,6 +62,7 @@ export async function getMerchantOrderReadiness(userId: string) {
   const requiredWalletBalance = Math.max(Number(paymentSettings?.minWalletRecharge ?? 0), 1)
 
   return {
+    profileFound: Boolean(profileRow),
     onboardingComplete: Boolean(profileRow?.onboardingComplete),
     approved: Boolean(profileRow?.approved),
     hasCompanyInfo: hasRequiredCompanyInfo(profileRow?.companyInfo as CompanyInfo | null | undefined),
@@ -79,6 +80,10 @@ export async function requireMerchantOrderReadiness(
 ): Promise<void> {
   const readiness = await getMerchantOrderReadiness(userId)
   const requireMinimumWalletBalance = options.requireMinimumWalletBalance !== false
+
+  if (!readiness.profileFound) {
+    throw new HttpError(401, 'Session invalid. Please log in again.')
+  }
 
   if (!readiness.onboardingComplete) {
     throw new HttpError(

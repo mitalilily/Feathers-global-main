@@ -37,6 +37,7 @@ api.interceptors.response.use(
   (res) => res,
   async (err) => {
     const original = err.config
+    const responseCode = String(err.response?.data?.code || '').trim().toUpperCase()
 
     // Skip refresh if:
     // 1. Not a 401 error
@@ -47,6 +48,15 @@ api.interceptors.response.use(
       original._retry ||
       original.url?.includes('/auth/refresh-token')
     ) {
+      return Promise.reject(err)
+    }
+
+    if (responseCode === 'SESSION_INVALID') {
+      console.warn('Session invalid, clearing stored auth and redirecting to login')
+      clearAuthTokens()
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login'
+      }
       return Promise.reject(err)
     }
 

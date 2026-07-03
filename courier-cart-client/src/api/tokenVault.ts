@@ -2,11 +2,24 @@
 let access = "";
 let refresh = "";
 
+const readStoredTokens = () => {
+  if (typeof window === "undefined") {
+    return { accessToken: access, refreshToken: refresh };
+  }
+
+  return {
+    accessToken: localStorage.getItem("cc_access") || "",
+    refreshToken: localStorage.getItem("cc_refresh") || "",
+  };
+};
+
 /** Read the latest tokens (kept in‑memory + localStorage) */
-export const getAuthTokens = () => ({
-  accessToken: access || localStorage.getItem("cc_access") || "",
-  refreshToken: refresh || localStorage.getItem("cc_refresh") || "",
-});
+export const getAuthTokens = () => {
+  const stored = readStoredTokens();
+  access = stored.accessToken;
+  refresh = stored.refreshToken;
+  return stored;
+};
 
 /** Save (and persist) a new token pair */
 export const setAuthTokens = (a: string, r: string) => {

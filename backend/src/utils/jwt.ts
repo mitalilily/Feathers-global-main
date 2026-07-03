@@ -19,7 +19,7 @@ export interface RefreshPayload {
   exp: number
 }
 export const signAccessToken = (id: string, role: string) =>
-  jwt.sign({ sub: id, role }, ACCESS_SECRET, { expiresIn: '24h' })
+  jwt.sign({ sub: id, role }, ACCESS_SECRET, { expiresIn: '12h' })
 
 export const signRefreshToken = (id: string, role: string) => {
   const jti = randomUUID()
