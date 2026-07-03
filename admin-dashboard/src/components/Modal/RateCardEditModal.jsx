@@ -33,6 +33,37 @@ const B2C_RATE_TYPE_LABELS = {
   reverse_pickup: 'Reverse Pickup',
 }
 
+const inferLegacyExtraWeightUnit = (slab = {}) => {
+  const weightTo = Number(slab.weight_to)
+  if (Number.isFinite(weightTo) && weightTo > 0) return String(weightTo)
+
+  const weightFrom = Number(slab.weight_from)
+  if (Number.isFinite(weightFrom) && weightFrom > 0) return String(weightFrom)
+
+  return ''
+}
+
+const normalizeEditableSlab = (slab = {}) => {
+  const hasExtraRate =
+    slab.extra_rate !== undefined && slab.extra_rate !== null && String(slab.extra_rate).trim() !== ''
+  const hasExtraWeightUnit =
+    slab.extra_weight_unit !== undefined &&
+    slab.extra_weight_unit !== null &&
+    String(slab.extra_weight_unit).trim() !== ''
+
+  if (!hasExtraRate || hasExtraWeightUnit) return slab
+  return {
+    ...slab,
+    extra_weight_unit: inferLegacyExtraWeightUnit(slab),
+  }
+}
+
+const normalizeEditableZoneSlabs = (zoneSlabs = {}) =>
+  B2C_RATE_TYPES.reduce((acc, type) => {
+    acc[type] = (zoneSlabs?.[type] || []).map(normalizeEditableSlab)
+    return acc
+  }, {})
+
 export const RateCardEditModal = ({
   isOpen,
   onClose,
@@ -85,11 +116,7 @@ export const RateCardEditModal = ({
         rto: data?.rates?.[zone.name]?.rto ?? '',
         reverse_pickup: data?.rates?.[zone.name]?.reverse_pickup ?? '',
       }
-      initialForm.zone_slabs[zone.name] = {
-        forward: data?.zone_slabs?.[zone.name]?.forward ?? [],
-        rto: data?.zone_slabs?.[zone.name]?.rto ?? [],
-        reverse_pickup: data?.zone_slabs?.[zone.name]?.reverse_pickup ?? [],
-      }
+      initialForm.zone_slabs[zone.name] = normalizeEditableZoneSlabs(data?.zone_slabs?.[zone.name])
     })
 
     setForm(initialForm)
@@ -197,6 +224,10 @@ export const RateCardEditModal = ({
       data?.serviceProvider ||
       ''
 
+    const normalizedZoneSlabs = Object.fromEntries(
+      zones.map((zone) => [zone.name, normalizeEditableZoneSlabs(form.zone_slabs?.[zone.name])]),
+    )
+
     const payload = {
       min_weight: isB2C ? undefined : form.min_weight,
       cod_charges: form.cod_charges,
@@ -209,7 +240,7 @@ export const RateCardEditModal = ({
       service_provider: serviceProviderValue, // Always send the service_provider
       previous_service_provider: data?.service_provider || data?.serviceProvider,
       rates,
-      zone_slabs: isB2C ? form.zone_slabs : undefined,
+      zone_slabs: isB2C ? normalizedZoneSlabs : undefined,
       businessType,
     }
 

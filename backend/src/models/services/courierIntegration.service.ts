@@ -313,6 +313,29 @@ const getB2CGroupKey = (rate: any) =>
 const getB2BGroupKey = (rate: any) =>
   `${rate.courier_name}_${rate.plan_id}_${normalizeB2CShippingMode(rate.mode)}`
 
+const hasMeaningfulSlabValue = (value: unknown) =>
+  value !== undefined && value !== null && String(value).trim() !== ''
+
+const inferLegacyExtraWeightUnit = (slab: RateCardSlabInput) => {
+  const weightTo = Number(slab.weight_to)
+  if (Number.isFinite(weightTo) && weightTo > 0) return weightTo
+
+  const weightFrom = Number(slab.weight_from)
+  if (Number.isFinite(weightFrom) && weightFrom > 0) return weightFrom
+
+  return null
+}
+
+const normaliseEditableRateCardSlabs = (slabs: RateCardSlabInput[] = []) =>
+  slabs.map((slab) => {
+    if (!hasMeaningfulSlabValue(slab?.extra_rate) || hasMeaningfulSlabValue(slab?.extra_weight_unit)) {
+      return slab
+    }
+
+    const inferredUnit = inferLegacyExtraWeightUnit(slab)
+    return inferredUnit !== null ? { ...slab, extra_weight_unit: inferredUnit } : slab
+  })
+
 export const updateShippingRate = async (
   courierId: number,
   updates: ShippingRateUpdatePayload,
@@ -371,7 +394,9 @@ export const updateShippingRate = async (
 
       for (const type of B2C_RATE_TYPES) {
         const value = zoneRate[type]
-        const explicitSlabs = normaliseRateCardSlabs(zoneSlabs[type] || [])
+        const explicitSlabs = normaliseRateCardSlabs(
+          normaliseEditableRateCardSlabs(zoneSlabs[type] || []),
+        )
         validateRateCardSlabs(explicitSlabs)
         const hasLegacyValue = value !== undefined && value !== null && value !== ''
         if (!hasLegacyValue && !explicitSlabs.length) continue
@@ -599,7 +624,9 @@ export const upsertShippingRate = async (input: RateInput) => {
   }
 
   for (const r of input.rates) {
-    const explicitSlabs = normaliseRateCardSlabs(input.zone_slabs?.[r.zone_id]?.[r.type] || [])
+    const explicitSlabs = normaliseRateCardSlabs(
+      normaliseEditableRateCardSlabs(input.zone_slabs?.[r.zone_id]?.[r.type] || []),
+    )
     validateRateCardSlabs(explicitSlabs)
     const fallbackRate = explicitSlabs[0]?.rate ?? r.rate
     const fallbackMinWeight =
