@@ -1,9 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchWalletBalance, fetchWalletTransactions } from '../api/wallet.api'
+import {
+  getWalletBalanceQueryKey,
+  getWalletTransactionsQueryKey,
+} from '../utils/authQueryKeys'
 
 export const useWalletBalance = (enabled = true) => {
   const query = useQuery({
-    queryKey: ['walletBalance'],
+    queryKey: getWalletBalanceQueryKey(),
     queryFn: fetchWalletBalance,
     enabled,
     refetchOnWindowFocus: false,
@@ -31,7 +35,7 @@ export const useWalletTransactions = ({
   enabled = true,
 }: UseWalletTransactionsOptions = {}) => {
   return useQuery({
-    queryKey: ['walletTransactions', page, limit, type, dateFrom, dateTo],
+    queryKey: getWalletTransactionsQueryKey(page, limit, type, dateFrom, dateTo),
     queryFn: () =>
       fetchWalletTransactions({
         limit,

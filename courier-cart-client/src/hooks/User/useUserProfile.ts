@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchUserProfile } from '../../api/userProfile.api'
+import { getUserProfileQueryKey } from '../../utils/authQueryKeys'
 
 /**
  * Centralised hook for loading the currently‑logged in user's profile.
@@ -16,7 +17,7 @@ import { fetchUserProfile } from '../../api/userProfile.api'
  */
 export const useUserProfile = (authenticated?: boolean) =>
   useQuery({
-    queryKey: ['userProfile'],
+    queryKey: getUserProfileQueryKey(),
     queryFn: fetchUserProfile,
     enabled: !!authenticated,
     staleTime: 5 * 60 * 1000, // 5 minutes

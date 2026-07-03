@@ -74,17 +74,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user])
 
   const setTokens = (access: string, refresh: string) => {
+    queryClient.removeQueries({ queryKey: ['userInfo'] })
+    queryClient.removeQueries({ queryKey: ['userProfile'] })
+    queryClient.removeQueries({ queryKey: ['walletBalance'] })
+    queryClient.removeQueries({ queryKey: ['walletTransactions'] })
     setAuthTokens(access, refresh)
+    setUserId('')
+    setWalletBalance(null)
+    setAuthCheckTimedOut(false)
     setIsAuthenticated(true)
-    refetchUser()
   }
 
   const clearTokens = () => {
     clearAuthTokens()
     setIsAuthenticated(false)
+    setUserId('')
+    setWalletBalance(null)
+    setAuthCheckTimedOut(false)
     queryClient.removeQueries({ queryKey: ['userInfo'] })
     queryClient.removeQueries({ queryKey: ['userProfile'] })
     queryClient.removeQueries({ queryKey: ['walletBalance'] })
+    queryClient.removeQueries({ queryKey: ['walletTransactions'] })
   }
 
   const logout = async () => {

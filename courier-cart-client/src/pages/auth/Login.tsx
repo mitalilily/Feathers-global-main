@@ -10,7 +10,7 @@ export default function Login() {
   const returnTo = from ? `${from.pathname}${from.search || ''}` : '/home';
 
   // optional global loader while figuring out status
-  if (loading) return null;
+  if (loading || (isAuthenticated && !user?.id)) return null;
 
   if (isAuthenticated) {
     // not finished onboarding → push them to questions

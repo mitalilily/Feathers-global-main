@@ -143,7 +143,7 @@ export default function UserOnboarding() {
       if (step < steps.length) {
         setStep((prev) => prev + 1)
       } else {
-        queryClient.invalidateQueries({ queryKey: ['userProfile'], exact: true })
+        queryClient.invalidateQueries({ queryKey: ['userProfile'] })
         navigate('/home')
       }
     } catch (error) {

@@ -7,6 +7,7 @@ import {
 import type { IUserProfileDB } from "../../types/user.types";
 import { updateUserProfile } from "../../api/userProfile.api";
 import { toast } from "../../components/UI/Toast";
+import { getUserProfileQueryKey } from "../../utils/authQueryKeys";
 
 /**
  * Update the current user's profile
@@ -36,7 +37,7 @@ export const useUpdateUserProfile = (
       variables: Partial<IUserProfileDB>,
       ...callbackArgs: unknown[]
     ) => {
-      queryClient.setQueryData(["userProfile"], data?.user);
+      queryClient.setQueryData(getUserProfileQueryKey(), data?.user);
 
       toast.open({ message: data?.message, severity: "success" });
 
