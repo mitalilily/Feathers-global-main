@@ -126,6 +126,24 @@ const weightLabel = (kg) => {
   return `${kg} Kg`
 }
 
+const slugifyFilenamePart = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'courier'
+
+const getImportCourierKey = (courier = {}) =>
+  [courier.id, courier.serviceProvider || courier.service_provider || '', courier.mode || '']
+    .map((value) => String(value || '').trim())
+    .join('|')
+
+const getImportCourierLabel = (courier = {}) => {
+  const serviceProvider = courier.serviceProvider || courier.service_provider || 'provider'
+  const mode = courier.mode || 'surface'
+  return `${courier.name || 'Courier'} | ${serviceProvider} | ${mode}`
+}
+
 const triggerDownload = (csv, filename) => {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const link = document.createElement('a')
@@ -137,9 +155,17 @@ const triggerDownload = (csv, filename) => {
 }
 
 // CSV exporter — slab-per-row format for B2C, flat for B2B
-const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters = {}) => {
+const downloadCSV = (
+  allCouriers = [],
+  allZones = [],
+  existingData = [],
+  filters = {},
+  targetCourier = null,
+) => {
   if (!allCouriers?.length || !allZones?.length) return
   const type = filters?.businessType?.toLowerCase()
+  const selectedCouriers = targetCourier ? [targetCourier] : allCouriers
+  const filenameSuffix = targetCourier ? `_${slugifyFilenamePart(targetCourier.name)}` : ''
 
   if (type === 'b2c') {
     const b2cZones = dedupeB2CZones(allZones)
@@ -153,7 +179,7 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
 
     const rows = []
 
-    for (const courier of allCouriers) {
+    for (const courier of selectedCouriers) {
       const existing = findMatchingRateRow(existingData, courier, type, filters.planId) || {}
       const mode = normalizeMode(courier.mode || existing.mode || '') || 'surface'
 
@@ -199,7 +225,10 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
       }
     }
 
-    triggerDownload(Papa.unparse({ fields: headers, data: rows }), 'shipping_rate_card_b2c.csv')
+    triggerDownload(
+      Papa.unparse({ fields: headers, data: rows }),
+      `shipping_rate_card_b2c${filenameSuffix}.csv`,
+    )
     return
   }
 
@@ -210,7 +239,7 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
       ...allZones.flatMap((z) => [`${z.name} (Per Kg Forward)`, `${z.name} (Per Kg RTO)`]),
       'COD Charges', 'COD Percent', 'Other Charges',
     ]
-    const rows = allCouriers.map((courier) => {
+    const rows = selectedCouriers.map((courier) => {
       const row = findMatchingRateRow(existingData, courier, type, filters.planId) || {}
       const zoneValues = allZones.flatMap((zone) => {
         const zr = row.rates?.[zone.name] || {}
@@ -218,7 +247,10 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
       })
       return [courier.id ?? row.courier_id ?? '', courier.name ?? row.courier_name ?? '', courier.serviceProvider || row.service_provider || '', normalizeMode(courier.mode || row.mode || ''), type, row.min_weight || '', ...zoneValues, row.cod_charges ?? '', row.cod_percent ?? '', row.other_charges ?? '']
     })
-    triggerDownload(Papa.unparse({ fields: headers, data: rows }), 'shipping_rate_card_b2b.csv')
+    triggerDownload(
+      Papa.unparse({ fields: headers, data: rows }),
+      `shipping_rate_card_b2b${filenameSuffix}.csv`,
+    )
     return
   }
 }
@@ -259,6 +291,8 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
   const [selectedRate, setSelectedRate] = useState(null)
   const [isModalOpen, setModalOpen] = useState(false)
   const [isImportModalOpen, setImportModalOpen] = useState(false)
+  const [importScope, setImportScope] = useState('all')
+  const [selectedImportCourierKey, setSelectedImportCourierKey] = useState('')
 
   // Default to first plan if available
   const [selectedPlanId, setSelectedPlanId] = useState('')
@@ -284,6 +318,25 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
 
   const { data, isLoading } = useShippingRates(queryFilters)
 
+  const importCourierOptions = useMemo(
+    () =>
+      (courierList || []).map((courier) => ({
+        ...courier,
+        importKey: getImportCourierKey(courier),
+        importLabel: getImportCourierLabel(courier),
+      })),
+    [courierList],
+  )
+
+  const selectedImportCourier = useMemo(
+    () =>
+      importScope === 'single'
+        ? importCourierOptions.find((courier) => courier.importKey === selectedImportCourierKey) ||
+          null
+        : null,
+    [importScope, importCourierOptions, selectedImportCourierKey],
+  )
+
   const openEditModal = (row) => {
     setSelectedRate(row)
     setModalOpen(true)
@@ -299,6 +352,28 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
   }
 
   const handleImportRates = () => setImportModalOpen(true)
+
+  const handleTemplateDownload = () => {
+    if (importScope === 'single' && !selectedImportCourier) {
+      toast({
+        title: 'Select a courier first',
+        description:
+          'Choose the courier you want to import before downloading the single-courier template.',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      })
+      return
+    }
+
+    downloadCSV(
+      courierList || [],
+      zones || [],
+      data || [],
+      queryFilters,
+      selectedImportCourier,
+    )
+  }
 
   const filterOptions = useMemo(
     () => {
@@ -482,12 +557,51 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
               <Button
                 size="sm"
                 colorScheme="blue"
-                onClick={() => downloadCSV(courierList || [], zones || [], data || [], queryFilters)}
+                onClick={handleTemplateDownload}
               >
                 Download Sample Template
               </Button>
             }
           >
+            <Stack spacing={3} mb={4}>
+              <Box>
+                <Text fontSize="sm" color="gray.700" fontWeight="semibold" mb={1}>
+                  Import scope
+                </Text>
+                <Select
+                  value={importScope}
+                  onChange={(e) => setImportScope(e.target.value)}
+                  maxW="260px"
+                >
+                  <option value="all">All couriers in one file</option>
+                  <option value="single">Single courier only</option>
+                </Select>
+              </Box>
+
+              {importScope === 'single' && (
+                <Box>
+                  <Text fontSize="sm" color="gray.700" fontWeight="semibold" mb={1}>
+                    Select courier
+                  </Text>
+                  <Select
+                    placeholder="Choose one courier"
+                    value={selectedImportCourierKey}
+                    onChange={(e) => setSelectedImportCourierKey(e.target.value)}
+                  >
+                    {importCourierOptions.map((courier) => (
+                      <option key={courier.importKey} value={courier.importKey}>
+                        {courier.importLabel}
+                      </option>
+                    ))}
+                  </Select>
+                  <Text fontSize="sm" color="gray.500" mt={2}>
+                    The single-courier template is prefilled for this courier and the upload is
+                    locked to the same courier, provider, and mode.
+                  </Text>
+                </Box>
+              )}
+            </Stack>
+
             {selectedBusinessType === 'b2c' && (
               <Stack spacing={2} mb={4}>
                 <Text fontSize="sm" color="gray.700" fontWeight="semibold">
@@ -504,6 +618,10 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
                   The downloaded sample template already includes the accepted B2C headers and
                   default reverse logic columns.
                 </Text>
+                <Text fontSize="sm" color="gray.600">
+                  Forward slabs remain the base input, and `RTO %` plus `Reverse Pickup %` create
+                  the matching RTO and reverse slabs from that same forward slab structure.
+                </Text>
               </Stack>
             )}
             <FileUploader
@@ -513,11 +631,34 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
               uploadLoading={isImporting}
               onUploaded={(files) => {
                 if (!files.length) return
+                if (importScope === 'single' && !selectedImportCourier) {
+                  toast({
+                    title: 'Select a courier first',
+                    description:
+                      'Choose the courier you want to import before uploading a single-courier rate card.',
+                    status: 'warning',
+                    duration: 3000,
+                    isClosable: true,
+                  })
+                  return
+                }
                 importRates(
                   {
                     file: files[0],
                     planId: selectedPlanId || queryFilters?.planId,
                     businessType: queryFilters?.businessType || selectedBusinessType,
+                    targetCourier:
+                      importScope === 'single' && selectedImportCourier
+                        ? {
+                            courierId: selectedImportCourier.id,
+                            courierName: selectedImportCourier.name,
+                            serviceProvider:
+                              selectedImportCourier.serviceProvider ||
+                              selectedImportCourier.service_provider ||
+                              '',
+                            mode: selectedImportCourier.mode || '',
+                          }
+                        : undefined,
                   },
                   {
                     onSuccess: (result) => {

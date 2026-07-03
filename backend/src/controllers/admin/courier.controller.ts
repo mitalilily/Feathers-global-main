@@ -1453,6 +1453,58 @@ export const importShippingRatesController = async (req: any, res: Response) => 
       })
     }
 
+    const targetCourierIdValue =
+      req.query?.targetCourierId ??
+      req.query?.target_courier_id ??
+      req.body?.targetCourierId ??
+      req.body?.target_courier_id ??
+      undefined
+    const targetCourierNameValue =
+      req.query?.targetCourierName ??
+      req.query?.target_courier_name ??
+      req.body?.targetCourierName ??
+      req.body?.target_courier_name ??
+      undefined
+    const targetServiceProviderValue =
+      req.query?.targetServiceProvider ??
+      req.query?.target_service_provider ??
+      req.body?.targetServiceProvider ??
+      req.body?.target_service_provider ??
+      undefined
+    const targetModeValue =
+      req.query?.targetMode ??
+      req.query?.target_mode ??
+      req.body?.targetMode ??
+      req.body?.target_mode ??
+      undefined
+
+    const targetCourier =
+      [
+        targetCourierIdValue,
+        targetCourierNameValue,
+        targetServiceProviderValue,
+        targetModeValue,
+      ].some((value) => value != null && String(value).trim())
+        ? {
+            courierId:
+              targetCourierIdValue != null && String(targetCourierIdValue).trim()
+                ? String(targetCourierIdValue).trim()
+                : undefined,
+            courierName:
+              targetCourierNameValue != null && String(targetCourierNameValue).trim()
+                ? String(targetCourierNameValue).trim()
+                : undefined,
+            serviceProvider:
+              targetServiceProviderValue != null && String(targetServiceProviderValue).trim()
+                ? String(targetServiceProviderValue).trim()
+                : undefined,
+            mode:
+              targetModeValue != null && String(targetModeValue).trim()
+                ? String(targetModeValue).trim()
+                : undefined,
+          }
+        : undefined
+
     const { data, errors } = parseRateCardFile(req.file)
 
     if (errors.length) {
@@ -1468,13 +1520,16 @@ export const importShippingRatesController = async (req: any, res: Response) => 
     let savedRows = 0
 
     if (normalizedBusinessType === 'b2c' && isSlabFormat) {
-      savedRows = await importB2CSlabFormat(data as CSVRow[], planId, zonesList)
+      savedRows = await importB2CSlabFormat(data as CSVRow[], planId, zonesList, {
+        targetCourier,
+      })
     } else {
       savedRows = await importFlatFormat(
         data as CSVRow[],
         planId,
         normalizedBusinessType,
         zonesList,
+        { targetCourier },
       )
     }
 

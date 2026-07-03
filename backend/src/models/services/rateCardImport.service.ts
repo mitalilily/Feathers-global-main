@@ -17,6 +17,17 @@ export type RateCardZone = {
   region?: string | null
 }
 
+export type ImportTargetCourier = {
+  courierId?: string
+  courierName?: string
+  serviceProvider?: string
+  mode?: string
+}
+
+type RateCardImportOptions = {
+  targetCourier?: ImportTargetCourier | null
+}
+
 type SlabRow = CSVRow & { readonly _weight: number; readonly _type: 'first' | 'additional' }
 type ZoneHeaderMap = Record<string, string | undefined>
 type PreparedSlabRow = {
@@ -171,6 +182,85 @@ const inferServiceProvider = (value: unknown, courierName?: unknown) => {
   return ''
 }
 
+const normalizeImportMode = (value: unknown) => String(value ?? '').trim().toLowerCase()
+
+const normalizeTargetCourier = (
+  targetCourier?: ImportTargetCourier | null,
+): ImportTargetCourier | null => {
+  if (!targetCourier) return null
+
+  const courierId = cellToString(targetCourier.courierId)
+  const courierName = cellToString(targetCourier.courierName)
+  const serviceProvider = inferServiceProvider(
+    targetCourier.serviceProvider,
+    targetCourier.courierName,
+  )
+  const mode = cellToString(targetCourier.mode)
+
+  if (!courierId && !courierName && !serviceProvider && !mode) {
+    return null
+  }
+
+  return {
+    courierId,
+    courierName,
+    serviceProvider,
+    mode,
+  }
+}
+
+const resolveImportCourierContext = (
+  base: {
+    courierId: string
+    courierName: string
+    serviceProvider: string
+    mode: string
+  },
+  targetCourier?: ImportTargetCourier | null,
+) => {
+  const target = normalizeTargetCourier(targetCourier)
+  if (!target) {
+    return canonicalizeImportedCourier(base)
+  }
+
+  const rowCourierId = cellToString(base.courierId)
+  const rowServiceProvider = inferServiceProvider(base.serviceProvider, base.courierName)
+  const rowMode = cellToString(base.mode)
+
+  if (target.courierId && rowCourierId && target.courierId !== rowCourierId) {
+    throw new Error(
+      `Rate card row courier ID "${rowCourierId}" does not match the selected courier "${target.courierId}".`,
+    )
+  }
+
+  if (
+    target.serviceProvider &&
+    rowServiceProvider &&
+    target.serviceProvider !== rowServiceProvider
+  ) {
+    throw new Error(
+      `Rate card row service provider "${rowServiceProvider}" does not match the selected courier provider "${target.serviceProvider}".`,
+    )
+  }
+
+  if (
+    target.mode &&
+    rowMode &&
+    normalizeImportMode(target.mode) !== normalizeImportMode(rowMode)
+  ) {
+    throw new Error(
+      `Rate card row mode "${rowMode}" does not match the selected courier mode "${target.mode}".`,
+    )
+  }
+
+  return canonicalizeImportedCourier({
+    courierId: target.courierId || base.courierId,
+    courierName: target.courierName || base.courierName,
+    serviceProvider: target.serviceProvider || base.serviceProvider,
+    mode: target.mode || base.mode,
+  })
+}
+
 const canonicalizeImportedCourier = (input: {
   courierId: string
   courierName: string
@@ -269,6 +359,7 @@ export const importB2CSlabFormat = async (
   data: CSVRow[],
   plan_id: string,
   zonesList: RateCardZone[],
+  options: RateCardImportOptions = {},
 ) => {
   type GroupKey = string
 
@@ -281,17 +372,20 @@ export const importB2CSlabFormat = async (
     const serviceProvider = inferServiceProvider(cell(row, 'Service Provider'), courierName)
     const mode = cell(row, 'Mode')
     const slabType = cell(row, 'Slab Type').toLowerCase()
-    if (!courierId || !mode) continue
+    if ((!courierId || !mode) && !options.targetCourier) continue
     if (slabType !== 'first' && slabType !== 'additional') continue
     const weight = toRateCardNumber(row['Weight (KG)'])
     if (!weight) continue
 
-    const canonicalCourier = canonicalizeImportedCourier({
-      courierId,
-      courierName,
-      serviceProvider,
-      mode,
-    })
+    const canonicalCourier = resolveImportCourierContext(
+      {
+        courierId,
+        courierName,
+        serviceProvider,
+        mode,
+      },
+      options.targetCourier,
+    )
 
     const key: GroupKey = `${canonicalCourier.courierId}|${canonicalCourier.serviceProvider}|${canonicalCourier.mode.toLowerCase()}`
     if (!groups.has(key)) groups.set(key, [])
@@ -452,6 +546,7 @@ export const importFlatFormat = async (
   plan_id: string,
   business_type: string,
   zonesList: RateCardZone[],
+  options: RateCardImportOptions = {},
 ) => {
   let savedRows = 0
 
@@ -461,13 +556,16 @@ export const importFlatFormat = async (
     const serviceProvider = inferServiceProvider(cell(row, 'Service Provider'), courierName)
     const minWeight = cell(row, 'Min Weight')
     const mode = cell(row, 'Mode')
-    if (!courierId || !courierName) continue
-    const canonicalCourier = canonicalizeImportedCourier({
-      courierId,
-      courierName,
-      serviceProvider,
-      mode,
-    })
+    if ((!courierId || !courierName) && !options.targetCourier) continue
+    const canonicalCourier = resolveImportCourierContext(
+      {
+        courierId,
+        courierName,
+        serviceProvider,
+        mode,
+      },
+      options.targetCourier,
+    )
 
     type RateItem = { zone_id: string; type: B2CRateType; rate: number }
     const rates: RateItem[] = Object.entries(row)

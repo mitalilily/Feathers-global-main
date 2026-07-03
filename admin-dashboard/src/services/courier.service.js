@@ -95,7 +95,7 @@ export const updateShippingRate = async (id, updates, planId) => {
   return data
 }
 
-export const uploadShippingRates = async ({ file, planId, businessType }) => {
+export const uploadShippingRates = async ({ file, planId, businessType, targetCourier }) => {
   if (!file) throw new Error('No file provided for import')
 
   const formData = new FormData()
@@ -109,6 +109,22 @@ export const uploadShippingRates = async ({ file, planId, businessType }) => {
     const normalizedBusinessType = businessType.toLowerCase()
     params.set('businessType', normalizedBusinessType)
     params.set('business_type', normalizedBusinessType)
+  }
+  if (targetCourier?.courierId) {
+    params.set('targetCourierId', String(targetCourier.courierId))
+    params.set('target_courier_id', String(targetCourier.courierId))
+  }
+  if (targetCourier?.courierName) {
+    params.set('targetCourierName', String(targetCourier.courierName))
+    params.set('target_courier_name', String(targetCourier.courierName))
+  }
+  if (targetCourier?.serviceProvider) {
+    params.set('targetServiceProvider', String(targetCourier.serviceProvider))
+    params.set('target_service_provider', String(targetCourier.serviceProvider))
+  }
+  if (targetCourier?.mode) {
+    params.set('targetMode', String(targetCourier.mode))
+    params.set('target_mode', String(targetCourier.mode))
   }
 
   try {
