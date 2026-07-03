@@ -1,5 +1,5 @@
-import { Box, Button, Divider, Stack } from '@mui/material'
-import { FormProvider, useForm } from 'react-hook-form'
+import { Box, Button, Divider, Stack, Typography } from '@mui/material'
+import { FormProvider, useFieldArray, useForm } from 'react-hook-form'
 import { useEffect } from 'react'
 import { fetchAvailableCouriers } from '../../api/courier'
 import { useBookExistingB2COrderCourier } from '../../hooks/Orders/useOrders'
@@ -9,6 +9,7 @@ import DeliveryDetailsForm from './DeliveryDetailsForm'
 import PickupLocationForm from './PickupLocationForm'
 import { SelectCourierForm } from './SelectCourierForm'
 import type { B2CFormData, Product } from './b2c/B2COrderForm'
+import PackageDetailsForm from './b2c/PackageDetailsForm'
 import PackageDimensionsForm from './b2c/PackageDimensionsForm'
 
 type SourceOrderCourierDrawerProps = {
@@ -109,7 +110,8 @@ export default function SourceOrderCourierDrawer({
   const methods = useForm<B2CFormData>({
     defaultValues: buildDefaultValues(order),
   })
-  const { handleSubmit, reset, setError, setValue } = methods
+  const { control, handleSubmit, reset, setError, setValue } = methods
+  const { fields, append, remove } = useFieldArray({ control, name: 'products' })
   const bookCourier = useBookExistingB2COrderCourier(onClose)
 
   useEffect(() => {
@@ -127,6 +129,17 @@ export default function SourceOrderCourierDrawer({
       })
       return
     }
+
+    const normalizedProducts = (data.products ?? []).map((product, index) => ({
+      name: String(product.productName || '').trim() || `Product ${index + 1}`,
+      sku: String(product.sku || '').trim() || 'NA',
+      qty: Math.max(1, Number(product.quantity ?? 1) || 1),
+      price: Math.max(0, Number(product.price ?? 0) || 0),
+      hsn: String(product.hsnCode || '').trim(),
+      discount: Math.max(0, Number(product.discount ?? 0) || 0),
+      tax_rate: Math.max(0, Number(product.taxRate ?? 0) || 0),
+    }))
+    const subtotal = getProductsSubtotal(data.products ?? [], order?.order_amount)
 
     let amazonRequestToken = data.amazonRequestToken ?? undefined
     let amazonRateId = data.amazonRateId ?? undefined
@@ -207,6 +220,7 @@ export default function SourceOrderCourierDrawer({
         package_length: Number(data.length),
         package_breadth: Number(data.breadth),
         package_height: Number(data.height),
+        order_amount: subtotal,
         shipping_charges: Number(data.shippingCharges ?? 0),
         freight_charges: Number(data.forwardCharges ?? 0),
         courier_cost: data.courierCost ? Number(data.courierCost) : undefined,
@@ -269,6 +283,7 @@ export default function SourceOrderCourierDrawer({
         zone_id: data.zoneId,
         chargedWeight: data.chargeableWeight ?? undefined,
         volumetricWeight: data.volumetricWeight ?? undefined,
+        order_items: normalizedProducts,
       },
     })
   }
@@ -284,6 +299,18 @@ export default function SourceOrderCourierDrawer({
         <Box component="form" onSubmit={handleSubmit(onSubmit)}>
           <Stack spacing={2}>
             <DeliveryDetailsForm type="b2c" allowResolvedLocationEdit />
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                Product Details
+              </Typography>
+              <PackageDetailsForm
+                control={control}
+                fields={fields}
+                remove={remove}
+                append={append}
+              />
+            </Box>
             <Divider />
             <PickupLocationForm compact />
             <Divider />

@@ -9129,7 +9129,11 @@ export const bookExistingB2COrderWithCourierService = async (
     throw new HttpError(400, 'This order already has an AWB')
   }
 
-  const orderItems = normalizeB2COrderItemsForBooking(existingOrder.products)
+  const orderItems = normalizeB2COrderItemsForBooking(
+    Array.isArray(payload.order_items) && payload.order_items.length
+      ? payload.order_items
+      : existingOrder.products,
+  )
   const orderAmount = resolveB2COrderItemsAmount(orderItems, existingOrder.order_amount)
   const paymentType = String(existingOrder.order_type || 'prepaid').toLowerCase() === 'cod' ? 'cod' : 'prepaid'
   const pickup = payload.pickup || ({} as ShipmentParams['pickup'])
