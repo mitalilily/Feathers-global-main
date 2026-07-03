@@ -26,8 +26,8 @@ type ShadowfaxForwardBookingResult = {
   attempts: ShadowfaxForwardBookingAttemptSummary[]
 }
 
-const DEFAULT_API_BASE = 'https://dale.staging.shadowfax.in/api'
-const DEFAULT_QR_BASE = 'https://saruman.staging.shadowfax.in/api'
+const DEFAULT_API_BASE = 'https://dale.shadowfax.in/api'
+const DEFAULT_QR_BASE = 'https://saruman.shadowfax.in/api'
 
 const normalizeBase = (value?: string | null, fallback = DEFAULT_API_BASE) =>
   String(value || fallback).trim().replace(/\/+$/, '')

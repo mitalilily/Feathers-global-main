@@ -544,7 +544,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       shadowfax: {
         provider: 'shadowfax',
-        apiBase: 'https://dale.staging.shadowfax.in/api',
+        apiBase: 'https://dale.shadowfax.in/api',
         clientName: '',
         hasApiKey: false,
         apiKeyMasked: '',
@@ -634,7 +634,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.shadowfax = {
           provider: 'shadowfax',
-          apiBase: row.apiBase || 'https://dale.staging.shadowfax.in/api',
+          apiBase: row.apiBase || 'https://dale.shadowfax.in/api',
           clientName: row.clientName || '',
           hasApiKey: Boolean(apiKey.trim()),
           apiKeyMasked: apiKey
@@ -1147,7 +1147,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://dale.staging.shadowfax.in/api'
+        updatePayload.apiBase = nextApiBase || 'https://dale.shadowfax.in/api'
       }
       if (nextClientName !== undefined) {
         updatePayload.clientName = nextClientName
@@ -1166,7 +1166,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
     } else {
       await db.insert(courier_credentials).values({
         provider: 'shadowfax',
-        apiBase: nextApiBase || 'https://dale.staging.shadowfax.in/api',
+        apiBase: nextApiBase || 'https://dale.shadowfax.in/api',
         clientName: nextClientName || '',
         apiKey: hasNewApiKey ? nextApiKey : '',
         webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
@@ -1191,7 +1191,7 @@ export const updateShadowfaxCredentialsController = async (req: Request, res: Re
       message: 'Shadowfax credentials updated successfully',
       data: {
         provider: 'shadowfax',
-        apiBase: saved?.apiBase || 'https://dale.staging.shadowfax.in/api',
+        apiBase: saved?.apiBase || 'https://dale.shadowfax.in/api',
         clientName: saved?.clientName || '',
         hasApiKey: Boolean((saved?.apiKey || '').trim()),
         hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
