@@ -1482,7 +1482,7 @@ export const importShippingRatesController = async (req: any, res: Response) => 
       return res.status(400).json({
         success: false,
         message:
-          'No rate rows were imported. Check the plan, courier, mode, zone column names, and rate values in the file.',
+          'No rate rows were imported. Check the plan, courier, mode, zone column names, forward slab values, and the RTO/Reverse Pickup percentage columns in the file.',
       })
     }
 

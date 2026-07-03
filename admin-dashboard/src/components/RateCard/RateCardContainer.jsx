@@ -118,6 +118,8 @@ const DEFAULT_B2C_SLABS = [
   { label: '5 Kg', weight: 5.0 },
   { label: '10 Kg', weight: 10.0 },
 ]
+const DEFAULT_B2C_RTO_PERCENT = '100'
+const DEFAULT_B2C_REVERSE_PICKUP_PERCENT = '100'
 
 const weightLabel = (kg) => {
   if (kg < 1) return `${Math.round(kg * 1000)} GM`
@@ -171,6 +173,10 @@ const downloadCSV = (allCouriers = [], allZones = [], existingData = [], filters
         const fRate = Number(exFwd[0]?.rate || 0)
         const reversePickupRate = Number(exReversePickup[0]?.rate || 0)
         if (fRate > 0) reversePickupPercent = String(Math.round((reversePickupRate / fRate) * 100))
+      }
+      if (!rtoPercent) rtoPercent = DEFAULT_B2C_RTO_PERCENT
+      if (!reversePickupPercent) {
+        reversePickupPercent = rtoPercent || DEFAULT_B2C_REVERSE_PICKUP_PERCENT
       }
 
       // Build slab list from existing forward slabs or defaults
@@ -478,10 +484,28 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
                 colorScheme="blue"
                 onClick={() => downloadCSV(courierList || [], zones || [], data || [], queryFilters)}
               >
-                Download CSV
+                Download Sample Template
               </Button>
             }
           >
+            {selectedBusinessType === 'b2c' && (
+              <Stack spacing={2} mb={4}>
+                <Text fontSize="sm" color="gray.700" fontWeight="semibold">
+                  B2C import format
+                </Text>
+                <Text fontSize="sm" color="gray.600">
+                  Use one row per slab with `Slab Type` set to `First` or `Additional`.
+                </Text>
+                <Text fontSize="sm" color="gray.600">
+                  Fill forward rates zone-wise, then use `RTO %` and `Reverse Pickup %` as
+                  percentage multipliers of the forward slab.
+                </Text>
+                <Text fontSize="sm" color="gray.600">
+                  The downloaded sample template already includes the accepted B2C headers and
+                  default reverse logic columns.
+                </Text>
+              </Stack>
+            )}
             <FileUploader
               maxSizeMb={5}
               folderKey="rates"
