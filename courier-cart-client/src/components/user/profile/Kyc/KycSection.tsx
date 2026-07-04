@@ -1,6 +1,7 @@
 import { alpha, Box, Skeleton, Stack, Typography } from '@mui/material'
 import { useState } from 'react'
 import { BRAND } from '../../../../config/brand'
+import { useAuth } from '../../../../context/auth/AuthContext'
 import { useUserKyc } from '../../../../hooks/User/Kyc/UseKyc'
 import { useUserProfile } from '../../../../hooks/User/useUserProfile'
 import KycDetailsCard from './KycDetailsCard'
@@ -8,7 +9,8 @@ import KYCVerificationStep from './KycVerificationSection'
 
 const KycSection = () => {
   // Always fetch the authenticated user's profile inside protected routes
-  const { isLoading } = useUserProfile(true)
+  const { isAuthenticated, user } = useAuth()
+  const { isLoading } = useUserProfile(isAuthenticated, user?.id)
   const [editingKyc, setEditingKyc] = useState(false)
   const { data: kycData, isLoading: loadingKyc } = useUserKyc()
 

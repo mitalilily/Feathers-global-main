@@ -12,6 +12,7 @@ import { logoutApi } from '../../api/auth'
 import { clearAuthTokens, getAuthTokens, setAuthTokens } from '../../api/tokenVault'
 import { useUserProfile } from '../../hooks/User/useUserProfile'
 import type { IUserProfileDB } from '../../types/user.types'
+import { getCurrentAuthScope } from '../../utils/authQueryKeys'
 import { emptyUserProfile } from '../../utils/utility'
 
 /* ---------- context shape ---------- */
@@ -39,6 +40,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const hasTokens = !!accessToken && !!refreshToken
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(hasTokens)
+  const [authScope, setAuthScope] = useState<string>(getCurrentAuthScope())
   const [authCheckTimedOut, setAuthCheckTimedOut] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [userId, setUserId] = useState('')
@@ -48,7 +50,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     isFetching: userFetching,
     isError: userProfileError,
     refetch: refetchUser,
-  } = useUserProfile(isAuthenticated)
+  } = useUserProfile(isAuthenticated, authScope)
 
   useEffect(() => {
     if (!isAuthenticated || user?.id || userProfileError) {
@@ -79,6 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     queryClient.removeQueries({ queryKey: ['walletBalance'] })
     queryClient.removeQueries({ queryKey: ['walletTransactions'] })
     setAuthTokens(access, refresh)
+    setAuthScope(getCurrentAuthScope())
     setUserId('')
     setWalletBalance(null)
     setAuthCheckTimedOut(false)
@@ -87,6 +90,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const clearTokens = () => {
     clearAuthTokens()
+    setAuthScope(getCurrentAuthScope())
     setIsAuthenticated(false)
     setUserId('')
     setWalletBalance(null)

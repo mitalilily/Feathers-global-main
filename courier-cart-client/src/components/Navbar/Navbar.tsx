@@ -3,6 +3,7 @@ import { FaBolt, FaWallet } from 'react-icons/fa'
 import { MdClose, MdPushPin } from 'react-icons/md'
 import { TbLayoutSidebarRightCollapseFilled } from 'react-icons/tb'
 import { BRAND } from '../../config/brand'
+import { useAuth } from '../../context/auth/AuthContext'
 import { useUserProfile } from '../../hooks/User/useUserProfile'
 import StatusChip from '../UI/chip/StatusChip'
 import GlobalSearch from './GlobalSearch'
@@ -24,10 +25,11 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const isCompactNavbar = useMediaQuery(theme.breakpoints.down('lg'))
+  const { isAuthenticated, user } = useAuth()
   const handlePinToggle = () => {
     onPinChange?.(!pinned)
   }
-  const { data: user } = useUserProfile(true)
+  const { data: profile } = useUserProfile(isAuthenticated, user?.id)
   return (
     <Box sx={{ position: 'sticky', top: 0, zIndex: (currentTheme) => currentTheme.zIndex.appBar }}>
       <Stack
@@ -131,7 +133,7 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
             </>
           ) : (
             <>
-              {user?.approved ? (
+              {profile?.approved ? (
                 <StatusChip
                   status="success"
                   label="Verified Account"

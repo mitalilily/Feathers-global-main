@@ -5,9 +5,9 @@ import {
   getWalletTransactionsQueryKey,
 } from '../utils/authQueryKeys'
 
-export const useWalletBalance = (enabled = true) => {
+export const useWalletBalance = (enabled = true, authScope?: string) => {
   const query = useQuery({
-    queryKey: getWalletBalanceQueryKey(),
+    queryKey: getWalletBalanceQueryKey(authScope),
     queryFn: fetchWalletBalance,
     enabled,
     refetchOnWindowFocus: false,
@@ -24,6 +24,7 @@ interface UseWalletTransactionsOptions {
   dateFrom?: string
   dateTo?: string
   enabled?: boolean
+  authScope?: string
 }
 
 export const useWalletTransactions = ({
@@ -33,9 +34,10 @@ export const useWalletTransactions = ({
   dateFrom,
   dateTo,
   enabled = true,
+  authScope,
 }: UseWalletTransactionsOptions = {}) => {
   return useQuery({
-    queryKey: getWalletTransactionsQueryKey(page, limit, type, dateFrom, dateTo),
+    queryKey: getWalletTransactionsQueryKey(page, limit, type, dateFrom, dateTo, authScope),
     queryFn: () =>
       fetchWalletTransactions({
         limit,

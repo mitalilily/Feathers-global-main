@@ -2,6 +2,8 @@ import { getAuthTokens } from '../api/tokenVault'
 
 const GUEST_AUTH_SCOPE = 'guest'
 
+export const normalizeAuthScope = (scope?: string | null) => scope?.trim() || GUEST_AUTH_SCOPE
+
 const decodeJwtPayload = (token: string) => {
   if (!token) return null
 
@@ -31,14 +33,17 @@ export const getCurrentAuthScope = () => {
   if (!accessToken) return GUEST_AUTH_SCOPE
 
   const decodedPayload = decodeJwtPayload(accessToken)
-  return decodedPayload?.sub?.trim() || accessToken.slice(-16) || GUEST_AUTH_SCOPE
+  return normalizeAuthScope(decodedPayload?.sub || accessToken.slice(-16))
 }
 
-export const getUserProfileQueryKey = () => ['userProfile', getCurrentAuthScope()] as const
+export const getUserProfileQueryKey = (scope?: string | null) =>
+  ['userProfile', normalizeAuthScope(scope ?? getCurrentAuthScope())] as const
 
-export const getUserInfoQueryKey = () => ['userInfo', getCurrentAuthScope()] as const
+export const getUserInfoQueryKey = (scope?: string | null) =>
+  ['userInfo', normalizeAuthScope(scope ?? getCurrentAuthScope())] as const
 
-export const getWalletBalanceQueryKey = () => ['walletBalance', getCurrentAuthScope()] as const
+export const getWalletBalanceQueryKey = (scope?: string | null) =>
+  ['walletBalance', normalizeAuthScope(scope ?? getCurrentAuthScope())] as const
 
 export const getWalletTransactionsQueryKey = (
   page: number,
@@ -46,4 +51,14 @@ export const getWalletTransactionsQueryKey = (
   type?: 'credit' | 'debit',
   dateFrom?: string,
   dateTo?: string,
-) => ['walletTransactions', getCurrentAuthScope(), page, limit, type, dateFrom, dateTo] as const
+  scope?: string | null,
+) =>
+  [
+    'walletTransactions',
+    normalizeAuthScope(scope ?? getCurrentAuthScope()),
+    page,
+    limit,
+    type,
+    dateFrom,
+    dateTo,
+  ] as const

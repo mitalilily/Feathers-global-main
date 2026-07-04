@@ -72,7 +72,10 @@ export const refreshTokenController = async (req: Request, res: Response): Promi
     const user = await findUserById(payload.sub)
     if (!user) {
       console.error(`❌ [Refresh Token] User not found: ${payload.sub}`)
-      return res.status(401).json({ error: 'User not found' })
+      return res.status(401).json({
+        error: 'Session invalid. Please log in again.',
+        code: 'SESSION_INVALID',
+      })
     }
 
     const now = new Date()

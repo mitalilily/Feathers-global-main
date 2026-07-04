@@ -50,11 +50,11 @@ const getRechargeErrorMessage = (error: unknown) => {
 }
 
 const AddMoneyDialog: React.FC<AddMoneyDialogProps> = ({ open, setOpen, currentBalance }) => {
-  const { user } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const [amount, setAmount] = useState<number>(500)
   const recharge = useRechargeWallet()
   const { data: paymentOptions } = usePaymentOptions()
-  const { data: profile } = useUserProfile(true)
+  const { data: profile } = useUserProfile(isAuthenticated, user?.id)
 
   const minWalletRecharge = paymentOptions?.minWalletRecharge ?? 0
 

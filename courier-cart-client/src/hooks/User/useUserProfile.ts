@@ -15,9 +15,9 @@ import { getUserProfileQueryKey } from '../../utils/authQueryKeys'
  *    avoid surprise refetches; call `refetchUser()` from `AuthContext` when
  *    you explicitly need to refresh.
  */
-export const useUserProfile = (authenticated?: boolean) =>
+export const useUserProfile = (authenticated?: boolean, authScope?: string) =>
   useQuery({
-    queryKey: getUserProfileQueryKey(),
+    queryKey: getUserProfileQueryKey(authScope),
     queryFn: fetchUserProfile,
     enabled: !!authenticated,
     staleTime: 5 * 60 * 1000, // 5 minutes
