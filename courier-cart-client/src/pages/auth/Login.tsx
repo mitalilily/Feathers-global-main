@@ -5,17 +5,17 @@ import LoginForm from "../../components/auth/LoginForm";
 import { useAuth } from "../../context/auth/AuthContext";
 
 export default function Login() {
-  const { isAuthenticated, user, loading } = useAuth();
+  const { isAuthenticated, user, loading, sessionReady } = useAuth();
   const location = useLocation();
   const from = (location.state as { from?: Location } | null)?.from;
   const returnTo = from ? `${from.pathname}${from.search || ''}` : '/home';
 
   // optional global loader while figuring out status
-  if (loading) return <FullScreenLoader />;
+  if (loading || (isAuthenticated && !sessionReady)) return <FullScreenLoader />;
 
   if (isAuthenticated) {
     // not finished onboarding → push them to questions
-    if (!user?.onboardingComplete) {
+    if (user?.onboardingComplete === false) {
       return <Navigate to="/onboarding-questions" replace />;
     }
     // fully onboarded → straight to dashboard

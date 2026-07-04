@@ -29,6 +29,7 @@ interface AuthCtx {
   userId: string
   user: IUserProfileDB
   loading: boolean
+  sessionReady: boolean
   isAuthenticated: boolean
   setTokens: (access: string, refresh: string, sessionUser?: SessionUser | null) => void
   clearTokens: () => void
@@ -134,15 +135,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const activeUser = (user ?? sessionUser ?? { ...emptyUserProfile }) as IUserProfileDB
   const hasResolvedUser = Boolean(user?.id || sessionUser?.id)
+  const hasResolvedOnboardingState =
+    hasResolvedUser &&
+    (typeof user?.onboardingComplete === 'boolean' ||
+      typeof sessionUser?.onboardingComplete === 'boolean')
 
   const value: AuthCtx = {
     user: activeUser,
     loading:
       isAuthenticated &&
-      !hasResolvedUser &&
+      !hasResolvedOnboardingState &&
       userFetching &&
       !userProfileError &&
       !authCheckTimedOut,
+    sessionReady: !isAuthenticated || hasResolvedOnboardingState,
     isAuthenticated,
     setUserId,
     setTokens,

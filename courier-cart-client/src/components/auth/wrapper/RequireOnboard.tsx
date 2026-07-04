@@ -9,22 +9,27 @@ export default function RequireOnboard({
 }: {
   children: JSX.Element;
 }) {
-  const { user, loading, isAuthenticated } = useAuth();
+  const { user, loading, isAuthenticated, sessionReady } = useAuth();
   const location = useLocation(); // keeps track of where the user came from
 
   /* 1️⃣  Still loading auth state? show spinner */
-  if (loading) return <FullScreenLoader />;
+  if (loading || (isAuthenticated && !sessionReady)) return <FullScreenLoader />;
 
   /* 2️⃣  Not logged in at all → kick back to login */
   if (!isAuthenticated) {
     return <Navigate to="/" replace state={{ from: location }} />;
   }
 
-  /* 3️⃣  Logged‑in AND already onboarded → send to main app */
-  if (user?.onboardingComplete) {
+  /* 3️⃣  Logged-in AND already onboarded → send to main app */
+  if (user?.onboardingComplete === true) {
     return <Navigate to="/home" replace />;
   }
 
-  /* 4️⃣  Logged‑in BUT NOT onboarded → let them see onboarding page */
+  /* 4️⃣  Unknown onboarding state should never force onboarding */
+  if (user?.onboardingComplete !== false) {
+    return <Navigate to="/home" replace />;
+  }
+
+  /* 4️⃣  Logged-in BUT NOT onboarded → let them see onboarding page */
   return children;
 }
