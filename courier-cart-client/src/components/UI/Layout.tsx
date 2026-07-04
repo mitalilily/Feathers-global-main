@@ -4,6 +4,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/auth/AuthContext'
 import Navbar from '../Navbar/Navbar'
 import KeyboardShortcuts from './keyboard/KeyboardShortcuts'
+import FullScreenLoader from './loader/FullScreenLoader'
 import Sidebar from './Sidebar'
 import { brandGradient } from '../../config/brand'
 
@@ -110,7 +111,9 @@ export default function Layout() {
           >
             <Suspense
               fallback={
-                <Box key={`layout-fallback-${location.pathname}`} sx={{ minHeight: 300 }} />
+                <Box key={`layout-fallback-${location.pathname}`} sx={{ minHeight: 300 }}>
+                  <FullScreenLoader />
+                </Box>
               }
             >
               <Box key={location.pathname} sx={{ width: '100%', minHeight: '300px' }}>

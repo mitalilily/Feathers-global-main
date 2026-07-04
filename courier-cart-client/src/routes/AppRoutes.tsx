@@ -1,11 +1,11 @@
 // AppRoutes.tsx
 import { lazy, Suspense } from 'react'
-import { Box } from '@mui/material'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import RequireAuth from '../components/auth/wrapper/RequireAuth'
 import RequireMerchantReady from '../components/auth/wrapper/RequireMerchantReady'
 import RequireOnboard from '../components/auth/wrapper/RequireOnboard'
 import Layout from '../components/UI/Layout'
+import FullScreenLoader from '../components/UI/loader/FullScreenLoader'
 import CreateOrderWrapper from '../components/orders/CreateOrderWrapper'
 import { useAuth } from '../context/auth/AuthContext'
 import Login from '../pages/auth/Login'
@@ -100,7 +100,7 @@ function PublicTrackingRoute() {
   const location = useLocation()
   const { awb } = useParams<{ awb?: string }>()
 
-  if (loading) return <Box />
+  if (loading) return <FullScreenLoader />
 
   if (isAuthenticated) {
     const params = new URLSearchParams(location.search)
@@ -122,7 +122,7 @@ export default function AppRoutes() {
   return (
     <BrowserRouter>
       <GlobalRedirectHandler />
-      <Suspense fallback={<Box />}>
+      <Suspense fallback={<FullScreenLoader />}>
         <Routes>
           {/* public */}
           <Route path="/" element={<Login />} />
