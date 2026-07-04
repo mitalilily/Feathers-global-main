@@ -9,11 +9,19 @@ import {
   type SetStateAction,
 } from 'react'
 import { logoutApi } from '../../api/auth'
-import { clearAuthTokens, getAuthTokens, setAuthTokens } from '../../api/tokenVault'
+import {
+  clearAuthTokens,
+  getAuthTokens,
+  getStoredSessionUser,
+  setAuthTokens,
+  setStoredSessionUser,
+} from '../../api/tokenVault'
 import { useUserProfile } from '../../hooks/User/useUserProfile'
 import type { IUserProfileDB } from '../../types/user.types'
 import { getCurrentAuthScope } from '../../utils/authQueryKeys'
 import { emptyUserProfile } from '../../utils/utility'
+
+type SessionUser = Partial<IUserProfileDB>
 
 /* ---------- context shape ---------- */
 interface AuthCtx {
@@ -22,7 +30,7 @@ interface AuthCtx {
   user: IUserProfileDB
   loading: boolean
   isAuthenticated: boolean
-  setTokens: (access: string, refresh: string) => void
+  setTokens: (access: string, refresh: string, sessionUser?: SessionUser | null) => void
   clearTokens: () => void
   logout: () => Promise<void>
   refetchUser: () => void
@@ -44,6 +52,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [authCheckTimedOut, setAuthCheckTimedOut] = useState(false)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [userId, setUserId] = useState('')
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(() =>
+    getStoredSessionUser<SessionUser>(),
+  )
 
   const {
     data: user,
@@ -69,20 +80,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // If we successfully fetched a user, ensure auth is marked as true.
     if (user?.id) {
       setIsAuthenticated(true)
+      setSessionUser(user)
+      setStoredSessionUser(user)
     }
     // Do NOT automatically mark user as unauthenticated on generic errors here.
     // Auth state should primarily follow presence of valid tokens; 401 handling
     // is done in axios interceptors which clear tokens and redirect as needed.
   }, [user])
 
-  const setTokens = (access: string, refresh: string) => {
+  const setTokens = (access: string, refresh: string, nextSessionUser?: SessionUser | null) => {
     queryClient.removeQueries({ queryKey: ['userInfo'] })
     queryClient.removeQueries({ queryKey: ['userProfile'] })
     queryClient.removeQueries({ queryKey: ['walletBalance'] })
     queryClient.removeQueries({ queryKey: ['walletTransactions'] })
     setAuthTokens(access, refresh)
+    if (nextSessionUser) {
+      setSessionUser(nextSessionUser)
+      setStoredSessionUser(nextSessionUser)
+      setUserId(nextSessionUser.id ?? '')
+    } else {
+      setSessionUser(null)
+      setUserId('')
+    }
     setAuthScope(getCurrentAuthScope())
-    setUserId('')
     setWalletBalance(null)
     setAuthCheckTimedOut(false)
     setIsAuthenticated(true)
@@ -90,6 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const clearTokens = () => {
     clearAuthTokens()
+    setSessionUser(null)
     setAuthScope(getCurrentAuthScope())
     setIsAuthenticated(false)
     setUserId('')
@@ -111,11 +132,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     window.location.href = '/login'
   }
 
+  const activeUser = (user ?? sessionUser ?? { ...emptyUserProfile }) as IUserProfileDB
+  const hasResolvedUser = Boolean(user?.id || sessionUser?.id)
+
   const value: AuthCtx = {
-    user: user ?? { ...emptyUserProfile },
+    user: activeUser,
     loading:
       isAuthenticated &&
-      !user?.id &&
+      !hasResolvedUser &&
       userFetching &&
       !userProfileError &&
       !authCheckTimedOut,

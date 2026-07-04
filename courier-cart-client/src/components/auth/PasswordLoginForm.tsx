@@ -161,7 +161,7 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
             }
 
             setUserId(user?.id)
-            setTokens(token, refreshToken)
+            setTokens(token, refreshToken, user)
           },
           onError: (error: any) => {
             toast.open({

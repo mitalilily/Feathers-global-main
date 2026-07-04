@@ -67,7 +67,7 @@ export default function EmailVerificationForm({
       { email, otp: code, password },
       {
         onSuccess: ({ token, refreshToken, user }) => {
-          setTokens(token, refreshToken)
+          setTokens(token, refreshToken, user)
           setUserId(user?.id)
           sessionStorage.setItem('activeEmail', email)
           setError('')

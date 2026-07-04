@@ -114,7 +114,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
         onSuccess: ({ token, refreshToken, user }) => {
           sessionStorage.setItem('activeEmail', email)
           setUserId(user?.id)
-          setTokens(token, refreshToken)
+          setTokens(token, refreshToken, user)
         },
         onError: (err: any) => {
           const msg = err?.response?.data?.error || 'OTP verification failed'

@@ -24,6 +24,7 @@ import { OTP_EXPIRY } from '../utils/constants'
 import { eq } from 'drizzle-orm'
 import { db } from '../models/client'
 import { changeAdminPassword, loginAdmin } from '../models/services/adminAuth.service'
+import { getProfileByUserId } from '../models/services/userProfile.service'
 import { sendAccountActivatedEmail } from '../models/services/eventEmail.service'
 import { employees } from '../schema/schema'
 import { sendVerificationEmail } from '../utils/emailSender'
@@ -37,6 +38,27 @@ dotenv.config({ path: path.resolve(__dirname, `../.env.${env}`) })
 const client = twilio(process.env.TWILIO_ACCOUNT_SID!, process.env.TWILIO_AUTH_TOKEN!)
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+const buildAuthenticatedUserPayload = async (user: {
+  id: string
+  role?: string | null
+}) => {
+  const profile = await getProfileByUserId(user.id)
+
+  return {
+    id: user.id,
+    role: profile?.role ?? user.role ?? 'customer',
+    onboardingComplete: Boolean(profile?.onboardingComplete),
+    onboardingStep: profile?.onboardingStep ?? 0,
+    profileComplete: Boolean(profile?.profileComplete),
+    approved: Boolean(profile?.approved),
+    companyInfo: profile?.companyInfo ?? null,
+    employeeId: profile?.employeeId ?? null,
+    employeeRole: profile?.employeeRole ?? null,
+    employeeIsActive: profile?.employeeIsActive ?? null,
+    moduleAccess: profile?.moduleAccess ?? null,
+  }
+}
 
 export const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString()
 
@@ -281,14 +303,7 @@ export const verifyOtp = async (req: Request, res: Response): Promise<any> => {
       message: 'OTP verified successfully',
       token: accessToken,
       refreshToken,
-      user: {
-        id: user.id,
-        phone: user.phone,
-        phoneVerified: user.phoneVerified,
-        email: user.email,
-        emailVerified: true,
-        role: user.role,
-      },
+      user: await buildAuthenticatedUserPayload(user),
     })
   } catch (error) {
     console.error('Error in verifyOtp:', error)
@@ -348,6 +363,7 @@ export const requestEmailVerification = async (req: Request, res: Response): Pro
 
       result.data.token = accessToken
       result.data.refreshToken = refreshToken
+      result.data.user = await buildAuthenticatedUserPayload(user)
     }
 
     return res.status(result.status).json(result.data)
@@ -400,12 +416,7 @@ export const verifyEmailToken = async (req: Request, res: Response): Promise<any
       message: 'Email verified successfully',
       token: accessToken,
       refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        emailVerified: true,
-        role: user.role,
-      },
+      user: await buildAuthenticatedUserPayload(user),
     })
   } catch (error) {
     console.error('verifyEmailToken error:', error)
@@ -506,15 +517,7 @@ export const googleOAuthLogin = async (req: Request, res: Response): Promise<any
         message: 'Google login successful',
         token: accessToken,
         refreshToken,
-        user: {
-          id: user?.id,
-          email: user?.email,
-          emailVerified: user?.emailVerified,
-          phone: user?.phone,
-          phoneVerified: user?.phoneVerified,
-          profilePicture: user?.profilePicture,
-          role: user?.role,
-        },
+        user: await buildAuthenticatedUserPayload(user),
       })
     } else {
       return res.status(500).json({ error: 'User not found' })
