@@ -1,6 +1,7 @@
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import axios from 'axios'
+import jwt from 'jsonwebtoken'
 import { r2 } from '../../config/r2Client'
 import { getBucketName, sanitizeFilename } from '../../utils/functions'
 
@@ -18,9 +19,23 @@ interface PresignParams {
   folderKey?: string
 }
 
+interface UploadStorageTarget {
+  bucket: string
+  key: string
+  publicUrl: string
+}
+
+interface DirectUploadTokenPayload extends UploadStorageTarget {
+  sub: string
+  contentType: string
+  originalName: string
+}
+
 const PRESIGN_DOWNLOAD_EXPIRES_IN_SECONDS = 60 * 60 * 24 // 24h
 const PRESIGN_CACHE_SAFETY_BUFFER_MS = 60 * 1000 // refresh 1 min before expiry
 const R2_UPLOAD_TIMEOUT_MS = Number(process.env.R2_UPLOAD_TIMEOUT_MS || 30000)
+const DIRECT_UPLOAD_TOKEN_SECRET =
+  process.env.UPLOAD_PROXY_TOKEN_SECRET || process.env.ACCESS_TOKEN_SECRET || 'upload-proxy-secret'
 const presignDownloadCache = new Map<string, { url: string; expiresAt: number }>()
 
 const IR_FOLDER_PREFIX = 'ir/'
@@ -42,6 +57,73 @@ const resolveBucketForStoredValue = (value: string) => {
   }
   return getBucketName()
 }
+
+const buildStorageTarget = ({
+  filename,
+  userId,
+  folderKey = 'userPp',
+}: {
+  filename: string
+  userId: string
+  folderKey?: string
+}): UploadStorageTarget => {
+  const bucket = resolveBucketForFolder(folderKey)
+  const key = `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
+  const publicUrl = `${process.env.R2_ENDPOINT}/${bucket}/${key}`
+
+  return { bucket, key, publicUrl }
+}
+
+const isPdfContentType = (contentType: string) =>
+  String(contentType || '').trim().toLowerCase().includes('pdf')
+
+export const shouldProxyBrowserUpload = ({
+  filename,
+  contentType,
+  folderKey,
+}: {
+  filename: string
+  contentType: string
+  folderKey?: string
+}) => {
+  const normalizedFolder = String(folderKey || '').trim().toLowerCase()
+  const normalizedFileName = String(filename || '').trim().toLowerCase()
+
+  return (
+    normalizedFolder === 'ir' ||
+    normalizedFolder.startsWith(IR_FOLDER_PREFIX) ||
+    isPdfContentType(contentType) ||
+    normalizedFileName.endsWith('.pdf')
+  )
+}
+
+export const createDirectUploadToken = ({
+  bucket,
+  key,
+  publicUrl,
+  contentType,
+  originalName,
+  userId,
+}: UploadStorageTarget & {
+  contentType: string
+  originalName: string
+  userId: string
+}) =>
+  jwt.sign(
+    {
+      bucket,
+      key,
+      publicUrl,
+      contentType,
+      originalName,
+      sub: userId,
+    } satisfies DirectUploadTokenPayload,
+    DIRECT_UPLOAD_TOKEN_SECRET,
+    { expiresIn: '5m' },
+  )
+
+export const verifyDirectUploadToken = (token: string) =>
+  jwt.verify(token, DIRECT_UPLOAD_TOKEN_SECRET) as DirectUploadTokenPayload
 
 const presignCacheKey = (
   bucket: string,
@@ -66,8 +148,11 @@ export const presignUpload = async ({
   userId,
   folderKey = 'userPp',
 }: PresignParams) => {
-  const bucket = resolveBucketForFolder(folderKey)
-  const key = `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
+  const { bucket, key, publicUrl } = buildStorageTarget({
+    filename,
+    userId,
+    folderKey,
+  })
 
   const command = new PutObjectCommand({
     Bucket: bucket,
@@ -77,7 +162,6 @@ export const presignUpload = async ({
 
   const uploadUrl = await getSignedUrl(r2, command, { expiresIn: 60 * 5 }) // 5 min
 
-  const publicUrl = `${process.env.R2_ENDPOINT}/${bucket}/${key}`
   return { uploadUrl, key, publicUrl, bucket }
 }
 
@@ -94,9 +178,33 @@ export const uploadBufferToStorage = async ({
   userId: string
   folderKey?: string
 }) => {
-  const bucket = resolveBucketForFolder(folderKey)
-  const key = `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
+  const target = buildStorageTarget({
+    filename,
+    userId,
+    folderKey,
+  })
 
+  await uploadBufferToStorageTarget({
+    buffer,
+    bucket: target.bucket,
+    key: target.key,
+    contentType,
+  })
+
+  return target
+}
+
+export const uploadBufferToStorageTarget = async ({
+  buffer,
+  bucket,
+  key,
+  contentType,
+}: {
+  buffer: Buffer
+  bucket: string
+  key: string
+  contentType: string
+}) => {
   await r2.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -105,9 +213,6 @@ export const uploadBufferToStorage = async ({
       ContentType: contentType,
     }),
   )
-
-  const publicUrl = `${process.env.R2_ENDPOINT}/${bucket}/${key}`
-  return { key, publicUrl, bucket }
 }
 
 /**

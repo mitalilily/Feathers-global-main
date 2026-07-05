@@ -1,8 +1,12 @@
 import { Request, Response } from "express";
 import {
+  createDirectUploadToken,
   presignDownload,
   presignUpload,
   uploadBufferToStorage,
+  uploadBufferToStorageTarget,
+  shouldProxyBrowserUpload,
+  verifyDirectUploadToken,
 } from "../models/services/upload.service";
 import { getBucketName } from "../utils/functions";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -21,6 +25,38 @@ export const createPresignedUrl = async (
   }
 
   try {
+    if (
+      shouldProxyBrowserUpload({
+        filename,
+        contentType,
+        folderKey: folder,
+      })
+    ) {
+      const uploaded = await presignUpload({
+        filename,
+        contentType,
+        userId: sub,
+        folderKey: folder,
+      });
+      const token = createDirectUploadToken({
+        bucket: uploaded.bucket,
+        key: uploaded.key,
+        publicUrl: uploaded.publicUrl,
+        contentType,
+        originalName: filename,
+        userId: sub,
+      });
+      const apiBaseUrl = String(
+        process.env.API_URL || process.env.PUBLIC_API_URL || "https://api.fgship.in",
+      ).trim().replace(/\/+$/, "");
+
+      return res.status(200).json({
+        ...uploaded,
+        uploadUrl: `${apiBaseUrl}/api/uploads/direct?token=${encodeURIComponent(token)}`,
+        uploadMode: "backend-proxy",
+      });
+    }
+
     const data = await presignUpload({
       filename,
       contentType,
@@ -31,6 +67,42 @@ export const createPresignedUrl = async (
   } catch (err) {
     console.error("Presign error:", err);
     return res.status(500).json({ message: "Failed to presign URL" });
+  }
+};
+
+export const uploadDirectWithToken = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  const token = String(req.query?.token || "").trim();
+
+  if (!token) {
+    return res.status(400).json({ message: "token is required" });
+  }
+
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ message: "file body is required" });
+  }
+
+  try {
+    const payload = verifyDirectUploadToken(token);
+
+    await uploadBufferToStorageTarget({
+      buffer: req.body,
+      bucket: payload.bucket,
+      key: payload.key,
+      contentType: String(req.headers["content-type"] || payload.contentType || "application/octet-stream"),
+    });
+
+    return res.status(200).json({
+      success: true,
+      key: payload.key,
+      bucket: payload.bucket,
+      publicUrl: payload.publicUrl,
+    });
+  } catch (err) {
+    console.error("Direct upload proxy failed:", err);
+    return res.status(401).json({ message: "Upload token is invalid or expired" });
   }
 };
 
