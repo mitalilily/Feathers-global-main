@@ -91,6 +91,11 @@ const server = http.createServer(app) // ✅ HTTP server for socket.io
 // Init socket.io server
 initSocketServer(server)
 
+const normalizeContentTypeCharset = (contentTypeHeader: string) =>
+  contentTypeHeader.replace(/charset=([^;]+)/i, (_match, charset) => {
+    return `charset=${String(charset).trim().toLowerCase()}`
+  })
+
 app.use((req: any, res, next) => {
   const startedAt = process.hrtime.bigint()
   const requestId = randomUUID()
@@ -109,6 +114,15 @@ app.use((req: any, res, next) => {
       })
     }
   })
+
+  next()
+})
+
+app.use((req, _res, next) => {
+  const contentTypeHeader = req.headers['content-type']
+  if (typeof contentTypeHeader === 'string' && /charset=/i.test(contentTypeHeader)) {
+    req.headers['content-type'] = normalizeContentTypeCharset(contentTypeHeader)
+  }
 
   next()
 })
