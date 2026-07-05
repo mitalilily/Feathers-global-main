@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { Request, Response } from 'express'
 import { db } from '../client'
 import { stores } from '../schema/stores'
+import { deleteSalesChannelOrdersForStore } from './storeCleanup.service'
 import { setUserChannelIntegration } from './userService'
 
 const PLATFORM_API_TIMEOUT_MS = Number(process.env.PLATFORM_API_TIMEOUT_MS || 15000)
@@ -75,12 +76,21 @@ export const deleteStoreById = async (req: Request, res: Response): Promise<any>
   try {
     const result = await db.transaction(async (tx) => {
       const [store] = await tx
-        .select({ id: stores.id, platformId: stores.platformId })
+        .select({ id: stores.id, platformId: stores.platformId, userId: stores.userId })
         .from(stores)
         .where(and(eq(stores.id, storeId), eq(stores.userId, userId as string)))
         .limit(1)
 
       if (!store) return { deleted: false }
+
+      const cleanup = await deleteSalesChannelOrdersForStore(
+        {
+          id: store.id,
+          userId: store.userId,
+          platformId: store.platformId,
+        },
+        tx,
+      )
 
       await tx.delete(stores).where(eq(stores.id, store.id))
 
@@ -96,14 +106,17 @@ export const deleteStoreById = async (req: Request, res: Response): Promise<any>
         tx,
       )
 
-      return { deleted: true }
+      return { deleted: true, cleanup }
     })
 
     if (!result.deleted) {
       return res.status(404).json({ error: 'Store not found' })
     }
 
-    res.status(200).json({ message: 'Store deleted successfully' })
+    res.status(200).json({
+      message: 'Store deleted successfully',
+      cleanup: result.cleanup || null,
+    })
   } catch (error) {
     console.error('Failed to delete store:', error)
     res.status(500).json({ error: 'Internal server error' })

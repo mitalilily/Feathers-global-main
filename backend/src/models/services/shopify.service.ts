@@ -16,6 +16,7 @@ import {
   upsertStore,
 } from './userService'
 import { recordSalesChannelSyncOutcome } from './salesChannelSyncAudit.service'
+import { deleteSalesChannelOrdersForStore } from './storeCleanup.service'
 
 export const SHOPIFY_PLATFORM_ID = 1
 export const SHOPIFY_PLATFORM = {
@@ -2291,10 +2292,17 @@ export const processShopifyComplianceWebhook = async (
   }
 
   if (normalizedTopic === 'shop/redact') {
-    await redactShopifyOrderCustomerData({ store, payload, scope: 'shop', tx })
+    await deleteSalesChannelOrdersForStore(
+      {
+        id: String(store.id),
+        userId: String(store.userId),
+        platformId: SHOPIFY_PLATFORM_ID,
+      },
+      tx,
+    )
     await setUserChannelIntegration(store.userId, SHOPIFY_PLATFORM_ID, false, tx)
     await tx.delete(stores).where(eq(stores.id, store.id))
-    return { success: true, action: 'shop_data_redacted' }
+    return { success: true, action: 'shop_data_deleted' }
   }
 
   return { success: true, action: 'ignored_topic' }
