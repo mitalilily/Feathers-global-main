@@ -113,10 +113,16 @@ export const findUserById = async (id: string) => {
 
   if (!result[0]) return null
 
+  const user = result[0].user
+  const profile = result[0].profile
+
   // Merge `users`, `userProfile`, and current plan
   return {
-    ...result[0].user,
-    ...result[0].profile,
+    ...profile,
+    ...user,
+    id: user.id,
+    userId: user.id,
+    profileId: profile?.id ?? null,
     currentPlanId: result[0].userPlan?.plan_id || null, // current assigned plan
   }
 }
