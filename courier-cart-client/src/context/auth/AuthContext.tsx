@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { logoutApi } from '../../api/auth'
 import {
+  AUTH_STORAGE_KEYS,
   clearAuthTokens,
   getAuthTokens,
   getStoredSessionUser,
@@ -56,6 +57,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     getStoredSessionUser<SessionUser>(),
   )
 
+  const resetSessionQueries = () => {
+    queryClient.removeQueries({ queryKey: ['userInfo'] })
+    queryClient.removeQueries({ queryKey: ['userProfile'] })
+    queryClient.removeQueries({ queryKey: ['walletBalance'] })
+    queryClient.removeQueries({ queryKey: ['walletTransactions'] })
+  }
+
+  const syncAuthStateFromStorage = () => {
+    const { accessToken: nextAccessToken, refreshToken: nextRefreshToken } = getAuthTokens()
+    const nextHasTokens = !!nextAccessToken && !!nextRefreshToken
+    const nextSessionUser = getStoredSessionUser<SessionUser>()
+
+    setIsAuthenticated(nextHasTokens)
+    setSessionUser(nextSessionUser)
+    setUserId(nextSessionUser?.id ?? '')
+    setAuthScope(getCurrentAuthScope())
+    setAuthCheckTimedOut(false)
+
+    if (!nextHasTokens) {
+      setWalletBalance(null)
+      resetSessionQueries()
+    }
+  }
+
   const {
     data: user,
     isFetching: userFetching,
@@ -77,23 +102,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [isAuthenticated, user?.id, userProfileError])
 
   useEffect(() => {
-    // If we successfully fetched a user, ensure auth is marked as true.
     if (user?.id) {
       setIsAuthenticated(true)
       setSessionUser(user)
       setStoredSessionUser(user)
     }
-    // Do NOT automatically mark user as unauthenticated on generic errors here.
-    // Auth state should primarily follow presence of valid tokens; 401 handling
-    // is done in axios interceptors which clear tokens and redirect as needed.
   }, [user])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key && !AUTH_STORAGE_KEYS.includes(event.key as (typeof AUTH_STORAGE_KEYS)[number])) {
+        return
+      }
+
+      syncAuthStateFromStorage()
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
+
   const setTokens = (access: string, refresh: string, nextSessionUser?: SessionUser | null) => {
-    queryClient.removeQueries({ queryKey: ['userInfo'] })
-    queryClient.removeQueries({ queryKey: ['userProfile'] })
-    queryClient.removeQueries({ queryKey: ['walletBalance'] })
-    queryClient.removeQueries({ queryKey: ['walletTransactions'] })
+    resetSessionQueries()
     setAuthTokens(access, refresh)
+
     if (nextSessionUser) {
       setSessionUser(nextSessionUser)
       setStoredSessionUser(nextSessionUser)
@@ -102,6 +136,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSessionUser(null)
       setUserId('')
     }
+
     setAuthScope(getCurrentAuthScope())
     setWalletBalance(null)
     setAuthCheckTimedOut(false)
@@ -116,10 +151,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUserId('')
     setWalletBalance(null)
     setAuthCheckTimedOut(false)
-    queryClient.removeQueries({ queryKey: ['userInfo'] })
-    queryClient.removeQueries({ queryKey: ['userProfile'] })
-    queryClient.removeQueries({ queryKey: ['walletBalance'] })
-    queryClient.removeQueries({ queryKey: ['walletTransactions'] })
+    resetSessionQueries()
   }
 
   const logout = async () => {
