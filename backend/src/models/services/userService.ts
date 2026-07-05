@@ -78,7 +78,27 @@ export const findUserByPhone = async (phone: string) => {
     return null
   }
 }
+
+export const resolveCanonicalUserId = async (id: string) => {
+  const normalizedId = String(id || '').trim()
+  if (!normalizedId) return null
+
+  const [directUser] = await db.select({ id: users.id }).from(users).where(eq(users.id, normalizedId)).limit(1)
+  if (directUser) return directUser.id
+
+  const [legacyProfile] = await db
+    .select({ userId: schema.userProfiles.userId })
+    .from(schema.userProfiles)
+    .where(eq(schema.userProfiles.id, normalizedId))
+    .limit(1)
+
+  return legacyProfile?.userId ?? null
+}
+
 export const findUserById = async (id: string) => {
+  const resolvedUserId = await resolveCanonicalUserId(id)
+  if (!resolvedUserId) return null
+
   const result = await db
     .select({
       user: users,
@@ -88,7 +108,7 @@ export const findUserById = async (id: string) => {
     .from(users)
     .leftJoin(schema.userProfiles, eq(schema.userProfiles.userId, users.id))
     .leftJoin(schema.userPlans, eq(schema.userPlans.userId, users.id)) // join userPlans to get current plan
-    .where(eq(users.id, id))
+    .where(eq(users.id, resolvedUserId))
     .limit(1)
 
   if (!result[0]) return null

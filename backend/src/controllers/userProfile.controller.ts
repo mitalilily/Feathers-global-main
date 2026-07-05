@@ -10,6 +10,13 @@ import {
 } from "../models/services/userProfile.service";
 import { HttpError } from "../utils/classes";
 
+const toClientProfile = (userId: string, profile: Record<string, any>) => ({
+  ...profile,
+  id: userId,
+  userId,
+  profileId: profile?.id ?? null,
+})
+
 /** GET /user-profiles/me */
 export const getUserProfile = async (
   req: any,
@@ -22,7 +29,7 @@ export const getUserProfile = async (
     if (!profile) {
       return res.status(404).json({ message: "Profile not found" });
     }
-    res.json(profile);
+    res.json(toClientProfile(userId, profile));
   } catch (err) {
     next(err);
   }
@@ -39,7 +46,7 @@ export const updateUserProfile = async (
     if (!updated) {
       return res.status(404).json({ message: "User not found" });
     }
-    return res.status(200).json({ message: "Profile updated", user: updated });
+    return res.status(200).json({ message: "Profile updated", user: toClientProfile(userId, updated) });
   } catch (error) {
     if (error instanceof HttpError) {
       return res.status(error.statusCode).json({ message: error.message });
