@@ -57,6 +57,24 @@ const clearCurrentSession = (expectedSessionId?: string | null) => {
   return cleared
 }
 
+const retryWithLatestSession = (cfg: AuthAwareRequestConfig) => {
+  const latestAuth = getAuthTokens()
+  if (
+    !latestAuth.accessToken ||
+    !latestAuth.sessionId ||
+    !cfg._authSessionId ||
+    latestAuth.sessionId === cfg._authSessionId
+  ) {
+    return null
+  }
+
+  cfg._sessionRetry = true
+  cfg._authSessionId = latestAuth.sessionId
+  applyAccessToken(cfg, latestAuth.accessToken)
+
+  return api(cfg)
+}
+
 /* ----- attach access token to every request ----- */
 api.interceptors.request.use((cfg) => {
   const requestConfig = cfg as AuthAwareRequestConfig
@@ -119,9 +137,9 @@ api.interceptors.response.use(
 
     try {
       console.log('Attempting to refresh access token...')
+      const refreshSessionId = currentAuth.sessionId
 
-      if (!refreshPromise || refreshPromiseSessionId !== currentAuth.sessionId) {
-        const refreshSessionId = currentAuth.sessionId
+      if (!refreshPromise || refreshPromiseSessionId !== refreshSessionId) {
         refreshPromiseSessionId = refreshSessionId
 
         refreshPromise = axios
@@ -149,6 +167,17 @@ api.interceptors.response.use(
         throw new Error('Invalid response from refresh token endpoint')
       }
 
+      const latestAuth = getAuthTokens()
+      if (latestAuth.sessionId && latestAuth.sessionId !== refreshSessionId) {
+        const latestSessionRetry = retryWithLatestSession(original)
+        if (latestSessionRetry) {
+          console.info('Ignored stale refresh response from an older auth session')
+          return latestSessionRetry
+        }
+
+        return Promise.reject(err)
+      }
+
       const nextAuth = setAuthTokens(data.accessToken, data.refreshToken)
       original._authSessionId = nextAuth.sessionId
       applyAccessToken(original, nextAuth.accessToken)
@@ -158,6 +187,13 @@ api.interceptors.response.use(
     } catch (e: unknown) {
       const error = e as { response?: { data?: { error?: string } }; message?: string }
       console.error('Refresh token failed:', error?.response?.data?.error || error?.message || e)
+
+      const latestSessionRetry = retryWithLatestSession(original)
+      if (latestSessionRetry) {
+        console.info('Recovered from stale refresh failure by reusing the active auth session')
+        return latestSessionRetry
+      }
+
       clearCurrentSession(original._authSessionId)
       return Promise.reject(e)
     }

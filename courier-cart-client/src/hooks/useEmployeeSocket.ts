@@ -6,18 +6,29 @@ import { disconnectSocket, registerUserSocket } from './User/useUserOnline'
 export const useEmployeeSocket = () => {
   const { user, isAuthenticated } = useAuth()
   const authUserId = user?.id
+  const employeeRole = user?.employeeRole
+  const employeeIsActive = user?.employeeIsActive
 
   useEffect(() => {
-    if (!isAuthenticated || !authUserId) return
+    if (!isAuthenticated || !authUserId || !employeeRole) return
 
     const initSocket = async () => {
-      const employee = await getEmployeeByUserId(authUserId)
-      if (employee?.employee?.isActive) {
+      if (employeeIsActive) {
         registerUserSocket({ id: authUserId, role: 'employee' })
+        return
+      }
+
+      try {
+        const employee = await getEmployeeByUserId(authUserId)
+        if (employee?.employee?.isActive) {
+          registerUserSocket({ id: authUserId, role: 'employee' })
+        }
+      } catch (error) {
+        console.warn('Skipping employee socket setup:', error)
       }
     }
 
     initSocket()
     return () => disconnectSocket()
-  }, [authUserId, isAuthenticated])
+  }, [authUserId, employeeIsActive, employeeRole, isAuthenticated])
 }
