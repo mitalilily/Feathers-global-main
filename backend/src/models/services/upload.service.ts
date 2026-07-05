@@ -81,6 +81,35 @@ export const presignUpload = async ({
   return { uploadUrl, key, publicUrl, bucket }
 }
 
+export const uploadBufferToStorage = async ({
+  buffer,
+  filename,
+  contentType,
+  userId,
+  folderKey = 'userPp',
+}: {
+  buffer: Buffer
+  filename: string
+  contentType: string
+  userId: string
+  folderKey?: string
+}) => {
+  const bucket = resolveBucketForFolder(folderKey)
+  const key = `${folderKey}/${userId}/${Date.now()}-${sanitizeFilename(filename)}`
+
+  await r2.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    }),
+  )
+
+  const publicUrl = `${process.env.R2_ENDPOINT}/${bucket}/${key}`
+  return { key, publicUrl, bucket }
+}
+
 /**
  * Download a file from a URL and upload it to R2, returning only the S3 key
  * This ensures we store keys only, not external URLs

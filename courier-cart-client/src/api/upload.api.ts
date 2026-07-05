@@ -45,10 +45,19 @@ export const uploadKycPdfToBackend = async (
   file: File,
   onProgress?: (progress: number) => void,
 ): Promise<UploadedFileInfo> => {
+  return uploadFileToBackend(file, 'kyc', onProgress)
+}
+
+export const uploadFileToBackend = async (
+  file: File,
+  folder: string,
+  onProgress?: (progress: number) => void,
+): Promise<UploadedFileInfo> => {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('folder', folder)
 
-  const { data } = await axiosInstance.post('/uploads/kyc/pdf', formData, {
+  const { data } = await axiosInstance.post('/uploads/file', formData, {
     onUploadProgress: (event) => {
       if (event.total && onProgress) {
         onProgress(Math.round((event.loaded * 100) / event.total))
@@ -61,7 +70,7 @@ export const uploadKycPdfToBackend = async (
     key: data.key,
     originalName: data.originalName || file.name,
     size: data.size || file.size,
-    mime: data.mime || file.type || 'application/pdf',
+    mime: data.mime || file.type || 'application/octet-stream',
   }
 }
 

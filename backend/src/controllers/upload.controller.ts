@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   presignDownload,
   presignUpload,
+  uploadBufferToStorage,
 } from "../models/services/upload.service";
 import { getBucketName } from "../utils/functions";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -30,6 +31,45 @@ export const createPresignedUrl = async (
   } catch (err) {
     console.error("Presign error:", err);
     return res.status(500).json({ message: "Failed to presign URL" });
+  }
+};
+
+export const uploadFileThroughBackend = async (
+  req: any,
+  res: Response
+): Promise<any> => {
+  const file = req.file;
+  const folder = String(req.body?.folder || 'userPp').trim() || 'userPp';
+  const { sub } = req?.user || {};
+
+  if (!sub) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  if (!file?.buffer || !file?.originalname) {
+    return res.status(400).json({ message: 'file is required' });
+  }
+
+  try {
+    const uploaded = await uploadBufferToStorage({
+      buffer: file.buffer,
+      filename: file.originalname,
+      contentType: file.mimetype || 'application/octet-stream',
+      userId: sub,
+      folderKey: folder,
+    });
+
+    return res.status(200).json({
+      url: uploaded.publicUrl,
+      key: uploaded.key,
+      originalName: file.originalname,
+      size: file.size,
+      mime: file.mimetype || 'application/octet-stream',
+      bucket: uploaded.bucket,
+    });
+  } catch (err) {
+    console.error('Backend file upload failed:', err);
+    return res.status(500).json({ message: 'Failed to upload file' });
   }
 };
 

@@ -20,7 +20,7 @@ import { useDropzone, type Accept } from 'react-dropzone'
 import { IoCloudUploadOutline } from 'react-icons/io5'
 import { MdClose, MdEdit } from 'react-icons/md' // ← new
 import axiosInstance from '../../../api/axiosInstance'
-import { uploadKycPdfToBackend } from '../../../api/upload.api'
+import { uploadFileToBackend, uploadKycPdfToBackend } from '../../../api/upload.api'
 import { toast } from '../Toast'
 import styles from './uploader.module.css'
 
@@ -210,9 +210,22 @@ const FileUploader: React.FC<FileUploaderProps> = ({
           const shouldStoreKycPdfLocally =
             folderKey === 'kyc' &&
             (contentType.toLowerCase().includes('pdf') || fileName.endsWith('.pdf'))
+          const shouldProxyUploadThroughBackend = folderKey === 'ir'
 
           if (shouldStoreKycPdfLocally) {
             const stored = await uploadKycPdfToBackend(file, (progressValue) =>
+              setProgress(progressValue),
+            )
+
+            uploaded.push({
+              url: stored.url,
+              key: stored.key,
+              originalName: stored.originalName,
+              size: stored.size,
+              mime: stored.mime,
+            })
+          } else if (shouldProxyUploadThroughBackend) {
+            const stored = await uploadFileToBackend(file, folderKey || 'userPp', (progressValue) =>
               setProgress(progressValue),
             )
 
