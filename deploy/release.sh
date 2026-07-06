@@ -2,6 +2,7 @@
 set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-$(pwd -P)}"
+CLIENT_DIR="$APP_ROOT/courier-cart-client"
 export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 APP_SLUG="$(basename "$APP_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')"
@@ -54,6 +55,57 @@ fi
 fresh_npm_ci() {
   rm -rf node_modules
   npm ci "$@"
+}
+
+publish_courier_client_build() {
+  local staged_dist previous_dist
+
+  staged_dist="$(mktemp -d "$CLIENT_DIR/.dist-build.XXXXXX")"
+  previous_dist="$CLIENT_DIR/dist.previous"
+
+  export VITE_API_URL="${VITE_API_URL:-$DEPLOY_PUBLIC_API_URL}"
+  export VITE_APP_SOCKET_URL="${VITE_APP_SOCKET_URL:-$DEPLOY_PUBLIC_SOCKET_URL}"
+
+  if ! ./node_modules/.bin/tsc -b; then
+    rm -rf "$staged_dist"
+    return 1
+  fi
+
+  if ! ./node_modules/.bin/vite build --outDir "$staged_dist" --emptyOutDir; then
+    rm -rf "$staged_dist"
+    return 1
+  fi
+
+  if [ ! -f "$staged_dist/index.html" ]; then
+    echo "courier-cart-client build did not produce index.html" >&2
+    rm -rf "$staged_dist"
+    return 1
+  fi
+
+  if [ ! -d "$staged_dist/assets" ]; then
+    echo "courier-cart-client build did not produce assets/" >&2
+    rm -rf "$staged_dist"
+    return 1
+  fi
+
+  sudo rm -rf "$previous_dist"
+
+  if [ -e "$CLIENT_DIR/dist" ]; then
+    sudo chown -R "$(id -u):$(id -g)" "$CLIENT_DIR/dist" || true
+    mv "$CLIENT_DIR/dist" "$previous_dist"
+  fi
+
+  if ! mv "$staged_dist" "$CLIENT_DIR/dist"; then
+    if [ -e "$previous_dist" ] && [ ! -e "$CLIENT_DIR/dist" ]; then
+      mv "$previous_dist" "$CLIENT_DIR/dist"
+    fi
+    rm -rf "$staged_dist"
+    return 1
+  fi
+
+  sudo chown -R "$(id -u):$(id -g)" "$CLIENT_DIR/dist"
+  sudo chmod -R u+rwX,g+rwX,o+rX "$CLIENT_DIR/dist"
+  sudo rm -rf "$previous_dist"
 }
 
 ensure_build_swap() {
@@ -177,7 +229,7 @@ console.log('courier-cart-client TypeScript install verified', {
   es2023Lib: true,
 })
 NODE
-npm run build
+publish_courier_client_build
 
 cd "$APP_ROOT/admin-dashboard"
 if [ -f package-lock.json ]; then
