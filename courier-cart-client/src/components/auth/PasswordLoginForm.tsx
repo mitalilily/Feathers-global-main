@@ -305,7 +305,7 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
             label={termsLabel}
           />
 
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.35 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: -0.35 }}>
             <Link
               component="button"
               type="button"
@@ -316,7 +316,7 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
                 color: teal,
                 fontWeight: 900,
                 fontSize: 13.5,
-                textAlign: 'right',
+                textAlign: 'left',
               }}
             >
               Forgot your password? Reset it with your registered email.
