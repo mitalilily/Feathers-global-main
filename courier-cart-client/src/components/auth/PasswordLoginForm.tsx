@@ -21,6 +21,7 @@ import { useRequestPasswordLogin } from '../../hooks/useRequestPasswordLogin'
 import CustomCheckbox from '../UI/inputs/CustomCheckbox'
 import { toast } from '../UI/Toast'
 import EmailVerificationForm from './EmailVerificationForm'
+import PasswordResetDialog from './PasswordResetDialog'
 
 const { teal, tealDark, ink, muted, paper, tealSoft } = BRAND.colors
 
@@ -72,6 +73,7 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
   const [errors, setErrors] = useState({ email: '', password: '' })
   const [touched, setTouched] = useState({ email: false, password: false })
   const [termsChecked, setTermsChecked] = useState(false)
+  const [openPasswordReset, setOpenPasswordReset] = useState(false)
 
   const validateEmail = (email: string): string => {
     if (!email) return 'Email is required.'
@@ -175,166 +177,198 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
     }
   }
 
-  return step === 0 ? (
-    <Stack component="form" onSubmit={handleSubmit} width="100%" spacing={{ xs: 1.55, md: 1.75 }}>
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: '58px 1fr',
-          gap: 1.55,
-          alignItems: 'center',
-          p: { xs: 1.5, md: 1.65 },
-          borderRadius: 1.25,
-          border: `1px solid ${alpha(teal, 0.12)}`,
-          background: `linear-gradient(135deg, ${alpha(tealSoft, 0.72)} 0%, ${alpha(paper, 0.92)} 100%)`,
-        }}
-      >
-        <Box
-          sx={{
-            width: 46,
-            height: 46,
-            borderRadius: '50%',
-            display: 'grid',
-            placeItems: 'center',
-            color: teal,
-            background: alpha(paper, 0.74),
-            boxShadow: `inset 0 0 0 1px ${alpha(teal, 0.12)}`,
-            fontSize: 25,
-          }}
-        >
-          <FiShield />
-        </Box>
-        <Box minWidth={0}>
-          <Typography sx={{ color: '#102344', fontSize: 15.5, fontWeight: 900, lineHeight: 1.25 }}>
-            Sign in with your merchant credentials
-          </Typography>
-          <Typography sx={{ mt: 0.55, color: muted, fontSize: 14.5, lineHeight: 1.55 }}>
-            Password access may still require email verification to protect billing and shipment data.
-          </Typography>
-        </Box>
-      </Box>
+  return (
+    <>
+      {step === 0 ? (
+        <Stack component="form" onSubmit={handleSubmit} width="100%" spacing={{ xs: 1.55, md: 1.75 }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '58px 1fr',
+              gap: 1.55,
+              alignItems: 'center',
+              p: { xs: 1.5, md: 1.65 },
+              borderRadius: 1.25,
+              border: `1px solid ${alpha(teal, 0.12)}`,
+              background: `linear-gradient(135deg, ${alpha(tealSoft, 0.72)} 0%, ${alpha(paper, 0.92)} 100%)`,
+            }}
+          >
+            <Box
+              sx={{
+                width: 46,
+                height: 46,
+                borderRadius: '50%',
+                display: 'grid',
+                placeItems: 'center',
+                color: teal,
+                background: alpha(paper, 0.74),
+                boxShadow: `inset 0 0 0 1px ${alpha(teal, 0.12)}`,
+                fontSize: 25,
+              }}
+            >
+              <FiShield />
+            </Box>
+            <Box minWidth={0}>
+              <Typography sx={{ color: '#102344', fontSize: 15.5, fontWeight: 900, lineHeight: 1.25 }}>
+                Sign in with your merchant credentials
+              </Typography>
+              <Typography sx={{ mt: 0.55, color: muted, fontSize: 14.5, lineHeight: 1.55 }}>
+                Password access may still require email verification to protect billing and shipment data.
+              </Typography>
+            </Box>
+          </Box>
 
-      <Box>
-        <Typography sx={{ color: '#081932', fontSize: 14, fontWeight: 900, mb: 0.9 }}>
-          Work Email <Box component="span" sx={{ color: '#e1261c' }}>*</Box>
-        </Typography>
-        <TextField
-          type="email"
-          name="email"
-          id="password-email"
-          value={emailForm.email}
-          onChange={(e) => handleChange('email', e.target.value)}
-          onBlur={() => handleBlur('email')}
-          required
-          helperText={touched.email && errors.email}
-          error={touched.email && !!errors.email}
-          placeholder="you@company.com"
-          fullWidth
-          sx={fieldSx}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start" sx={{ color: '#385373', mr: 0.7 }}>
-                  <FiMail size={22} />
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-      </Box>
+          <Box>
+            <Typography sx={{ color: '#081932', fontSize: 14, fontWeight: 900, mb: 0.9 }}>
+              Work Email <Box component="span" sx={{ color: '#e1261c' }}>*</Box>
+            </Typography>
+            <TextField
+              type="email"
+              name="email"
+              id="password-email"
+              value={emailForm.email}
+              onChange={(e) => handleChange('email', e.target.value)}
+              onBlur={() => handleBlur('email')}
+              required
+              helperText={touched.email && errors.email}
+              error={touched.email && !!errors.email}
+              placeholder="you@company.com"
+              fullWidth
+              sx={fieldSx}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start" sx={{ color: '#385373', mr: 0.7 }}>
+                      <FiMail size={22} />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          </Box>
 
-      <Box>
-        <Typography sx={{ color: '#081932', fontSize: 14, fontWeight: 900, mb: 0.9 }}>
-          Password <Box component="span" sx={{ color: '#e1261c' }}>*</Box>
-        </Typography>
-        <TextField
-          name="password"
-          id="password"
-          type="password"
-          value={emailForm.password}
-          onChange={(e) => handleChange('password', e.target.value)}
-          onBlur={() => handleBlur('password')}
-          required
-          helperText={touched.password && errors.password}
-          error={touched.password && !!errors.password}
-          placeholder="Enter password"
-          fullWidth
-          sx={fieldSx}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start" sx={{ color: '#385373', mr: 0.7 }}>
-                  <FiLock size={21} />
-                </InputAdornment>
-              ),
-              endAdornment: (
-                <InputAdornment position="end" sx={{ color: teal }}>
-                  <Tooltip
-                    title={
-                      <Typography fontSize="12px">
-                        Existing email users can set a password once and keep OTP as a fallback.
-                      </Typography>
-                    }
-                    arrow
-                  >
-                    <Box sx={{ display: 'inline-flex', alignItems: 'center', color: teal }}>
-                      <MdInfoOutline size={19} />
-                    </Box>
-                  </Tooltip>
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-      </Box>
+          <Box>
+            <Typography sx={{ color: '#081932', fontSize: 14, fontWeight: 900, mb: 0.9 }}>
+              Password <Box component="span" sx={{ color: '#e1261c' }}>*</Box>
+            </Typography>
+            <TextField
+              name="password"
+              id="password"
+              type="password"
+              value={emailForm.password}
+              onChange={(e) => handleChange('password', e.target.value)}
+              onBlur={() => handleBlur('password')}
+              required
+              helperText={touched.password && errors.password}
+              error={touched.password && !!errors.password}
+              placeholder="Enter password"
+              fullWidth
+              sx={fieldSx}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start" sx={{ color: '#385373', mr: 0.7 }}>
+                      <FiLock size={21} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: (
+                    <InputAdornment position="end" sx={{ color: teal }}>
+                      <Tooltip
+                        title={
+                          <Typography fontSize="12px">
+                            Existing email users can set a password once and keep OTP as a fallback.
+                          </Typography>
+                        }
+                        arrow
+                      >
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', color: teal }}>
+                          <MdInfoOutline size={19} />
+                        </Box>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          </Box>
 
-      <FormControlLabel
-        sx={{ m: 0, alignItems: 'center' }}
-        control={
-          <CustomCheckbox
-            checked={termsChecked}
-            onChange={(e) => setTermsChecked(e.target.checked)}
-            color="primary"
-            sx={{ ml: -1 }}
+          <FormControlLabel
+            sx={{ m: 0, alignItems: 'center' }}
+            control={
+              <CustomCheckbox
+                checked={termsChecked}
+                onChange={(e) => setTermsChecked(e.target.checked)}
+                color="primary"
+                sx={{ ml: -1 }}
+              />
+            }
+            label={termsLabel}
           />
-        }
-        label={termsLabel}
-      />
 
-      <Button
-        type="submit"
-        disabled={!isFormValid || isPending}
-        sx={{
-          width: '100%',
-          minHeight: 52,
-          borderRadius: 1,
-          textTransform: 'none',
-          color: paper,
-          fontSize: 15.5,
-          fontWeight: 900,
-          gap: 1.1,
-          background: `linear-gradient(135deg, ${teal} 0%, ${tealDark} 100%)`,
-          boxShadow: `0 16px 26px ${alpha(teal, 0.18)}`,
-          '&:hover': {
-            background: `linear-gradient(135deg, ${tealDark} 0%, ${teal} 100%)`,
-          },
-          '&:disabled': {
-            color: paper,
-            background: '#94b8bd',
-            boxShadow: 'none',
-          },
-        }}
-      >
-        {isPending ? <CircularProgress size={18} thickness={4} sx={{ color: 'currentColor' }} /> : <FiLock size={19} />}
-        {isPending ? 'Signing in...' : 'Sign in with password'}
-      </Button>
-    </Stack>
-  ) : (
-    <EmailVerificationForm
-      onEditEmail={() => setStep(0)}
-      email={emailForm.email}
-      resendMail={() => handleSubmit()}
-      password={emailForm.password}
-    />
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.35 }}>
+            <Link
+              component="button"
+              type="button"
+              underline="hover"
+              onClick={() => setOpenPasswordReset(true)}
+              sx={{
+                cursor: 'pointer',
+                color: teal,
+                fontWeight: 900,
+                fontSize: 13.5,
+                textAlign: 'right',
+              }}
+            >
+              Forgot your password? Reset it with your registered email.
+            </Link>
+          </Box>
+
+          <Button
+            type="submit"
+            disabled={!isFormValid || isPending}
+            sx={{
+              width: '100%',
+              minHeight: 52,
+              borderRadius: 1,
+              textTransform: 'none',
+              color: paper,
+              fontSize: 15.5,
+              fontWeight: 900,
+              gap: 1.1,
+              background: `linear-gradient(135deg, ${teal} 0%, ${tealDark} 100%)`,
+              boxShadow: `0 16px 26px ${alpha(teal, 0.18)}`,
+              '&:hover': {
+                background: `linear-gradient(135deg, ${tealDark} 0%, ${teal} 100%)`,
+              },
+              '&:disabled': {
+                color: paper,
+                background: '#94b8bd',
+                boxShadow: 'none',
+              },
+            }}
+          >
+            {isPending ? (
+              <CircularProgress size={18} thickness={4} sx={{ color: 'currentColor' }} />
+            ) : (
+              <FiLock size={19} />
+            )}
+            {isPending ? 'Signing in...' : 'Sign in with password'}
+          </Button>
+        </Stack>
+      ) : (
+        <EmailVerificationForm
+          onEditEmail={() => setStep(0)}
+          email={emailForm.email}
+          resendMail={() => handleSubmit()}
+          password={emailForm.password}
+        />
+      )}
+
+      <PasswordResetDialog
+        open={openPasswordReset}
+        onClose={() => setOpenPasswordReset(false)}
+        initialEmail={emailForm.email || sessionStorage.getItem('activeEmail') || ''}
+      />
+    </>
   )
 }

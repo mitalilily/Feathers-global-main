@@ -8,7 +8,9 @@ import {
   //   logoutController,
   refreshTokenController,
   requestEmailVerification,
+  requestPasswordReset,
   requestOtp,
+  resetPassword,
   verifyEmailToken,
   verifyOtp,
 } from '../controllers/authController'
@@ -24,6 +26,8 @@ router.post('/request-otp', requestOtp)
 router.post('/verify-otp', verifyOtp)
 
 router.post('/request-password-login', requestEmailVerification)
+router.post('/request-password-reset', requestPasswordReset)
+router.post('/reset-password', resetPassword)
 
 router.post('/verify-user-email', verifyEmailToken)
 router.post('/signin-with-google', googleOAuthLogin)

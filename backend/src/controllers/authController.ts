@@ -13,8 +13,10 @@ import {
   handleEmailVerificationRequest,
   markEmailVerified,
   saveRefreshToken,
+  requestPasswordResetCode,
   updateUserByEmail,
   updateUserOtpByEmail,
+  resetPasswordWithCode,
   verifyGoogleToken,
 } from '../models/services/userService'
 
@@ -370,6 +372,52 @@ export const requestEmailVerification = async (req: Request, res: Response): Pro
   } catch (err) {
     console.error('Error in requestEmailVerification:', err)
     return res.status(401).json({ error: 'Invalid credentials or token' })
+  }
+}
+
+export const requestPasswordReset = async (req: Request, res: Response): Promise<any> => {
+  const { email } = req.body
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' })
+  }
+
+  try {
+    await requestPasswordResetCode(email)
+
+    return res.json({
+      message: 'If the registered email exists, a reset code has been sent.',
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message })
+    }
+
+    console.error('Error in requestPasswordReset:', error)
+    return res.status(500).json({ error: 'Something went wrong while requesting a password reset' })
+  }
+}
+
+export const resetPassword = async (req: Request, res: Response): Promise<any> => {
+  const { email, token, newPassword } = req.body
+
+  if (!email || !token || !newPassword) {
+    return res.status(400).json({ error: 'Email, reset code, and new password are required' })
+  }
+
+  try {
+    await resetPasswordWithCode(email, token, newPassword)
+
+    return res.json({
+      message: 'Password updated successfully. Please sign in with your new password.',
+    })
+  } catch (error: any) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message })
+    }
+
+    console.error('Error in resetPassword:', error)
+    return res.status(500).json({ error: 'Something went wrong while resetting the password' })
   }
 }
 

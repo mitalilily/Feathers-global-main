@@ -44,6 +44,22 @@ export const verifyEmailOtpApi = async (
   return data;
 };
 
+export const requestPasswordResetApi = async (email: string) => {
+  const { data } = await axiosInstance.post("/auth/request-password-reset", {
+    email,
+  });
+  return data;
+};
+
+export const resetPasswordApi = async (payload: {
+  email: string;
+  token: string;
+  newPassword: string;
+}) => {
+  const { data } = await axiosInstance.post("/auth/reset-password", payload);
+  return data;
+};
+
 export const googleLoginApi = async (code: string) => {
   const { data } = await axiosInstance.post("/auth/signin-with-google", {
     code,

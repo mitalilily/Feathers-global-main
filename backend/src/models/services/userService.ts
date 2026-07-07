@@ -10,8 +10,13 @@ import { OAuth2Client } from 'google-auth-library'
 import * as schema from '../../schema/schema'
 import { CompanyInfo } from '../../types/profileBlocks.types'
 import { IUser } from '../../types/users.types'
+import { HttpError } from '../../utils/classes'
 import { OTP_EXPIRY } from '../../utils/constants'
-import { sendTempPasswordEmail, sendVerificationEmail } from '../../utils/emailSender'
+import {
+  sendPasswordResetEmail,
+  sendTempPasswordEmail,
+  sendVerificationEmail,
+} from '../../utils/emailSender'
 import { generate8DigitsVerificationToken } from '../../utils/functions'
 import { stores } from '../schema/stores'
 
@@ -921,6 +926,106 @@ export const resetUserPassword = async (userId: string) => {
   }
 
   return tempPassword
+}
+
+const PASSWORD_RESET_REGEX = /(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d]{8,}/
+
+const ensureEmployeeIsActive = async (userId: string, role?: string | null) => {
+  if (role !== 'employee') return
+
+  const [employeeRecord] = await db
+    .select({
+      isActive: schema.employees.isActive,
+    })
+    .from(schema.employees)
+    .where(eq(schema.employees.userId, userId))
+    .limit(1)
+
+  if (employeeRecord && !employeeRecord.isActive) {
+    throw new HttpError(403, 'Your account is temporarily suspended by your administrator.')
+  }
+}
+
+export const requestPasswordResetCode = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase()
+  const user = await findUserByEmail(normalizedEmail)
+
+  if (!user) {
+    return { email: normalizedEmail, sent: false }
+  }
+
+  await ensureEmployeeIsActive(user.id, user.role)
+
+  const resetCode = generate8DigitsVerificationToken()
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY)
+
+  await db
+    .update(users)
+    .set({
+      passwordResetToken: resetCode,
+      passwordResetTokenExpiresAt: expiresAt,
+    })
+    .where(eq(users.id, user.id))
+
+  await sendPasswordResetEmail(normalizedEmail, resetCode)
+
+  return { email: normalizedEmail, sent: true }
+}
+
+export const resetPasswordWithCode = async (
+  email: string,
+  token: string,
+  newPassword: string,
+) => {
+  const normalizedEmail = email.trim().toLowerCase()
+  const user = await findUserByEmail(normalizedEmail)
+
+  if (!user) {
+    throw new HttpError(404, 'Account not found')
+  }
+
+  await ensureEmployeeIsActive(user.id, user.role)
+
+  if (
+    !user.passwordResetToken ||
+    !user.passwordResetTokenExpiresAt ||
+    user.passwordResetTokenExpiresAt < new Date()
+  ) {
+    throw new HttpError(400, 'Reset code expired or not requested')
+  }
+
+  if (user.passwordResetToken !== token) {
+    throw new HttpError(401, 'Invalid reset code')
+  }
+
+  if (!PASSWORD_RESET_REGEX.test(newPassword)) {
+    throw new HttpError(400, 'Password must be 8+ characters and include upper, lower, and a number')
+  }
+
+  if (user.passwordHash) {
+    const sameAsCurrent = await bcrypt.compare(newPassword, user.passwordHash)
+    if (sameAsCurrent) {
+      throw new HttpError(400, 'New password must differ from the current password')
+    }
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 10)
+
+  await db
+    .update(users)
+    .set({
+      passwordHash: hashedPassword,
+      passwordResetToken: null,
+      passwordResetTokenExpiresAt: null,
+      refreshToken: null,
+      refreshTokenExpiresAt: null,
+      previousRefreshToken: null,
+      previousRefreshTokenExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id))
+
+  return { email: normalizedEmail }
 }
 
 export const deleteUser = async (userId: string) => {

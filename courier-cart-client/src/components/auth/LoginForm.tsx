@@ -497,6 +497,8 @@ export default function LoginForm() {
         height: { xs: 'auto', md: '100dvh' },
         width: '100%',
         overflow: { xs: 'auto', md: 'hidden' },
+        touchAction: 'pan-y pinch-zoom',
+        WebkitOverflowScrolling: 'touch',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -637,6 +639,7 @@ export default function LoginForm() {
               px: { xs: 2, sm: 3.2, md: 3.6, lg: 4 },
               py: { xs: 2.4, sm: 3, md: 3.2, lg: 3.4 },
               overflow: 'hidden',
+              touchAction: 'pan-y pinch-zoom',
             }}
           >
             <Box sx={{ mb: { xs: 1.7, md: 1.9 } }}>

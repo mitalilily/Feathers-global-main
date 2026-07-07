@@ -305,6 +305,32 @@ export const sendTempPasswordEmail = async (to: string, tempPassword: string) =>
   await sendEmail(to, 'Your temporary Feather Global password', html)
 }
 
+export const sendPasswordResetEmail = async (to: string, resetCode: string) => {
+  const safeCode = escapeHtml(resetCode)
+
+  const html = renderEmailFrame({
+    eyebrow: 'Account Security',
+    title: 'Reset your password',
+    intro: 'We received a request to change the password on your Feather Global account.',
+    body: `
+      <div style="margin:22px 0; padding:20px; background:${BRAND_SURFACE}; border:1px solid ${BRAND_BORDER}; text-align:center;">
+        <div style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:${BRAND_MUTED}; font-weight:800; margin-bottom:10px;">
+          Password reset code
+        </div>
+        <div style="font-size:24px; font-weight:800; color:${BRAND_WINE}; word-break:break-word;">
+          ${safeCode}
+        </div>
+      </div>
+      <p style="margin:0 0 12px;">Use this code on the login screen to confirm the registered e-mail and set a new password.</p>
+      <p style="margin:0;">This code expires in <strong>5 minutes</strong>. If you did not request a password change, you can safely ignore this e-mail.</p>
+    `,
+    outro:
+      'For security, do not share this code with anyone. Our team will never ask for it over chat or phone.',
+  })
+
+  await sendEmail(to, 'Your Feather Global password reset code', html)
+}
+
 export const sendInvoiceReadyEmail = async (opts: {
   to: string
   sellerName?: string

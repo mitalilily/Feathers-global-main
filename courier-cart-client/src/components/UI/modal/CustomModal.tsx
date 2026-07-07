@@ -31,6 +31,7 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
       open={open}
       fullScreen={fullScreen}
       onClose={onClose}
+      scroll="paper"
       fullWidth
       maxWidth={width ? false : maxWidth}
       PaperProps={{
@@ -44,6 +45,9 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
           minWidth: { xs: 'unset', sm: 360 },
           mx: { xs: 1, sm: 0 },
           width: width || 'auto',
+          maxHeight: { xs: '100dvh', sm: 'calc(100dvh - 48px)' },
+          display: 'flex',
+          flexDirection: 'column',
           position: 'relative',
           overflow: 'hidden',
         },
@@ -105,9 +109,14 @@ const CustomDialog: React.FC<CustomDialogProps> = ({
       </DialogTitle>
       <DialogContent
         sx={{
+          flex: 1,
           p: { xs: 2.2, sm: 2.8 },
           mt: 0,
           bgcolor: '#FFFFFF',
+          overflowY: 'auto',
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-y pinch-zoom',
         }}
       >
         {children}
