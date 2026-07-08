@@ -234,6 +234,10 @@ NODE
 publish_courier_client_build
 
 cd "$APP_ROOT/admin-dashboard"
+admin_previous_static="$(mktemp -d "$APP_ROOT/.admin-static.XXXXXX")"
+if [ -d build/static ]; then
+  rsync -a build/static/ "${admin_previous_static}/"
+fi
 if [ -f package-lock.json ]; then
   npm ci --legacy-peer-deps --force
 else
@@ -253,6 +257,12 @@ if [ -z "${NODE_OPTIONS:-}" ]; then
 fi
 echo "Admin build NODE_OPTIONS=${NODE_OPTIONS}"
 npm run build
+
+if [ -d "${admin_previous_static}" ]; then
+  mkdir -p build/static
+  rsync -a --ignore-existing "${admin_previous_static}/" build/static/
+  rm -rf "${admin_previous_static}"
+fi
 
 sudo nginx -t
 sudo systemctl reload nginx
