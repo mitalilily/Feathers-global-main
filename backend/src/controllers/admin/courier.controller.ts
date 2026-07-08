@@ -437,6 +437,38 @@ const buildDelhiveryWebhookConfig = () => ({
   ],
 })
 
+const buildEkartWebhookConfig = () => ({
+  trackingUrl: resolvePublicWebhookUrl('EKART_WEBHOOK_URL', '/api/webhook/ekart'),
+  trackAliasUrl: resolvePublicWebhookUrl('EKART_TRACK_WEBHOOK_URL', '/api/webhook/ekart/track'),
+  method: 'POST',
+  contentType: 'application/json',
+  expectedResponse: '200 OK',
+  authentication: {
+    type: 'shared_secret_or_hmac_sha256',
+    secretRequired: false,
+    supportedHeaders: [
+      'x-ekart-webhook-secret',
+      'x-ekart-webhook-signature',
+      'x-ekart-signature',
+      'x-ekart-hmac-sha256',
+      'x-hmac-sha256',
+      'x-webhook-signature',
+      'x-signature',
+      'x-hub-signature-256',
+    ],
+  },
+  suggestedTopics: ['tracking_updates', 'shipment_status_updates', 'weight_updates'],
+  samplePayloadFields: [
+    'tracking_id',
+    'current_status',
+    'desc',
+    'current_location',
+    'charged_weight',
+    'actual_weight',
+    'volumetric_weight',
+  ],
+})
+
 const buildXpressbeesWebhookConfig = () => ({
   trackingUrl: resolvePublicWebhookUrl('XPRESSBEES_WEBHOOK_URL', XPRESSBEES_WEBHOOK_PATH),
   legacyUrl: resolvePublicWebhookUrl('XPRESSBEES_LEGACY_WEBHOOK_URL', '/api/webhook/xpressbees'),
@@ -509,11 +541,12 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       ekart: {
         provider: 'ekart',
-        apiBase: 'https://api.ekartlogistics.com',
+        apiBase: 'https://app.elite.ekartlogistics.in',
         clientId: '',
         username: '',
         hasPassword: false,
         hasWebhookSecret: false,
+        webhookConfig: buildEkartWebhookConfig(),
       },
       xpressbees: {
         provider: 'xpressbees',
@@ -574,11 +607,12 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
         acc.ekart = {
           provider: 'ekart',
-          apiBase: row.apiBase || 'https://api.ekartlogistics.com',
+          apiBase: row.apiBase || 'https://app.elite.ekartlogistics.in',
           clientId: row.clientId || '',
           username: row.username || '',
           hasPassword,
           hasWebhookSecret,
+          webhookConfig: buildEkartWebhookConfig(),
         }
       } else if (provider === 'xpressbees') {
         const apiKey = row.apiKey || ''
@@ -774,7 +808,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         updatedAt: new Date(),
       }
       if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://api.ekartlogistics.com'
+        updatePayload.apiBase = nextApiBase || 'https://app.elite.ekartlogistics.in'
       }
       if (nextClientId !== undefined) {
         updatePayload.clientId = nextClientId
@@ -796,7 +830,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
     } else {
       await db.insert(courier_credentials).values({
         provider: 'ekart',
-        apiBase: nextApiBase || 'https://api.ekartlogistics.com',
+        apiBase: nextApiBase || 'https://app.elite.ekartlogistics.in',
         clientName: '',
         apiKey: '',
         clientId: nextClientId || '',
@@ -825,11 +859,12 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
       message: 'Ekart credentials updated successfully',
       data: {
         provider: 'ekart',
-        apiBase: saved?.apiBase || 'https://api.ekartlogistics.com',
+        apiBase: saved?.apiBase || 'https://app.elite.ekartlogistics.in',
         clientId: saved?.clientId || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
         hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
+        webhookConfig: buildEkartWebhookConfig(),
       },
     })
   } catch (err) {

@@ -520,26 +520,55 @@ const CourierCredentials = () => {
               />
             </FormControl>
 
-            <FormControl>
-              <FormLabel>Webhook Secret</FormLabel>
-              <Input
-                type="password"
-                value={ekartForm.webhookSecret}
-                onChange={(e) =>
-                  setEkartForm((prev) => ({ ...prev, webhookSecret: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing webhook secret"
-              />
-              {data?.ekart?.hasWebhookSecret && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Webhook secret already configured on Ekart.
-                </Text>
-              )}
-            </FormControl>
-
             <Text fontSize="xs" color="gray.500">
               Ekart requires client ID + username/password for token generation. Leave password blank to keep the saved secret.
             </Text>
+
+            <Box borderTopWidth="1px" pt={4}>
+              <Text fontWeight="semibold" mb={3}>
+                Webhook Setup
+              </Text>
+
+              <FormControl mb={3}>
+                <FormLabel>Webhook URL</FormLabel>
+                <Input
+                  value={
+                    data?.ekart?.webhookConfig?.trackingUrl ||
+                    'https://api.fgship.in/api/webhook/ekart'
+                  }
+                  isReadOnly
+                />
+                {!!data?.ekart?.webhookConfig?.trackAliasUrl && (
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Alias: {data.ekart.webhookConfig.trackAliasUrl}
+                  </Text>
+                )}
+              </FormControl>
+
+              <FormControl mb={3}>
+                <FormLabel>Secret</FormLabel>
+                <Input
+                  value={ekartForm.webhookSecret}
+                  onChange={(e) =>
+                    setEkartForm((prev) => ({ ...prev, webhookSecret: e.target.value }))
+                  }
+                  type="password"
+                  placeholder="Leave blank to keep existing webhook secret"
+                />
+                {data?.ekart?.hasWebhookSecret && (
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Webhook secret already configured on Ekart.
+                  </Text>
+                )}
+              </FormControl>
+
+              <Text fontSize="xs" color="gray.500" mb={1}>
+                Topics: {(data?.ekart?.webhookConfig?.suggestedTopics || []).join(', ') || 'tracking_updates'}
+              </Text>
+              <Text fontSize="xs" color="gray.500">
+                Alert email: use your monitored ops/support inbox in the Ekart portal.
+              </Text>
+            </Box>
 
             <Button
               colorScheme="blue"
