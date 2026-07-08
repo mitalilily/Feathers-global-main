@@ -57,6 +57,8 @@ const sanitizeHeadersForLog = (headers: Request['headers']) => {
 }
 
 const fetchEkartWebhookSecret = async () => {
+  const envSecret = String(process.env.EKART_WEBHOOK_SECRET || '').trim()
+
   try {
     const [row] = await db
       .select({
@@ -65,10 +67,10 @@ const fetchEkartWebhookSecret = async () => {
       .from(courier_credentials)
       .where(eq(courier_credentials.provider, EKART_PROVIDER))
       .limit(1)
-    return (row?.webhookSecret || '').trim()
+    return (row?.webhookSecret || '').trim() || envSecret
   } catch (err: any) {
     console.error('Failed to load Ekart webhook secret:', err?.message || err)
-    return ''
+    return envSecret
   }
 }
 

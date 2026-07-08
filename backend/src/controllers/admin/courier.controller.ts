@@ -794,8 +794,11 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
     const nextClientId = typeof clientId === 'string' ? clientId.trim() : undefined
     const nextUsername = typeof username === 'string' ? username.trim() : undefined
     const nextPassword = typeof password === 'string' ? password.trim() : undefined
+    const nextWebhookSecret =
+      typeof webhookSecret === 'string' ? webhookSecret.trim() : undefined
     const hasPassword = typeof nextPassword === 'string' && nextPassword.length > 0
-    const hasWebhookSecret = typeof webhookSecret === 'string' && webhookSecret.length > 0
+    const hasWebhookSecret =
+      typeof nextWebhookSecret === 'string' && nextWebhookSecret.length > 0
 
     const [existing] = await db
       .select({ id: courier_credentials.id })
@@ -820,7 +823,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         updatePayload.password = nextPassword
       }
       if (hasWebhookSecret) {
-        updatePayload.webhookSecret = webhookSecret
+        updatePayload.webhookSecret = nextWebhookSecret
       }
 
       await db
@@ -836,7 +839,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         clientId: nextClientId || '',
         username: nextUsername || '',
         password: hasPassword ? nextPassword : '',
-        webhookSecret: hasWebhookSecret ? webhookSecret : '',
+        webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
       })
     }
 
@@ -863,7 +866,9 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
         clientId: saved?.clientId || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
-        hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
+        hasWebhookSecret: Boolean(
+          (saved?.webhookSecret || '').trim() || String(process.env.EKART_WEBHOOK_SECRET || '').trim(),
+        ),
         webhookConfig: buildEkartWebhookConfig(),
       },
     })
