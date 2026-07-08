@@ -274,12 +274,7 @@ const isSupportedB2CFallbackRate = (
 
   if (!SUPPORTED_B2C_FALLBACK_PROVIDERS.includes(provider)) return false
   if (provider === 'xpressbees') {
-    return (
-      mode !== 'air' &&
-      !name.includes('air') &&
-      !name.includes('reverse') &&
-      /\b2\s*(?:k\.?\s*g\.?|kg|kgs)\b/i.test(name)
-    )
+    return mode !== 'air' && !name.includes('air') && !name.includes('reverse')
   }
 
   return true
@@ -575,8 +570,57 @@ const buildLastResortB2CCouriersFromRateCards = async (
 }
 
 const fetchB2CCouriersWithLocalFallback = async (serviceParams: Record<string, any>, userId?: string) => {
+  const runLastResortFallback = async () => {
+    const lastResortCouriers = await buildLastResortB2CCouriersFromRateCards(serviceParams, userId)
+
+    if (lastResortCouriers.length > 0) {
+      console.warn('[Couriers] Using direct B2C rate-card fallback', {
+        origin: serviceParams?.origin,
+        destination: serviceParams?.destination,
+        shipment_type: serviceParams?.shipment_type,
+        courierCount: lastResortCouriers.length,
+      })
+    } else {
+      console.warn('[Couriers] No strict or direct B2C fallback result available; returning no couriers')
+    }
+
+    return lastResortCouriers
+  }
+
   try {
-    return await fetchAvailableCouriersWithRates(serviceParams as any, userId)
+    const strictCouriers = await fetchAvailableCouriersWithRates(serviceParams as any, userId)
+    if (strictCouriers.length > 0) {
+      return strictCouriers
+    }
+
+    console.warn('[Couriers] Strict B2C courier fetch returned no options, trying fallback paths', {
+      origin: serviceParams?.origin,
+      destination: serviceParams?.destination,
+      shipment_type: serviceParams?.shipment_type,
+      isCalculator: serviceParams?.isCalculator === true,
+    })
+
+    if (serviceParams?.isCalculator !== true) {
+      try {
+        const calculatorCouriers = await fetchAvailableCouriersWithRates(
+          {
+            ...serviceParams,
+            isCalculator: true,
+          } as any,
+          userId,
+        )
+
+        if (calculatorCouriers.length > 0) {
+          return calculatorCouriers
+        }
+      } catch (fallbackErr: any) {
+        console.warn('[Couriers] Local rate-card pipeline failed after empty strict result', {
+          message: fallbackErr?.message || fallbackErr,
+        })
+      }
+    }
+
+    return await runLastResortFallback()
   } catch (err: any) {
     console.warn('[Couriers] B2C courier fetch failed, retrying fallback paths', {
       message: err?.message || err,
@@ -602,8 +646,7 @@ const fetchB2CCouriersWithLocalFallback = async (serviceParams: Record<string, a
       }
     }
 
-    console.warn('[Couriers] No strict B2C rate-card result available; returning no couriers')
-    return []
+    return await runLastResortFallback()
   }
 }
 

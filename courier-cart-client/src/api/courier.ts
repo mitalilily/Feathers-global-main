@@ -178,7 +178,7 @@ export const fetchAvailableCouriers = async (params: any): Promise<any[]> => {
         throw new Error(res.data.error || 'Failed to fetch couriers')
       }
 
-      return filterAmazonCouriers(res.data.data)
+      return Array.isArray(res.data.data) ? res.data.data : []
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('fetchAvailableCouriers error:', error.response?.data || error.message)
