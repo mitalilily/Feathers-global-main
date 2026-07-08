@@ -142,6 +142,8 @@ const { Client } = require('pg')
 dotenv.config({ path: path.resolve(process.cwd(), '.env.production') })
 
 const migrationFiles = [
+  'migration_add_previous_refresh_token.sql',
+  'migration_add_password_reset_tokens.sql',
   'migration_add_shipping_rate_slabs.sql',
   'migration_add_courier_credentials_metadata.sql',
   'migration_seed_shadowfax_b2c_couriers.sql',
