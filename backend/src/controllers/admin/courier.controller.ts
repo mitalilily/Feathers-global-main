@@ -518,6 +518,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       xpressbees: {
         provider: 'xpressbees',
         apiBase: 'https://shipment.xpressbees.com',
+        email: '',
         username: '',
         hasApiKey: false,
         apiKeyMasked: '',
@@ -593,6 +594,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         acc.xpressbees = {
           provider: 'xpressbees',
           apiBase: row.apiBase || 'https://shipment.xpressbees.com',
+          email: row.username || '',
           username: row.username || '',
           hasApiKey: Boolean(apiKey.trim()),
           apiKeyMasked: apiKey
@@ -839,6 +841,7 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
 export const updateXpressbeesCredentialsController = async (req: Request, res: Response) => {
   const {
     apiBase,
+    email,
     username,
     password,
     apiKey,
@@ -865,7 +868,9 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
 
   try {
     const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
-    const nextUsername = typeof username === 'string' ? username.trim() : undefined
+    const nextEmail = typeof email === 'string' ? email.trim() : undefined
+    const nextUsername =
+      nextEmail !== undefined ? nextEmail : typeof username === 'string' ? username.trim() : undefined
     const nextPassword = typeof password === 'string' ? password.trim() : undefined
     const nextApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
     const nextWebhookSecret =
@@ -988,6 +993,7 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
       data: {
         provider: 'xpressbees',
         apiBase: saved?.apiBase || 'https://shipment.xpressbees.com',
+        email: saved?.username || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
         hasApiKey: Boolean((saved?.apiKey || '').trim()),

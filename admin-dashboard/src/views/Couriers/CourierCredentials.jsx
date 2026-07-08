@@ -46,13 +46,8 @@ const CourierCredentials = () => {
   })
   const [xpressbeesForm, setXpressbeesForm] = useState({
     apiBase: '',
-    username: '',
+    email: '',
     password: '',
-    apiKey: '',
-    authBearer: '',
-    secretKey: '',
-    xbKey: '',
-    xbAccessKey: '',
     businessAccountName: '',
     pickupVendorCode: '',
     businessUnit: 'ECOM',
@@ -100,13 +95,8 @@ const CourierCredentials = () => {
     if (data?.xpressbees) {
       setXpressbeesForm({
         apiBase: data.xpressbees.apiBase || '',
-        username: data.xpressbees.username || '',
+        email: data.xpressbees.email || data.xpressbees.username || '',
         password: '',
-        apiKey: '',
-        authBearer: '',
-        secretKey: '',
-        xbKey: '',
-        xbAccessKey: '',
         businessAccountName: data.xpressbees.businessAccountName || '',
         pickupVendorCode: data.xpressbees.pickupVendorCode || '',
         businessUnit: data.xpressbees.businessUnit || 'ECOM',
@@ -189,13 +179,8 @@ const CourierCredentials = () => {
     updateXpressbees.mutate(
       {
         apiBase: xpressbeesForm.apiBase,
-        username: xpressbeesForm.username,
+        email: xpressbeesForm.email,
         ...(xpressbeesForm.password ? { password: xpressbeesForm.password } : {}),
-        ...(xpressbeesForm.apiKey ? { apiKey: xpressbeesForm.apiKey } : {}),
-        ...(xpressbeesForm.authBearer ? { authBearer: xpressbeesForm.authBearer } : {}),
-        ...(xpressbeesForm.secretKey ? { secretKey: xpressbeesForm.secretKey } : {}),
-        ...(xpressbeesForm.xbKey ? { xbKey: xpressbeesForm.xbKey } : {}),
-        ...(xpressbeesForm.xbAccessKey ? { xbAccessKey: xpressbeesForm.xbAccessKey } : {}),
         businessAccountName: xpressbeesForm.businessAccountName,
         pickupVendorCode: xpressbeesForm.pickupVendorCode,
         businessUnit: xpressbeesForm.businessUnit,
@@ -221,11 +206,6 @@ const CourierCredentials = () => {
           setXpressbeesForm((prev) => ({
             ...prev,
             password: '',
-            apiKey: '',
-            authBearer: '',
-            secretKey: '',
-            xbKey: '',
-            xbAccessKey: '',
             webhookSecret: '',
           }))
         },
@@ -244,13 +224,8 @@ const CourierCredentials = () => {
     testXpressbees.mutate(
       {
         apiBase: xpressbeesForm.apiBase,
-        username: xpressbeesForm.username,
+        email: xpressbeesForm.email,
         ...(xpressbeesForm.password ? { password: xpressbeesForm.password } : {}),
-        ...(xpressbeesForm.apiKey ? { apiKey: xpressbeesForm.apiKey } : {}),
-        ...(xpressbeesForm.authBearer ? { authBearer: xpressbeesForm.authBearer } : {}),
-        ...(xpressbeesForm.secretKey ? { secretKey: xpressbeesForm.secretKey } : {}),
-        ...(xpressbeesForm.xbKey ? { xbKey: xpressbeesForm.xbKey } : {}),
-        ...(xpressbeesForm.xbAccessKey ? { xbAccessKey: xpressbeesForm.xbAccessKey } : {}),
         businessAccountName: xpressbeesForm.businessAccountName,
         pickupVendorCode: xpressbeesForm.pickupVendorCode,
         businessUnit: xpressbeesForm.businessUnit,
@@ -583,17 +558,12 @@ const CourierCredentials = () => {
               <Text fontWeight="semibold">Xpressbees</Text>
               <Badge
                 colorScheme={
-                  data?.xpressbees?.hasApiKey ||
-                  (data?.xpressbees?.hasPassword && data?.xpressbees?.hasSecretKey)
-                    ? 'green'
-                    : 'orange'
+                  data?.xpressbees?.email && data?.xpressbees?.hasPassword ? 'green' : 'orange'
                 }
               >
-                {data?.xpressbees?.hasApiKey
-                  ? 'API key set'
-                  : data?.xpressbees?.hasPassword && data?.xpressbees?.hasSecretKey
-                    ? 'Login configured'
-                    : 'Missing token config'}
+                {data?.xpressbees?.email && data?.xpressbees?.hasPassword
+                  ? 'Email login set'
+                  : 'Missing email login'}
               </Badge>
             </Flex>
 
@@ -702,13 +672,13 @@ const CourierCredentials = () => {
             </FormControl>
 
             <FormControl>
-              <FormLabel>Username / Email</FormLabel>
+              <FormLabel>Email</FormLabel>
               <Input
-                value={xpressbeesForm.username}
+                value={xpressbeesForm.email}
                 onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, username: e.target.value }))
+                  setXpressbeesForm((prev) => ({ ...prev, email: e.target.value }))
                 }
-                placeholder="Xpressbees username or email"
+                placeholder="ops@example.com"
               />
             </FormControl>
 
@@ -722,91 +692,6 @@ const CourierCredentials = () => {
                 }
                 placeholder="Leave blank to keep existing password"
               />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>API Key / Token</FormLabel>
-              <Input
-                type="password"
-                value={xpressbeesForm.apiKey}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, apiKey: e.target.value }))
-                }
-                placeholder={data?.xpressbees?.apiKeyMasked || 'Enter Xpressbees API key'}
-              />
-              {!!data?.xpressbees?.apiKeyMasked && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Current key: {data.xpressbees.apiKeyMasked}
-                </Text>
-              )}
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Auth Bearer</FormLabel>
-              <Input
-                type="password"
-                value={xpressbeesForm.authBearer}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, authBearer: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing auth bearer"
-              />
-              {data?.xpressbees?.hasAuthBearer && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Auth bearer already configured on Xpressbees.
-                </Text>
-              )}
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Secret Key</FormLabel>
-              <Input
-                type="password"
-                value={xpressbeesForm.secretKey}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, secretKey: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing secret key"
-              />
-              {data?.xpressbees?.hasSecretKey && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Secret key already configured on Xpressbees.
-                </Text>
-              )}
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>XB Key</FormLabel>
-              <Input
-                type="password"
-                value={xpressbeesForm.xbKey}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, xbKey: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing XB key"
-              />
-              {data?.xpressbees?.hasXbKey && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  XB key already configured on Xpressbees.
-                </Text>
-              )}
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>XB Access Key</FormLabel>
-              <Input
-                type="password"
-                value={xpressbeesForm.xbAccessKey}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, xbAccessKey: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing XB access key"
-              />
-              {data?.xpressbees?.hasXbAccessKey && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  XB access key already configured on Xpressbees.
-                </Text>
-              )}
             </FormControl>
 
             <FormControl>
@@ -994,7 +879,7 @@ const CourierCredentials = () => {
             </FormControl>
 
             <Text fontSize="xs" color="gray.500">
-              Leave password, token, auth bearer, secret key, XB key, XB access key, or webhook
+              Xpressbees now authenticates with email and password. Leave password or webhook
               secret blank to keep the saved value.
             </Text>
 
