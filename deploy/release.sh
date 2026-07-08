@@ -108,6 +108,52 @@ publish_courier_client_build() {
   sudo rm -rf "$previous_dist"
 }
 
+publish_admin_dashboard_build() {
+  local staged_build_relative staged_build previous_build
+
+  staged_build_relative=".build-staged-$(date +%s)"
+  staged_build="$APP_ROOT/admin-dashboard/${staged_build_relative}"
+  previous_build="$APP_ROOT/admin-dashboard/build.previous"
+
+  sudo rm -rf "$previous_build"
+  rm -rf "$staged_build"
+
+  BUILD_PATH="$staged_build_relative" npm run build
+
+  if [ ! -f "$staged_build/index.html" ]; then
+    echo "admin-dashboard build did not produce index.html" >&2
+    rm -rf "$staged_build"
+    return 1
+  fi
+
+  if [ ! -d "$staged_build/static" ]; then
+    echo "admin-dashboard build did not produce static/" >&2
+    rm -rf "$staged_build"
+    return 1
+  fi
+
+  if [ -d build/static ]; then
+    rsync -a --ignore-existing build/static/ "$staged_build/static/"
+  fi
+
+  if [ -e build ]; then
+    sudo chown -R "$(id -u):$(id -g)" build || true
+    mv build "$previous_build"
+  fi
+
+  if ! mv "$staged_build" build; then
+    if [ -e "$previous_build" ] && [ ! -e build ]; then
+      mv "$previous_build" build
+    fi
+    rm -rf "$staged_build"
+    return 1
+  fi
+
+  sudo chown -R "$(id -u):$(id -g)" build
+  sudo chmod -R u+rwX,g+rwX,o+rX build
+  sudo rm -rf "$previous_build"
+}
+
 ensure_build_swap() {
   local swap_total_mb
   swap_total_mb="$(awk '/^SwapTotal:/ { print int($2 / 1024) }' /proc/meminfo)"
@@ -234,10 +280,6 @@ NODE
 publish_courier_client_build
 
 cd "$APP_ROOT/admin-dashboard"
-admin_previous_static="$(mktemp -d "$APP_ROOT/.admin-static.XXXXXX")"
-if [ -d build/static ]; then
-  rsync -a build/static/ "${admin_previous_static}/"
-fi
 if [ -f package-lock.json ]; then
   npm ci --legacy-peer-deps --force
 else
@@ -256,13 +298,7 @@ if [ -z "${NODE_OPTIONS:-}" ]; then
   export NODE_OPTIONS="--max-old-space-size=2048"
 fi
 echo "Admin build NODE_OPTIONS=${NODE_OPTIONS}"
-npm run build
-
-if [ -d "${admin_previous_static}" ]; then
-  mkdir -p build/static
-  rsync -a --ignore-existing "${admin_previous_static}/" build/static/
-  rm -rf "${admin_previous_static}"
-fi
+publish_admin_dashboard_build
 
 sudo nginx -t
 sudo systemctl reload nginx

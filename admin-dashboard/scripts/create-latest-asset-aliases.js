@@ -1,7 +1,8 @@
 const fs = require('fs')
 const path = require('path')
 
-const buildDir = path.resolve(__dirname, '..', 'build')
+const configuredBuildPath = process.env.BUILD_PATH || 'build'
+const buildDir = path.resolve(__dirname, '..', configuredBuildPath)
 const manifestPath = path.join(buildDir, 'asset-manifest.json')
 
 const ensureDir = (targetPath) => {
