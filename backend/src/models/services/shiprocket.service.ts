@@ -54,7 +54,7 @@ import { formatPickupAddress, loadInvoiceAssets, normalizePickupDetails } from '
 import { resolveInvoiceNumber } from './invoiceNumber.service'
 import { createNotificationService } from './notifications.service'
 import { getPaymentOptions } from './paymentOptions.service'
-import { presignDownload, presignUpload } from './upload.service'
+import { presignDownload, uploadBufferToStorage } from './upload.service'
 import { logTrackingEvent } from './trackingEvents.service'
 import { createWalletTransaction } from './wallet.service'
 import { walletOfUser } from './walletTopupService'
@@ -427,19 +427,15 @@ const uploadAmazonShipmentDocumentToR2 = async ({
   const pdfBuffer = Buffer.from(base64Contents, 'base64')
   if (!pdfBuffer.length) return null
 
-  const { uploadUrl, key } = await presignUpload({
+  const { key } = await uploadBufferToStorage({
+    buffer: pdfBuffer,
     filename: `amazon-label-${shipmentId}-${packageClientReferenceId}.pdf`,
     contentType: 'application/pdf',
     userId,
     folderKey: 'labels',
   })
-  const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-  await axios.put(finalUploadUrl, pdfBuffer, {
-    headers: { 'Content-Type': 'application/pdf' },
-    timeout: 30000,
-  })
 
-  return Array.isArray(key) ? key[0] : key
+  return key
 }
 
 const resolveAmazonShipmentLabel = async ({
@@ -8791,19 +8787,15 @@ export const createB2CShipmentService = async (
                 const labelBuffer = Buffer.from(labelResponse.data)
 
                 // Upload to R2
-                const { uploadUrl, key } = await presignUpload({
+                const uploadTarget = await uploadBufferToStorage({
+                  buffer: labelBuffer,
                   filename: `label-${params.order_number}.pdf`,
                   contentType: 'application/pdf',
                   userId,
                   folderKey: 'labels',
                 })
 
-                const putUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-                await axios.put(putUrl, labelBuffer, {
-                  headers: { 'Content-Type': 'application/pdf' },
-                })
-
-                const labelKey = Array.isArray(key) ? key[0] : key
+                const labelKey = uploadTarget.key
 
                 // Update order with R2 key
                 await tx
@@ -10295,29 +10287,16 @@ async function generateInvoiceForManifestOrderOutsideTransaction(order: any): Pr
       `📤 [Manifest] Uploading invoice PDF for order ${order.order_number} (size: ${invoiceBuffer.length} bytes)...`,
     )
 
-    const { uploadUrl, key } = await presignUpload({
+    const uploadTarget = await uploadBufferToStorage({
+      buffer: invoiceBuffer,
       filename: `invoice-${order.id}.pdf`,
       contentType: 'application/pdf',
       userId: order.user_id,
       folderKey: 'invoices',
     })
 
-    if (!uploadUrl || !key) {
-      throw new Error('Failed to get presigned upload URL for invoice')
-    }
-
-    const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-    const uploadResponse = await axios.put(finalUploadUrl, invoiceBuffer, {
-      headers: { 'Content-Type': 'application/pdf' },
-      validateStatus: (status) => status >= 200 && status < 300,
-      timeout: 60000,
-    })
-
-    if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-      throw new Error(`Upload failed with status ${uploadResponse.status}`)
-    }
-
-    const finalKey = Array.isArray(key) ? key[0] : key
+    const finalKey = uploadTarget.key
+    const uploadResponse = { status: 200 }
     if (!finalKey || typeof finalKey !== 'string' || finalKey.trim().length === 0) {
       throw new Error('Invoice key is invalid or empty after upload')
     }
@@ -11012,18 +10991,14 @@ export const generateManifestService = async (params: {
         pdfDoc.end()
       })
 
-      const { uploadUrl, key } = await presignUpload({
+      const uploadTarget = await uploadBufferToStorage({
+        buffer: pdfBuffer,
         filename: `manifest-delhivery-${Date.now()}.pdf`,
         contentType: 'application/pdf',
         userId: fetchedOrders[0].user_id,
         folderKey: 'manifests',
       })
-      const putUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-      await axios.put(putUrl, pdfBuffer, {
-        headers: { 'Content-Type': 'application/pdf' },
-        timeout: 60000,
-      })
-      const manifestKey = Array.isArray(key) ? key[0] : key
+      const manifestKey = uploadTarget.key
 
       const invoicePromisesDel = fetchedOrders.map((order) =>
         generateInvoiceForManifestOrderOutsideTransaction(order).catch((err) => {
@@ -11721,18 +11696,14 @@ export const generateManifestService = async (params: {
             pdfDoc.end()
           })
 
-          const { uploadUrl, key } = await presignUpload({
+          const uploadTarget = await uploadBufferToStorage({
+            buffer: pdfBuffer,
             filename: `manifest-${integrationType}-${Date.now()}.pdf`,
             contentType: 'application/pdf',
             userId: fetchedOrders[0].user_id,
             folderKey: 'manifests',
           })
-          const putUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-          await axios.put(putUrl, pdfBuffer, {
-            headers: { 'Content-Type': 'application/pdf' },
-            timeout: 60000,
-          })
-          const manifestKey = Array.isArray(key) ? key[0] : key
+          const manifestKey = uploadTarget.key
           const signedManifestUrl = await presignDownload(manifestKey)
           const manifestDownloadUrl = Array.isArray(signedManifestUrl)
             ? (signedManifestUrl[0] ?? null)
@@ -12120,20 +12091,14 @@ export const generateManifestService = async (params: {
             pdfDoc.end()
           })
 
-          const { uploadUrl: manifestUploadUrl, key: manifestKeyRaw } = await presignUpload({
+          const manifestUploadTarget = await uploadBufferToStorage({
+            buffer: pdfBuffer,
             filename: `manifest-amazon-${Date.now()}.pdf`,
             contentType: 'application/pdf',
             userId: fetchedOrders[0].user_id,
             folderKey: 'manifests',
           })
-          const manifestPutUrl = Array.isArray(manifestUploadUrl)
-            ? manifestUploadUrl[0]
-            : manifestUploadUrl
-          await axios.put(manifestPutUrl, pdfBuffer, {
-            headers: { 'Content-Type': 'application/pdf' },
-            timeout: 60000,
-          })
-          const manifestKey = Array.isArray(manifestKeyRaw) ? manifestKeyRaw[0] : manifestKeyRaw
+          const manifestKey = manifestUploadTarget.key
           const signedManifestUrl = await presignDownload(manifestKey)
           const manifestDownloadUrl = Array.isArray(signedManifestUrl)
             ? (signedManifestUrl[0] ?? null)
@@ -12568,30 +12533,16 @@ export const generateManifestService = async (params: {
             )
 
             // Upload invoice to R2
-            const { uploadUrl, key } = await presignUpload({
+            const uploadTarget = await uploadBufferToStorage({
+              buffer: invoiceBuffer,
               filename: `invoice-${order.id}.pdf`,
               contentType: 'application/pdf',
               userId: order.user_id,
               folderKey: 'invoices',
             })
 
-            if (!uploadUrl || !key) {
-              throw new Error('Failed to get presigned upload URL for invoice')
-            }
-
-            const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-            const uploadResponse = await axios.put(finalUploadUrl, invoiceBuffer, {
-              headers: { 'Content-Type': 'application/pdf' },
-              validateStatus: (status) => status >= 200 && status < 300, // Only accept 2xx status codes
-              timeout: 60000, // 60 seconds for invoice upload
-            })
-
-            // Verify upload succeeded
-            if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-              throw new Error(`Upload failed with status ${uploadResponse.status}`)
-            }
-
-            const finalKey = Array.isArray(key) ? key[0] : key
+            const finalKey = uploadTarget.key
+            const uploadResponse = { status: 200 }
 
             // Validate key is not empty and is a string
             if (!finalKey || typeof finalKey !== 'string' || finalKey.trim().length === 0) {
@@ -13151,18 +13102,14 @@ export const generateManifestService = async (params: {
             pdfDoc.end()
           })
 
-          const { uploadUrl, key } = await presignUpload({
+          const uploadTarget = await uploadBufferToStorage({
+            buffer: pdfBuffer,
             filename: `manifest-delhivery-${Date.now()}.pdf`,
             contentType: 'application/pdf',
             userId: fetchedOrders[0].user_id,
             folderKey: 'manifests',
           })
-          const putUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-          await axios.put(putUrl, pdfBuffer, {
-            headers: { 'Content-Type': 'application/pdf' },
-            timeout: 60000, // 60 seconds for manifest upload
-          })
-          const manifestKey = Array.isArray(key) ? key[0] : key
+          const manifestKey = uploadTarget.key
 
           // Generate invoices in parallel (non-blocking) to avoid timeouts
           const invoicePromisesDel = fetchedOrders.map((order) =>
@@ -13555,17 +13502,14 @@ export const generateManifestService = async (params: {
           })
 
           // Upload invoice to S3
-          const { uploadUrl, key } = await presignUpload({
+          const uploadTarget = await uploadBufferToStorage({
+            buffer: invoiceBuffer,
             filename: `invoice-${order.id}.pdf`,
             contentType: 'application/pdf',
             userId: order.user_id,
             folderKey: 'invoices',
           })
-          await axios.put(Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl, invoiceBuffer, {
-            headers: { 'Content-Type': 'application/pdf' },
-            timeout: 60000, // 60 seconds for invoice upload
-          })
-          const finalKey = Array.isArray(key) ? key[0] : key
+          const finalKey = uploadTarget.key
 
           // Validate key is not empty and is a string
           if (!finalKey || typeof finalKey !== 'string' || finalKey.trim().length === 0) {
@@ -13587,7 +13531,7 @@ export const generateManifestService = async (params: {
 
           console.log(`📄 Invoice generated and uploaded for order ${order.order_number}:`, {
             invoice_key: keyToStore,
-            upload_url: Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl,
+            storage_key: keyToStore,
             invoice_size: invoiceBuffer.length,
           })
 

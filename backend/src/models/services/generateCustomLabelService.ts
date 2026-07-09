@@ -8,10 +8,9 @@ import { db } from '../client'
 import { labelPreferences } from '../schema/labelPreferences'
 import { userProfiles } from '../schema/userProfile'
 import { getAdminInvoicePreferences } from './invoicePreferences.service'
-import { presignDownload, presignUpload } from './upload.service'
+import { presignDownload, uploadBufferToStorage } from './upload.service'
 
 const LABEL_ASSET_TIMEOUT_MS = 10000
-const LABEL_UPLOAD_TIMEOUT_MS = 30000
 
 function isValidDataUrl(str: string | null): boolean {
   return typeof str === 'string' && str.startsWith('data:image/')
@@ -874,35 +873,20 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       .replace(/^-+|-+$/g, '')
       .slice(0, 46) || 'order'
 
-    // Upload
-    const { uploadUrl, key } = await presignUpload({
+    // Upload directly via SDK to avoid presigned PUT timeouts from the backend.
+    const uploadTarget = await uploadBufferToStorage({
+      buffer: pdfBuffer,
       filename: `label-${labelIdentifier}.pdf`,
       contentType: 'application/pdf',
       userId,
       folderKey: 'labels',
     })
 
-    if (!uploadUrl || !key) {
-      throw new Error('Failed to get presigned URL for label upload')
-    }
-
-    const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-    const uploadResponse = await axios.put(finalUploadUrl, pdfBuffer, {
-      headers: { 'Content-Type': 'application/pdf' },
-      validateStatus: (status) => status >= 200 && status < 300, // Only accept 2xx status codes
-      timeout: LABEL_UPLOAD_TIMEOUT_MS,
-    })
-
-    // Verify upload succeeded
-    if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-      throw new Error(`Label upload failed with status ${uploadResponse.status}`)
-    }
-
-    if (!key) {
+    if (!uploadTarget?.key) {
       throw new Error('Label key is missing after upload')
     }
 
-    const finalKey = Array.isArray(key) ? key[0] : key
+    const finalKey = uploadTarget.key
 
     // Validate key is not empty and is a string
     if (!finalKey || typeof finalKey !== 'string' || finalKey.trim().length === 0) {
@@ -910,7 +894,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     }
 
     const trimmedKey = finalKey.trim()
-    console.log(`✅ Label uploaded successfully: ${trimmedKey} (status: ${uploadResponse.status})`)
+    console.log(`✅ Label uploaded successfully: ${trimmedKey}`)
     return trimmedKey
   } catch (err: any) {
     console.error(

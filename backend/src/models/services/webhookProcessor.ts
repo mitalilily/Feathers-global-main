@@ -1,5 +1,4 @@
 // services/webhookProcessor.ts
-import axios from 'axios'
 import dayjs from 'dayjs'
 import { and, eq, gt, isNotNull, or, sql } from 'drizzle-orm'
 import { sendWebhookEvent } from '../../services/webhookDelivery.service'
@@ -23,7 +22,7 @@ import { recordNdrEvent } from './ndr.service'
 import { createNotificationService } from './notifications.service'
 import { recordRtoEvent } from './rto.service'
 import { logTrackingEvent } from './trackingEvents.service'
-import { presignDownload, presignUpload } from './upload.service'
+import { presignDownload, uploadBufferToStorage } from './upload.service'
 import {
   formatPickupAddress,
   loadInvoiceAssets,
@@ -40,8 +39,6 @@ import {
   getOrderRefundOutstanding,
   ORIGINAL_WALLET_DEBIT_REASONS,
 } from './shiprocket.service'
-
-const WEBHOOK_INVOICE_UPLOAD_TIMEOUT_MS = 60000
 
 const normalizeWebhookText = (...parts: unknown[]) =>
   parts
@@ -414,25 +411,15 @@ const generateInvoiceForOrderWebhook = async (
       layout: (prefs?.template as 'classic' | 'thermal') ?? 'classic',
     })
 
-    const { uploadUrl, key } = await presignUpload({
+    const uploadTarget = await uploadBufferToStorage({
+      buffer: invoiceBuffer,
       filename: `invoice-${order.id}.pdf`,
       contentType: 'application/pdf',
       userId: order.user_id,
       folderKey: 'invoices',
     })
-    const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-    const uploadResponse = await axios.put(finalUploadUrl, invoiceBuffer, {
-      headers: { 'Content-Type': 'application/pdf' },
-      validateStatus: (status) => status >= 200 && status < 300, // Only accept 2xx status codes
-      timeout: WEBHOOK_INVOICE_UPLOAD_TIMEOUT_MS,
-    })
 
-    // Verify upload succeeded
-    if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
-      throw new Error(`Invoice upload failed with status ${uploadResponse.status}`)
-    }
-
-    const finalKey = Array.isArray(key) ? key[0] : key
+    const finalKey = uploadTarget.key
 
     // Validate key is not empty and is a string
     if (!finalKey || typeof finalKey !== 'string' || finalKey.trim().length === 0) {
@@ -440,9 +427,7 @@ const generateInvoiceForOrderWebhook = async (
     }
 
     const trimmedKey = finalKey.trim()
-    console.log(
-      `✅ Invoice uploaded successfully for order ${order.order_number}: ${trimmedKey} (status: ${uploadResponse.status})`,
-    )
+    console.log(`✅ Invoice uploaded successfully for order ${order.order_number}: ${trimmedKey}`)
 
     await sendTaxInvoiceGeneratedEmail({
       order,

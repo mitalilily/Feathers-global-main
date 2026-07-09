@@ -272,6 +272,17 @@ export const downloadAndUploadToR2 = async ({
 
     const fileBuffer = Buffer.from(response.data)
 
+    const directUpload = await uploadBufferToStorage({
+      buffer: fileBuffer,
+      filename,
+      contentType,
+      userId,
+      folderKey,
+    })
+
+    console.log(`✅ File uploaded to R2 successfully: ${directUpload.key}`)
+    return directUpload.key
+
     // Upload to R2
     console.log(`📤 Uploading downloaded file to R2: ${filename}`)
     const { uploadUrl, key } = await presignUpload({

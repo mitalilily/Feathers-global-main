@@ -18,7 +18,7 @@ import {
   getAdminInvoicePreferences,
   getInvoicePreferences,
 } from './invoicePreferences.service'
-import { presignDownload, presignUpload } from './upload.service'
+import { presignDownload, uploadBufferToStorage } from './upload.service'
 
 interface GenerateInvoiceParams {
   startDate: Date
@@ -967,33 +967,31 @@ export const generateInvoiceForUser = async (
   })
 
   // Upload to R2
-  const pdfUpload = await presignUpload({
-    filename: `${invoiceNo}.pdf`,
-    contentType: 'application/pdf',
-    userId,
-    folderKey: 'invoices',
-  })
-  const csvUpload = await presignUpload({
-    filename: `${invoiceNo}.csv`,
-    contentType: 'text/csv',
-    userId,
-    folderKey: 'invoices',
-  })
-
   const pdfBuffer = fs.readFileSync(pdfPath)
   const csvBuffer = fs.readFileSync(csvPath)
 
-  await Promise.all([
-    fetch(pdfUpload.uploadUrl, { method: 'PUT', body: pdfBuffer }),
-    fetch(csvUpload.uploadUrl, { method: 'PUT', body: csvBuffer }),
+  const [pdfUpload, csvUpload] = await Promise.all([
+    uploadBufferToStorage({
+      buffer: pdfBuffer,
+      filename: `${invoiceNo}.pdf`,
+      contentType: 'application/pdf',
+      userId,
+      folderKey: 'invoices',
+    }),
+    uploadBufferToStorage({
+      buffer: csvBuffer,
+      filename: `${invoiceNo}.csv`,
+      contentType: 'text/csv',
+      userId,
+      folderKey: 'invoices',
+    }),
   ])
 
   // Extract order numbers from all orders
   const orderNumbers = allOrders.map((o) => o.order_number || o.order_id || '').filter(Boolean)
 
-  // Extract keys (presignUpload returns key as string, but handle array case just in case)
-  const pdfKey = Array.isArray(pdfUpload.key) ? pdfUpload.key[0] : pdfUpload.key
-  const csvKey = Array.isArray(csvUpload.key) ? csvUpload.key[0] : csvUpload.key
+  const pdfKey = pdfUpload.key
+  const csvKey = csvUpload.key
 
   // Save invoice (taxes already computed above)
   const [invoice] = await db

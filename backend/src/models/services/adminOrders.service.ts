@@ -1,4 +1,3 @@
-import axios from 'axios'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '../client'
 import { b2b_orders } from '../schema/b2bOrders'
@@ -17,7 +16,7 @@ import {
   loadInvoiceAssets,
   normalizePickupDetails,
 } from './invoiceHelpers'
-import { presignDownload, presignUpload } from './upload.service'
+import { presignDownload, uploadBufferToStorage } from './upload.service'
 import { resolveInvoiceNumber } from './invoiceNumber.service'
 import { fetchCombinedOrdersPage, fetchOrderUserMetadata } from './orderListing.service'
 import { recordNdrEvent } from './ndr.service'
@@ -314,19 +313,14 @@ export const regenerateOrderDocumentsServiceAdmin = async ({
       layout: ((prefs?.template as 'classic' | 'thermal') ?? 'classic'),
     })
 
-    const { uploadUrl, key } = await presignUpload({
+    const uploadTarget = await uploadBufferToStorage({
+      buffer: invoiceBuffer,
       filename: `invoice-${order.id}.pdf`,
       contentType: 'application/pdf',
       userId,
       folderKey: 'invoices',
     })
-    const finalUploadUrl = Array.isArray(uploadUrl) ? uploadUrl[0] : uploadUrl
-    await axios.put(finalUploadUrl, invoiceBuffer, {
-      headers: { 'Content-Type': 'application/pdf' },
-      validateStatus: (status) => status >= 200 && status < 300,
-      timeout: 60000,
-    })
-    const finalKey = Array.isArray(key) ? key[0] : key
+    const finalKey = uploadTarget.key
     if (!finalKey || typeof finalKey !== 'string') {
       throw new Error('Invoice upload key missing')
     }
