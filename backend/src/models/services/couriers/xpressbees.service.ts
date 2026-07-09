@@ -127,6 +127,9 @@ export class XpressbeesService {
 
   private static cachedConfig: XpressbeesConfig | null | undefined
   private static pincodeMasterCache = new Map<string, { expiresAt: number; raw: any }>()
+  private static authFailureCooldown:
+    | { fingerprint: string; message: string; expiresAt: number }
+    | null = null
 
   constructor(options: XpressbeesServiceOptions = {}) {
     this.runtimeConfigOverrides = options.configOverrides
@@ -139,6 +142,76 @@ export class XpressbeesService {
 
   private log(prefix: string, details: any) {
     console.log(`[Xpressbees] ${prefix}`, details)
+  }
+
+  private getAuthFailureCooldownMs() {
+    const configured = Number(process.env.XPRESSBEES_AUTH_FAILURE_COOLDOWN_MS || 10 * 60 * 1000)
+    return Number.isFinite(configured) && configured > 0 ? configured : 10 * 60 * 1000
+  }
+
+  private getAuthFingerprint() {
+    return JSON.stringify({
+      baseApi: this.normalizeBaseApi(this.baseApi),
+      apiToken: this.apiToken,
+      authBearer: this.authBearer,
+      username: this.username,
+      password: this.password,
+      secretKey: this.secretKey,
+      xbKey: this.xbKey,
+      xbAccessKey: this.xbAccessKey,
+    })
+  }
+
+  private getCachedAuthFailure() {
+    const cached = XpressbeesService.authFailureCooldown
+    if (!cached) return null
+
+    if (Date.now() >= cached.expiresAt) {
+      XpressbeesService.authFailureCooldown = null
+      return null
+    }
+
+    if (cached.fingerprint !== this.getAuthFingerprint()) {
+      XpressbeesService.authFailureCooldown = null
+      return null
+    }
+
+    return cached
+  }
+
+  private clearCachedAuthFailure() {
+    const cached = XpressbeesService.authFailureCooldown
+    if (cached?.fingerprint === this.getAuthFingerprint()) {
+      XpressbeesService.authFailureCooldown = null
+    }
+  }
+
+  private cacheAuthFailure(message: string) {
+    XpressbeesService.authFailureCooldown = {
+      fingerprint: this.getAuthFingerprint(),
+      message,
+      expiresAt: Date.now() + this.getAuthFailureCooldownMs(),
+    }
+  }
+
+  private shouldCacheAuthFailure(error: any, message: string) {
+    const status = Number(error?.response?.status || 0)
+    const combined = `${message} ${error?.response?.data?.message || ''} ${error?.message || ''}`
+      .trim()
+      .toLowerCase()
+
+    if ([400, 401, 403].includes(status)) {
+      return (
+        combined.includes('invalid email or password') ||
+        combined.includes('username/password') ||
+        combined.includes('login payload') ||
+        combined.includes('secretkey') ||
+        combined.includes('secret key') ||
+        combined.includes('credentials')
+      )
+    }
+
+    return combined.includes('secretkey') || combined.includes('secret key')
   }
 
   private sanitizeForLogs(value: any, keyPath = ''): any {
@@ -982,7 +1055,6 @@ export class XpressbeesService {
     ]
     const endpointCandidates = this.getConfiguredPathCandidates('XPRESSBEES_TOKEN_ENDPOINTS', [
       'https://userauthapis.xbees.in/api/auth/generateToken',
-      'http://stageusermanagementapi.xbees.in/api/auth/generateToken',
       this.tokenEndpoint,
       '/api/users/login',
       '/api/login',
@@ -997,6 +1069,14 @@ export class XpressbeesService {
     let authCredentialError: any = null
     const attemptedUrls: string[] = []
     const attemptedUrlSet = new Set<string>()
+    const cachedFailure = this.getCachedAuthFailure()
+    if (cachedFailure) {
+      this.log('Skipping token generation during auth failure cooldown', {
+        expiresInMs: Math.max(cachedFailure.expiresAt - Date.now(), 0),
+      })
+      throw new Error(cachedFailure.message)
+    }
+
     this.log('Generating API token', {
       baseCandidates,
       endpointCandidates,
@@ -1062,6 +1142,7 @@ export class XpressbeesService {
               this.apiToken = token
               this.tokenEndpoint = endpoint
               this.baseApi = baseURL
+              this.clearCachedAuthFailure()
               await this.persistGeneratedToken(token)
               this.log('Generated API token via login credentials', {
                 endpoint,
@@ -1113,12 +1194,15 @@ export class XpressbeesService {
     const secretKeyHint = this.secretKey
       ? ''
       : ' If your account uses https://userauthapis.xbees.in/api/auth/generateToken, save the Xpressbees Secret Key in courier credentials.'
+    const failureMessage = `Failed to generate Xpressbees API token. Tried ${uniqueAttemptedUrls.join(
+      ', ',
+    )}. ${reason}${secretKeyHint} Set XPRESSBEES_TOKEN_ENDPOINTS if your account uses a custom login path.`
 
-    throw new Error(
-      `Failed to generate Xpressbees API token. Tried ${uniqueAttemptedUrls.join(
-        ', ',
-      )}. ${reason}${secretKeyHint} Set XPRESSBEES_TOKEN_ENDPOINTS if your account uses a custom login path.`,
-    )
+    if (this.shouldCacheAuthFailure(failure, failureMessage)) {
+      this.cacheAuthFailure(failureMessage)
+    }
+
+    throw new Error(failureMessage)
   }
 
   async getApiToken(forceRefresh = false): Promise<string> {
