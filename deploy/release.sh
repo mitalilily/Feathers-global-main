@@ -238,7 +238,7 @@ NODE
 NODE_ENV=production npm run seed:basic-provider-ratecards
 npm run build
 BACKEND_PORT="$(
-  node -e "require('dotenv').config({ path: '.env.production' }); process.stdout.write(process.env.PORT || '5013')"
+  node -e "require('dotenv').config({ path: '.env.production' }); process.stdout.write(process.env.PORT || '5003')"
 )"
 if [ "$LEGACY_PM2_APP_NAME" != "$PM2_APP_NAME" ] && "$PM2_BIN" describe "$LEGACY_PM2_APP_NAME" >/dev/null 2>&1; then
   echo "Removing legacy PM2 app ${LEGACY_PM2_APP_NAME} before starting ${PM2_APP_NAME}"
