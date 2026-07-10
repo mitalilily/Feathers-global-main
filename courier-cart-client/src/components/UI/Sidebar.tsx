@@ -33,6 +33,7 @@ import { RiSettings2Line } from 'react-icons/ri'
 import { TbInvoice, TbReportAnalytics, TbTicket, TbTransactionRupee } from 'react-icons/tb'
 import { NavLink, useLocation } from 'react-router-dom'
 import { BRAND } from '../../config/brand'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import { isActive } from '../../utils/functions'
 
 export type Role = 'customer' | 'admin'
@@ -264,6 +265,7 @@ export default function Sidebar({
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null)
   const [hoveredItemText, setHoveredItemText] = useState<string | null>(null)
   const [expandedItemText, setExpandedItemText] = useState<string | null>(null)
+  const { canViewWallet, canUseRateCalculator } = useEmployeePermissions()
 
   useEffect(() => {
     setPinned(initialPinned)
@@ -279,8 +281,23 @@ export default function Sidebar({
   const shouldShowExpanded = pinned
 
   const filteredItems = useMemo(() => {
-    return navItems.filter((item) => item.roles.includes(role))
-  }, [role])
+    return navItems
+      .filter((item) => item.roles.includes(role))
+      .map((item) => {
+        if (!item.children?.length) return item
+
+        const children = item.children.filter((child) => {
+          if (child.path === '/billing/wallet_transactions') return canViewWallet
+          if (child.path === '/tools/rate_calculator') return canUseRateCalculator
+          return true
+        })
+
+        if (!children.length) return null
+
+        return { ...item, children }
+      })
+      .filter((item): item is NavItem => Boolean(item))
+  }, [canUseRateCalculator, canViewWallet, role])
 
   const handlePopoverOpen = (event: React.MouseEvent<HTMLButtonElement>, itemText: string) => {
     setAnchorEl(event.currentTarget)

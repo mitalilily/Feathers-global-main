@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { BiCheckCircle } from 'react-icons/bi'
 import { CiEdit } from 'react-icons/ci'
 import { useUpdatePickupAddress } from '../../hooks/Pickup/usePickupAddresses'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import type { HydratedPickup } from '../../types/generic.types'
 import CustomDrawer from '../UI/drawer/CustomDrawer'
 import CustomSwitch from '../UI/inputs/CustomSwitch'
@@ -31,6 +32,7 @@ const PickupAddressesList = ({
   onRowsPerPageChange,
 }: IPickupAddressListProps) => {
   const { mutate: updatePickupAddress } = useUpdatePickupAddress()
+  const { canCreateWarehouse, canEditWarehouse } = useEmployeePermissions()
   const theme = useTheme()
   const isXs = useMediaQuery(theme.breakpoints.down('sm'))
   const isSm = useMediaQuery(theme.breakpoints.between('sm', 'md'))
@@ -47,15 +49,18 @@ const PickupAddressesList = ({
   const [selectedAddress, setSelectedAddress] = useState<HydratedPickup | undefined>(undefined)
 
   const handleMakePrimary = (id: string) => {
+    if (!canEditWarehouse) return
     updatePickupAddress({ id, payload: { isPrimary: true } })
   }
 
   const handleEdit = (address: HydratedPickup) => {
+    if (!canEditWarehouse) return
     setSelectedAddress(address)
     setDrawerOpen(true)
   }
 
   const handleStatusToggle = (id: string, enabled: boolean) => {
+    if (!canEditWarehouse) return
     updatePickupAddress({ id, payload: { isPickupEnabled: enabled } })
   }
 
@@ -156,6 +161,7 @@ const PickupAddressesList = ({
           <CustomSwitch
             onChange={(event) => handleStatusToggle(row.pickupId, event?.target?.checked)}
             checked={Boolean(value)}
+            disabled={!canEditWarehouse}
           />
         </Stack>
       ),
@@ -184,6 +190,7 @@ const PickupAddressesList = ({
               size="small"
               variant="outlined"
               onClick={() => handleMakePrimary(row.pickupId)}
+              disabled={!canEditWarehouse}
               sx={{ textTransform: 'none', fontSize: '0.76rem' }}
             >
               Make Primary
@@ -193,6 +200,7 @@ const PickupAddressesList = ({
             size="small"
             variant="contained"
             onClick={() => handleEdit(row)}
+            disabled={!canEditWarehouse}
             startIcon={<CiEdit />}
             sx={{ textTransform: 'none', fontSize: '0.76rem', boxShadow: 'none' }}
           >
@@ -327,7 +335,7 @@ const PickupAddressesList = ({
 
       <CustomDrawer
         width={drawerWidth}
-        open={drawerOpen}
+        open={canCreateWarehouse && canEditWarehouse && drawerOpen}
         onClose={() => {
           setDrawerOpen(false)
           setSelectedAddress(undefined)

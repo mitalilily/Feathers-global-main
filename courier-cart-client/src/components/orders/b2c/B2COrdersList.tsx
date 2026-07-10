@@ -328,7 +328,13 @@ const B2COrdersList = () => {
     useRegenerateOrderDocuments()
   const queryClient = useQueryClient()
   const { mutateAsync: presignDownloads } = usePresignedDownloadMutation()
-  const { canCancelOrders, canExportOrders, canViewCustomerDetails } = useEmployeePermissions()
+  const {
+    canAddReturnOrders,
+    canCancelOrders,
+    canExportOrders,
+    canViewCustomerDetails,
+    canViewReturnOrders,
+  } = useEmployeePermissions()
   const { data: couriers } = useAllCouriersWithDetails()
   const { data: warehouses } = usePickupAddresses()
   const { mutateAsync: cancelShipment } = useCancelShipment()
@@ -1568,7 +1574,9 @@ const B2COrdersList = () => {
                   disabled: isRetryingRow || isManifestingRow || isCancellingRow,
                   loading: isRetryingRow,
                 })}
-              {(row.order_status || '').toLowerCase() === 'delivered' &&
+              {canViewReturnOrders &&
+                canAddReturnOrders &&
+                (row.order_status || '').toLowerCase() === 'delivered' &&
                 renderActionItem({
                   key: 'reverse',
                   icon: <MdKeyboardReturn />,
@@ -2189,7 +2197,7 @@ const B2COrdersList = () => {
         />
       )}
       <ReverseModal
-        open={Boolean(reverseOrder)}
+        open={canViewReturnOrders && canAddReturnOrders && Boolean(reverseOrder)}
         order={reverseOrder}
         onClose={() => setReverseOrder(null)}
         onConfirm={(payload) => {

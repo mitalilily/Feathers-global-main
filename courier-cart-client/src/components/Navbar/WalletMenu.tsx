@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { FaWallet } from 'react-icons/fa'
 import { FiPlus } from 'react-icons/fi'
 import { useAuth } from '../../context/auth/AuthContext'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import { useWalletBalance } from '../../hooks/useWalletBalance'
 import AddMoneyDialog from '../AddMoneyDialog'
 
@@ -18,8 +19,9 @@ const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const { walletBalance, setWalletBalance } = useAuth()
+  const { canRechargeWallet, canViewWallet } = useEmployeePermissions()
 
-  const { data, isLoading } = useWalletBalance(true)
+  const { data, isLoading } = useWalletBalance(canViewWallet)
 
   // ✅ Only set balance in context after render
   useEffect(() => {
@@ -31,6 +33,13 @@ const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
       setWalletBalance(0)
     }
   }, [data, setWalletBalance])
+
+  if (!canViewWallet) return null
+
+  const handleOpen = () => {
+    if (!canRechargeWallet) return
+    setDialogOpen(true)
+  }
 
   return (
     <>
@@ -55,7 +64,7 @@ const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
               transform: 'translateY(-2px)',
             },
           }}
-          onClick={() => setDialogOpen(true)}
+          onClick={handleOpen}
         >
           {iconOverride || <FaWallet size={16} />}
         </Box>
@@ -82,7 +91,7 @@ const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
               transform: 'translateY(-2px)',
             },
           }}
-          onClick={() => setDialogOpen(true)}
+          onClick={handleOpen}
         >
           <Box
             sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.8, sm: 1.2 }, minWidth: 0 }}
@@ -116,56 +125,54 @@ const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
               </Typography>
             </Box>
           </Box>
-          <Button
-            size="small"
-            startIcon={<FiPlus size={14} />}
-            onClick={(e) => {
-              e.stopPropagation()
-              setDialogOpen(true)
-            }}
-            sx={{
-              height: 32,
-              minHeight: 32,
-              px: 1.2,
-              borderRadius: '10px',
-              textTransform: 'none',
-              fontWeight: 700,
-              fontSize: '0.75rem',
-
-              color: '#fff',
-              background: `black`,
-
-              boxShadow: '0 6px 14px rgba(217, 4, 22, 0.18)',
-              transition: 'all 0.18s ease',
-
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-
-              '& .MuiButton-startIcon': {
-                marginRight: 0.6,
-              },
-
-              '&:hover': {
-                transform: 'translateY(-1px)',
-                boxShadow: '0 10px 20px rgba(217, 4, 22, 0.25)',
-                background: `linear-gradient(135deg, #B40312 0%, #8F0210 100%)`,
-              },
-
-              '&:active': {
-                transform: 'translateY(0px)',
-              },
-            }}
-          >
-            Add Balance
-          </Button>
+          {canRechargeWallet ? (
+            <Button
+              size="small"
+              startIcon={<FiPlus size={14} />}
+              onClick={(e) => {
+                e.stopPropagation()
+                setDialogOpen(true)
+              }}
+              sx={{
+                height: 32,
+                minHeight: 32,
+                px: 1.2,
+                borderRadius: '10px',
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: '0.75rem',
+                color: '#fff',
+                background: `black`,
+                boxShadow: '0 6px 14px rgba(217, 4, 22, 0.18)',
+                transition: 'all 0.18s ease',
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+                '& .MuiButton-startIcon': {
+                  marginRight: 0.6,
+                },
+                '&:hover': {
+                  transform: 'translateY(-1px)',
+                  boxShadow: '0 10px 20px rgba(217, 4, 22, 0.25)',
+                  background: `linear-gradient(135deg, #B40312 0%, #8F0210 100%)`,
+                },
+                '&:active': {
+                  transform: 'translateY(0px)',
+                },
+              }}
+            >
+              Add Balance
+            </Button>
+          ) : null}
         </Box>
       )}
 
-      <AddMoneyDialog
-        currentBalance={walletBalance ?? 0}
-        open={dialogOpen}
-        setOpen={setDialogOpen}
-      />
+      {canRechargeWallet ? (
+        <AddMoneyDialog
+          currentBalance={walletBalance ?? 0}
+          open={dialogOpen}
+          setOpen={setDialogOpen}
+        />
+      ) : null}
     </>
   )
 }

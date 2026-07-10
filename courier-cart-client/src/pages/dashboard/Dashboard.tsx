@@ -25,6 +25,7 @@ import QuickStatsCards from '../../components/dashboard/QuickStatsCards'
 import RecentActivityCard from '../../components/dashboard/RecentActivityCard'
 import TodaysOperationsCard from '../../components/dashboard/TodaysOperationsCard'
 import TopDestinationsCard from '../../components/dashboard/TopDestinationsCard'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import { useMerchantDashboardStats } from '../../hooks/useDashboard'
 import { useDashboardPreferences } from '../../hooks/useDashboardPreferences'
 
@@ -57,6 +58,7 @@ const CARD_SHADOW = '0 2px 12px rgba(15, 23, 42, 0.06)'
 export default function Dashboard() {
   const { data: stats, isLoading, error, refetch, isRefetching } = useMerchantDashboardStats()
   const { data: preferences } = useDashboardPreferences()
+  const { canViewDashboardWalletBalance } = useEmployeePermissions()
   const [ChartComponent, setChartComponent] = useState<
     typeof import('react-apexcharts').default | null
   >(null)
@@ -153,7 +155,7 @@ export default function Dashboard() {
       })
     }
 
-    if (financial.walletBalance < 1000) {
+    if (canViewDashboardWalletBalance && financial.walletBalance < 1000) {
       recs.push({
         message: 'Low wallet balance. Recharge to avoid service interruptions',
         action: 'Recharge Wallet',
@@ -181,14 +183,27 @@ export default function Dashboard() {
     }
 
     return recs
-  }, [actions.ndrCount, actions.rtoCount, financial.walletBalance, actions.pendingInvoices, todayOps.pending])
+  }, [
+    actions.ndrCount,
+    actions.pendingInvoices,
+    actions.rtoCount,
+    canViewDashboardWalletBalance,
+    financial.walletBalance,
+    todayOps.pending,
+  ])
 
   // Memoized widget visibility
   const visibleWidgetOrder = useMemo(() => {
     const order = preferences?.widgetOrder || DEFAULT_WIDGETS
     const visibility = preferences?.widgetVisibility || {}
-    return order.filter((widgetId) => visibility[widgetId] !== false)
-  }, [preferences])
+    return order.filter((widgetId) => {
+      if (widgetId === 'financialHealth' && !canViewDashboardWalletBalance) {
+        return false
+      }
+
+      return visibility[widgetId] !== false
+    })
+  }, [canViewDashboardWalletBalance, preferences])
 
   // Memoized widget props
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

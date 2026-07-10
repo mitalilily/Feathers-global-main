@@ -13,6 +13,7 @@ import { MdOutlineRequestQuote, MdPriorityHigh, MdSecurity } from 'react-icons/m
 import { PiPassword } from 'react-icons/pi'
 import { RiBankFill } from 'react-icons/ri'
 import { useNavigate } from 'react-router-dom'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 
 type SettingItem = {
   title: string
@@ -148,6 +149,12 @@ function SettingTile({ item, onOpen }: { item: SettingItem; onOpen: () => void }
 
 export default function SettingsPage() {
   const navigate = useNavigate()
+  const { canViewWarehouse, isEmployee } = useEmployeePermissions()
+  const visibleSettings = allSettings.filter((item) => {
+    if (item.key === '/settings/manage_pickups') return canViewWarehouse
+    if (item.key === '/settings/users_management') return !isEmployee
+    return true
+  })
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 2.2 } }}>
@@ -164,7 +171,7 @@ export default function SettingsPage() {
 
         {/* Settings Grid */}
         <Grid container spacing={2}>
-          {allSettings.map((item) => (
+          {visibleSettings.map((item) => (
             <Grid key={item.key} size={{ xs: 12, sm: 6, lg: 4 }}>
               <SettingTile item={item} onOpen={() => navigate(item.key)} />
             </Grid>

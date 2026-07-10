@@ -2,6 +2,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import RequireAuth from '../components/auth/wrapper/RequireAuth'
+import RequireEmployeePermission from '../components/auth/wrapper/RequireEmployeePermission'
 import RequireMerchantReady from '../components/auth/wrapper/RequireMerchantReady'
 import RequireOnboard from '../components/auth/wrapper/RequireOnboard'
 import Layout from '../components/UI/Layout'
@@ -146,8 +147,22 @@ export default function AppRoutes() {
             }
           >
             <Route path="/settings" element={<Settings />} />
-            <Route path="/settings/manage_pickups" element={<PickupAddresses />} />
-            <Route path="/billing/wallet_transactions" element={<WalletTransactions />} />
+            <Route
+              path="/settings/manage_pickups"
+              element={
+                <RequireEmployeePermission permission="warehouse.viewWarehouse">
+                  <PickupAddresses />
+                </RequireEmployeePermission>
+              }
+            />
+            <Route
+              path="/billing/wallet_transactions"
+              element={
+                <RequireEmployeePermission permission="wallet.viewWallet">
+                  <WalletTransactions />
+                </RequireEmployeePermission>
+              }
+            />
             <Route path="/billing/invoice_management" element={<Invoices />} />
             <Route path="/orders/list" element={<Orders />} />
             <Route
@@ -186,7 +201,14 @@ export default function AppRoutes() {
             </Route>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/tools/rate_card" element={<RateCard />} />
-            <Route path="/tools/rate_calculator" element={<RateCalculator />} />
+            <Route
+              path="/tools/rate_calculator"
+              element={
+                <RequireEmployeePermission permission="tools.shippingChargeRateCalculator">
+                  <RateCalculator />
+                </RequireEmployeePermission>
+              }
+            />
             <Route path="/tools/order_tracking" element={<OrderTrackingForm />} />
             <Route path="/support/tickets" element={<SupportTicketsPage />} />
             <Route path="/support/tickets/:id" element={<TicketDetailsPage />} />

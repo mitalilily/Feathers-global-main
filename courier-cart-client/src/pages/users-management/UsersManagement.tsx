@@ -1,12 +1,19 @@
 import { Button } from '@mui/material'
 import { useState } from 'react'
 import { FaUserPlus } from 'react-icons/fa'
+import { Navigate } from 'react-router-dom'
 import AdminPageShell from '../../components/admin/AdminPageShell'
 import UserForm from '../../components/settings/user-management/UserForm'
 import UsersList from '../../components/settings/user-management/UsersList'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 
 const UsersManagement = () => {
   const [openDialog, setOpenDialog] = useState(false)
+  const { isEmployee } = useEmployeePermissions()
+
+  if (isEmployee) {
+    return <Navigate to="/home" replace />
+  }
 
   return (
     <>

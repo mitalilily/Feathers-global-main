@@ -1,6 +1,7 @@
 import { Box, Button, Container, Stack, Tab, Tabs, Typography } from '@mui/material'
 import { useEffect, useState, type SyntheticEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import B2BOrderForm from './b2b/B2BOrderForm'
 import B2COrderFormSteps from './b2c/B2COrderForm'
 import ReversePickupForm from './reverse/ReversePickupForm'
@@ -13,6 +14,7 @@ const CreateOrderWrapper = () => {
   const requestedType = getRequestedOrderType(searchParams.get('type'))
   const [activeTab, setActiveTab] = useState<'b2c' | 'b2b'>(requestedType)
   const [pickupMode, setPickupMode] = useState<'forward' | 'reverse'>('forward')
+  const { canAddReturnOrders, canViewReturnOrders } = useEmployeePermissions()
 
   useEffect(() => {
     setActiveTab(requestedType)
@@ -108,24 +110,27 @@ const CreateOrderWrapper = () => {
                     >
                       Forward Order
                     </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => setPickupMode('reverse')}
-                      sx={{
-                        textTransform: 'none',
-                        fontWeight: 700,
-                        borderRadius: 999,
-                        px: 2,
-                      }}
-                    >
-                      Reverse Pickup
-                    </Button>
+                    {canViewReturnOrders ? (
+                      <Button
+                        variant="outlined"
+                        onClick={() => canAddReturnOrders && setPickupMode('reverse')}
+                        disabled={!canAddReturnOrders}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 700,
+                          borderRadius: 999,
+                          px: 2,
+                        }}
+                      >
+                        Reverse Pickup
+                      </Button>
+                    ) : null}
                   </Stack>
                 </Box>
               ) : null}
 
               <Box sx={{ flex: 1, minHeight: 0 }}>
-                {pickupMode === 'forward' ? (
+                {pickupMode === 'forward' || !canViewReturnOrders || !canAddReturnOrders ? (
                   <B2COrderFormSteps />
                 ) : (
                   <ReversePickupForm

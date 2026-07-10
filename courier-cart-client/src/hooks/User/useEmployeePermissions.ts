@@ -1,29 +1,44 @@
 import { useAuth } from '../../context/auth/AuthContext'
-
-const getEmployeeOrderAccess = (moduleAccess: Record<string, any> | null | undefined) => {
-  if (!moduleAccess || typeof moduleAccess !== 'object') return {}
-  const ordersAccess = moduleAccess.orders
-  return ordersAccess && typeof ordersAccess === 'object' ? ordersAccess : {}
-}
+import {
+  hasEmployeePermission,
+  mergeEmployeeModuleAccess,
+  type EmployeeModuleAccess,
+} from '../../constants/employeePermissions'
 
 export const useEmployeePermissions = () => {
   const { user } = useAuth()
 
   const isEmployee = user.role === 'employee'
-  const orderAccess = getEmployeeOrderAccess(user.moduleAccess as Record<string, any> | null)
+  const moduleAccess = mergeEmployeeModuleAccess(user.moduleAccess as EmployeeModuleAccess | null)
 
   const allowForNonEmployees = (value: boolean | undefined) =>
     isEmployee ? value === true : true
+
+  const canAccess = (path: string) =>
+    isEmployee
+      ? hasEmployeePermission(moduleAccess, path)
+      : true
 
   return {
     isEmployee,
     employeeRole: user.employeeRole ?? null,
     employeeIsActive: user.employeeIsActive ?? null,
-    canCancelOrders: allowForNonEmployees(orderAccess.cancelOrders),
-    canExportOrders: allowForNonEmployees(orderAccess.exportOrders),
-    canExportCustomerDetails: allowForNonEmployees(orderAccess.exportCustomerDetails),
-    canViewCustomerDetails: allowForNonEmployees(orderAccess.viewCustomerDetails),
-    canChangePaymentMode: allowForNonEmployees(orderAccess.changePaymentMode),
+    moduleAccess,
+    canAccess,
+    canViewDashboardWalletBalance: canAccess('dashboard.walletBalance'),
+    canViewWarehouse: canAccess('warehouse.viewWarehouse'),
+    canEditWarehouse: canAccess('warehouse.editWarehouse'),
+    canCreateWarehouse: canAccess('warehouse.createWarehouse'),
+    canViewWallet: canAccess('wallet.viewWallet'),
+    canRechargeWallet: canAccess('wallet.rechargeWallet'),
+    canUseRateCalculator: canAccess('tools.shippingChargeRateCalculator'),
+    canViewReturnOrders: canAccess('returnOrders.viewReturnOrder'),
+    canAddReturnOrders: canAccess('returnOrders.addReturnOrder'),
+    canCancelOrders: allowForNonEmployees(moduleAccess.orders.cancelOrders),
+    canExportOrders: allowForNonEmployees(moduleAccess.orders.exportOrders),
+    canExportCustomerDetails: allowForNonEmployees(moduleAccess.orders.exportCustomerDetails),
+    canViewCustomerDetails: allowForNonEmployees(moduleAccess.orders.viewCustomerDetails),
+    canChangePaymentMode: allowForNonEmployees(moduleAccess.orders.changePaymentMode),
   }
 }
 

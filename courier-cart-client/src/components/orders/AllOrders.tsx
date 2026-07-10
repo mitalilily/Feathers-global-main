@@ -56,6 +56,7 @@ import {
 } from '../../hooks/Orders/useOrders'
 import { usePickupAddresses } from '../../hooks/Pickup/usePickupAddresses'
 import { usePresignedDownloadMutation } from '../../hooks/Uploads/usePresignedDownloadUrls'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import { FilterBar, type FilterField } from '../FilterBar'
 import { SupportTicketForm } from '../support/SupportTicketForm'
 import StatusChip from '../UI/chip/StatusChip'
@@ -233,6 +234,7 @@ const AllOrders = () => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const navigate = useNavigate()
+  const { canAddReturnOrders, canViewReturnOrders } = useEmployeePermissions()
 
   const [searchParams] = useSearchParams()
   const [page, setPage] = useState(1)
@@ -1310,6 +1312,8 @@ const AllOrders = () => {
               loading: isRetryingRow,
             })}
           {showB2CActions &&
+            canViewReturnOrders &&
+            canAddReturnOrders &&
             getOrderStatusKey(row) === 'delivered' &&
             renderActionItem({
               key: 'reverse',
@@ -2290,7 +2294,7 @@ const AllOrders = () => {
       )}
 
       <ReverseModal
-        open={Boolean(reverseOrder)}
+        open={canViewReturnOrders && canAddReturnOrders && Boolean(reverseOrder)}
         order={reverseOrder}
         onClose={() => setReverseOrder(null)}
         onConfirm={(payload) => {

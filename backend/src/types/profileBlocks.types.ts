@@ -35,6 +35,25 @@ export interface EmployeeOrderAccess {
 }
 
 export interface EmployeeModuleAccess {
+  dashboard?: {
+    walletBalance?: boolean;
+  };
+  warehouse?: {
+    viewWarehouse?: boolean;
+    editWarehouse?: boolean;
+    createWarehouse?: boolean;
+  };
+  wallet?: {
+    viewWallet?: boolean;
+    rechargeWallet?: boolean;
+  };
+  tools?: {
+    shippingChargeRateCalculator?: boolean;
+  };
+  returnOrders?: {
+    viewReturnOrder?: boolean;
+    addReturnOrder?: boolean;
+  };
   orders?: EmployeeOrderAccess;
   [key: string]: any;
 }

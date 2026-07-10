@@ -18,6 +18,7 @@ import {
   useImportPickupAddresses,
   usePickupAddresses,
 } from '../../hooks/Pickup/usePickupAddresses'
+import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import type { HydratedPickup } from '../../types/generic.types'
 
 const filterFields: FilterField[] = [
@@ -95,6 +96,7 @@ const PickupAddresses = () => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const queryClient = useQueryClient()
+  const { canCreateWarehouse } = useEmployeePermissions()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [page, setPage] = useState(0)
@@ -184,18 +186,22 @@ const PickupAddresses = () => {
         title="Pickups"
         description=""
         actions={[
-          {
-            label: 'Add Pickup',
-            onClick: handleOpenAddDrawer,
-            icon: <FiPlus size={18} />,
-            variant: 'contained',
-          },
-          {
-            label: isImporting ? 'Importing...' : 'Import CSV',
-            onClick: handleImport,
-            icon: <BiUpload />,
-            variant: 'outlined',
-          },
+          ...(canCreateWarehouse
+            ? [
+                {
+                  label: 'Add Pickup',
+                  onClick: handleOpenAddDrawer,
+                  icon: <FiPlus size={18} />,
+                  variant: 'contained' as const,
+                },
+                {
+                  label: isImporting ? 'Importing...' : 'Import CSV',
+                  onClick: handleImport,
+                  icon: <BiUpload />,
+                  variant: 'outlined' as const,
+                },
+              ]
+            : []),
           {
             label: isExporting ? 'Exporting...' : 'Export CSV',
             onClick: handleExport,
@@ -248,12 +254,12 @@ const PickupAddresses = () => {
       <UploadPickupCSVModal
         onClose={() => setImportDialogOpen(false)}
         onConfirm={confirmImport}
-        open={importDialogOpen}
+        open={canCreateWarehouse && importDialogOpen}
         loading={isImporting}
       />
 
       <CustomDrawer
-        open={drawerOpen}
+        open={canCreateWarehouse && drawerOpen}
         onClose={() => setDrawerOpen(false)}
         width={isMobile ? '100%' : 1100}
         anchor="right"

@@ -1,7 +1,23 @@
-import { Box, Chip, Paper, Typography } from '@mui/material'
+import {
+  alpha,
+  Box,
+  Checkbox,
+  Divider,
+  FormControlLabel,
+  Paper,
+  Stack,
+  Typography,
+} from '@mui/material'
 import React, { useEffect } from 'react'
 import { Controller, useForm, type SubmitHandler } from 'react-hook-form'
 import type { IEmployeePayload } from '../../../api/employee.service'
+import {
+  DEFAULT_EMPLOYEE_MODULE_ACCESS,
+  EMPLOYEE_PERMISSION_GROUPS,
+  mergeEmployeeModuleAccess,
+  type EmployeeModuleAccess,
+  type EmployeePermissionGroupKey,
+} from '../../../constants/employeePermissions'
 import { useCreateEmployee, useUpdateEmployee } from '../../../hooks/User/useUserManagement'
 import { glassStyles } from '../../UI/accordion/FormSectionAccordion'
 import CustomIconLoadingButton from '../../UI/button/CustomLoadingButton'
@@ -17,15 +33,7 @@ type FormValues = {
   password: string
   confirmPassword: string
   role: string
-  access: {
-    orders: {
-      cancelOrders: boolean
-      exportOrders: boolean
-      exportCustomerDetails: boolean
-      viewCustomerDetails: boolean
-      changePaymentMode: boolean
-    }
-  }
+  access: EmployeeModuleAccess
 }
 
 interface UserFormProps {
@@ -39,6 +47,7 @@ const UserForm: React.FC<UserFormProps> = ({ open, onClose, defaultValues }) => 
   const {
     handleSubmit,
     control,
+    setValue,
     watch,
     reset,
     formState: { errors },
@@ -50,15 +59,7 @@ const UserForm: React.FC<UserFormProps> = ({ open, onClose, defaultValues }) => 
       password: '',
       confirmPassword: '',
       role: 'employee',
-      access: {
-        orders: {
-          cancelOrders: false,
-          exportOrders: false,
-          exportCustomerDetails: false,
-          viewCustomerDetails: false,
-          changePaymentMode: false,
-        },
-      },
+      access: DEFAULT_EMPLOYEE_MODULE_ACCESS,
     },
   })
 
@@ -101,28 +102,41 @@ const UserForm: React.FC<UserFormProps> = ({ open, onClose, defaultValues }) => 
     if (defaultValues) {
       reset({
         ...defaultValues,
-        access: (defaultValues.moduleAccess as FormValues['access']) || {
-          orders: {
-            cancelOrders: false,
-            exportOrders: false,
-            exportCustomerDetails: false,
-            viewCustomerDetails: false,
-            changePaymentMode: false,
-          },
-        },
+        access: mergeEmployeeModuleAccess(defaultValues.moduleAccess as EmployeeModuleAccess | null),
         password: '',
         confirmPassword: '',
       })
     }
   }, [defaultValues, reset])
 
-  const orderPermissions = [
-    { key: 'cancelOrders', label: 'Cancel Orders' },
-    { key: 'exportOrders', label: 'Export Orders' },
-    { key: 'exportCustomerDetails', label: 'Export Customer Details' },
-    { key: 'viewCustomerDetails', label: 'View Customer Details' },
-    { key: 'changePaymentMode', label: 'Change Payment Mode' },
-  ] as const
+  const access = watch('access')
+  const mergedAccess = mergeEmployeeModuleAccess(access)
+
+  const isAllSelected = EMPLOYEE_PERMISSION_GROUPS.every((group) =>
+    group.permissions.every((permission) => {
+      const groupAccess = mergedAccess[group.key] as Record<string, boolean> | undefined
+      return groupAccess?.[permission.key] === true
+    }),
+  )
+
+  const toggleGroup = (groupKey: EmployeePermissionGroupKey, nextValue: boolean) => {
+    const currentGroup = {
+      ...(mergedAccess[groupKey] as Record<string, boolean>),
+    }
+
+    const group = EMPLOYEE_PERMISSION_GROUPS.find((item) => item.key === groupKey)
+    group?.permissions.forEach((permission) => {
+      currentGroup[permission.key] = nextValue
+    })
+
+    setValue(`access.${groupKey}`, currentGroup, { shouldDirty: true })
+  }
+
+  const toggleAllPermissions = (nextValue: boolean) => {
+    EMPLOYEE_PERMISSION_GROUPS.forEach((group) => {
+      toggleGroup(group.key, nextValue)
+    })
+  }
 
   return (
     <CustomDialog
@@ -245,49 +259,133 @@ const UserForm: React.FC<UserFormProps> = ({ open, onClose, defaultValues }) => 
             elevation={3}
           >
             <PageHeading title="Permissions" fontSize={18} />
-            <Box mt={2} display="flex" flexDirection="column" gap={1}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                Orders:
-              </Typography>
+            <Stack spacing={2.2} mt={2}>
               <Box
-                display="grid"
-                gridTemplateColumns={{
-                  xs: 'repeat(2, 1fr)',
-                  sm: 'repeat(3, 1fr)',
-                  md: 'repeat(4, 1fr)',
-                  lg: 'repeat(5, 1fr)',
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  background: alpha('#047b85', 0.04),
+                  border: `1px solid ${alpha('#047b85', 0.12)}`,
                 }}
-                gap={0.8}
               >
-                {orderPermissions.map((perm) => (
-                  <Controller
-                    key={perm.key}
-                    name={`access.orders.${perm.key}`}
-                    control={control}
-                    render={({ field }) => (
-                      <Chip
-                        label={perm.label}
-                        size="small"
-                        clickable
-                        color={field.value ? 'primary' : 'default'}
-                        variant={field.value ? 'filled' : 'outlined'}
-                        onClick={() => field.onChange(!field.value)}
-                        sx={{
-                          fontWeight: 500,
-                          fontSize: '0.75rem',
-                          transition: 'all 0.15s',
-                          justifySelf: 'start',
-                          '&:hover': {
-                            transform: 'scale(1.05)',
-                            boxShadow: '0 1px 6px rgba(0,0,0,0.15)',
-                          },
-                        }}
-                      />
-                    )}
-                  />
-                ))}
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={isAllSelected}
+                      indeterminate={!isAllSelected && EMPLOYEE_PERMISSION_GROUPS.some((group) =>
+                        group.permissions.some((permission) => {
+                          const groupAccess = mergedAccess[group.key] as Record<string, boolean> | undefined
+                          return groupAccess?.[permission.key] === true
+                        }),
+                      )}
+                      onChange={(event) => toggleAllPermissions(event.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography sx={{ fontWeight: 800, color: '#17171A' }}>Select all permissions</Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: '#6B7280' }}>
+                        Quickly grant or revoke access across every module.
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ m: 0, alignItems: 'flex-start' }}
+                />
               </Box>
-            </Box>
+
+              {EMPLOYEE_PERMISSION_GROUPS.map((group, groupIndex) => {
+                const groupAccess = mergedAccess[group.key] as Record<string, boolean> | undefined
+                const selectedCount = group.permissions.filter(
+                  (permission) => groupAccess?.[permission.key] === true,
+                ).length
+                const allSelected = selectedCount === group.permissions.length
+                const partiallySelected = selectedCount > 0 && !allSelected
+
+                return (
+                  <React.Fragment key={group.key}>
+                    {groupIndex > 0 ? <Divider /> : null}
+                    <Box>
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        justifyContent="space-between"
+                        alignItems={{ xs: 'flex-start', md: 'center' }}
+                        gap={1}
+                        mb={1.4}
+                      >
+                        <Box>
+                          <Typography sx={{ fontSize: '0.96rem', fontWeight: 800, color: '#17171A' }}>
+                            {group.label}
+                          </Typography>
+                          <Typography sx={{ fontSize: '0.78rem', color: '#6B7280' }}>
+                            {selectedCount} of {group.permissions.length} permission
+                            {group.permissions.length > 1 ? 's' : ''} enabled
+                          </Typography>
+                        </Box>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={allSelected}
+                              indeterminate={partiallySelected}
+                              onChange={(event) => toggleGroup(group.key, event.target.checked)}
+                            />
+                          }
+                          label="Select all"
+                          sx={{ mr: 0 }}
+                        />
+                      </Stack>
+
+                      <Box
+                        display="grid"
+                        gridTemplateColumns={{
+                          xs: '1fr',
+                          sm: 'repeat(2, minmax(0, 1fr))',
+                          lg: 'repeat(3, minmax(0, 1fr))',
+                        }}
+                        gap={1.1}
+                      >
+                        {group.permissions.map((permission) => (
+                          <Controller
+                            key={`${group.key}.${permission.key}`}
+                            name={`access.${group.key}.${permission.key}` as const}
+                            control={control}
+                            render={({ field }) => (
+                              <Paper
+                                variant="outlined"
+                                sx={{
+                                  p: 1.25,
+                                  borderRadius: 2,
+                                  borderColor: field.value ? alpha('#047b85', 0.35) : 'rgba(17, 17, 19, 0.10)',
+                                  background: field.value
+                                    ? alpha('#047b85', 0.05)
+                                    : 'rgba(255,255,255,0.86)',
+                                }}
+                              >
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox
+                                      checked={Boolean(field.value)}
+                                      onChange={(event) => field.onChange(event.target.checked)}
+                                    />
+                                  }
+                                  label={
+                                    <Box>
+                                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: '#17171A' }}>
+                                        {permission.label}
+                                      </Typography>
+                                    </Box>
+                                  }
+                                  sx={{ m: 0, width: '100%', alignItems: 'flex-start' }}
+                                />
+                              </Paper>
+                            )}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  </React.Fragment>
+                )
+              })}
+            </Stack>
           </Paper>
         </Box>
       </form>

@@ -7,25 +7,18 @@ import {
   toggleEmployeeStatusController,
   updateEmployee,
 } from '../controllers/employee.controller'
+import { requireNonEmployeeUser } from '../middlewares/requireEmployeeModuleAccess'
 import { requireAuth } from '../middlewares/requireAuth'
 
 const router = Router()
 
-// Get employees list by admin
-router.get('/users', requireAuth, getEmployeesByAdmin)
+router.use(requireAuth, requireNonEmployeeUser)
 
-// Get single employee
-router.get('/:id', requireAuth, getEmployee)
-
-// Create employee
-router.post('/create', requireAuth, createEmployee)
-
-router.patch('/update/:id', requireAuth, updateEmployee)
-
-// Delete employee
-router.delete('/delete/:id', requireAuth, deleteEmployee)
-
-// ✅ Toggle employee status (isActive / isOnline)
-router.patch('/:id/toggle', requireAuth, toggleEmployeeStatusController)
+router.get('/users', getEmployeesByAdmin)
+router.get('/:id', getEmployee)
+router.post('/create', createEmployee)
+router.patch('/update/:id', updateEmployee)
+router.delete('/delete/:id', deleteEmployee)
+router.patch('/:id/toggle', toggleEmployeeStatusController)
 
 export default router
