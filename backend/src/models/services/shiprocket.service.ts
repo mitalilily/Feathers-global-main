@@ -36,7 +36,7 @@ import {
 } from '../../utils/delhiveryCourier'
 import { getAmazonOrderLabelReference } from '../../utils/orderLabels'
 import { parseDelhiveryTrackingTimestamp } from '../../utils/delhiveryTrackingTime'
-import { getBucketName } from '../../utils/functions'
+import { getBucketName, normalizeIndianPhoneForBooking } from '../../utils/functions'
 import { db } from '../client'
 import { b2b_orders } from '../schema/b2bOrders'
 import { b2c_orders } from '../schema/b2cOrders'
@@ -6944,6 +6944,13 @@ export const createB2CShipmentService = async (
     }
   }
 
+  if (params.consignee) {
+    const normalizedConsigneePhone = normalizeIndianPhoneForBooking(params.consignee.phone)
+    if (normalizedConsigneePhone) {
+      params.consignee.phone = normalizedConsigneePhone
+    }
+  }
+
   const requiredConsigneeFields = ['name', 'address', 'city', 'state', 'pincode', 'phone'] as const
   const consignee = params.consignee || ({} as ShipmentParams['consignee'])
   const missingConsigneeFields = requiredConsigneeFields.filter(
@@ -9198,7 +9205,11 @@ export const bookExistingB2COrderWithCourierService = async (
       state: consignee?.state ?? existingOrder.state ?? '',
       country: consignee?.country ?? existingOrder.country ?? 'India',
       pincode: consignee?.pincode ?? existingOrder.pincode ?? '',
-      phone: consignee?.phone ?? existingOrder.buyer_phone ?? '',
+      phone:
+        normalizeIndianPhoneForBooking(consignee?.phone ?? existingOrder.buyer_phone) ||
+        consignee?.phone ||
+        existingOrder.buyer_phone ||
+        '',
       email: consignee?.email || existingOrder.buyer_email || undefined,
     },
     pickup: {

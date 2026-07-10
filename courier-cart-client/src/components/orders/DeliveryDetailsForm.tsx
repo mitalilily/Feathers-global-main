@@ -118,14 +118,19 @@ const DeliveryDetailsForm = ({
             }}
           >
             <Controller
-              name={fieldItem.name as keyof (B2CFormData & B2BFormData)}
-              control={control}
+              name={fieldItem.name as any}
+              control={control as any}
               rules={{
                 ...(fieldItem.name !== 'gstin' && fieldItem.name !== 'buyerEmail' // 👈 skip required for buyerEmail
                   ? { required: `${fieldItem.label} is required` }
                   : {}),
                 ...(fieldItem.name === 'buyerPhone' && {
-                  pattern: { value: /^[0-9]{10}$/, message: 'Enter valid 10-digit phone' },
+                  validate: (value) => {
+                    const digits = String(value ?? '').replace(/\D/g, '')
+                    return /^(91)?\d{10}$/.test(digits)
+                      ? true
+                      : 'Enter valid 10-digit phone or +91 number'
+                  },
                 }),
                 ...(fieldItem.name === 'pincode' && {
                   pattern: { value: /^\d{6}$/, message: 'Enter 6-digit pincode' },
