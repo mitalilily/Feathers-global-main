@@ -6261,6 +6261,47 @@ async function updateExistingB2COrderWithShipment({
   return updatedOrder
 }
 
+const syncShopifyAfterB2CBooking = async (
+  orderId: string | undefined,
+  source = 'courier-booking',
+) => {
+  if (!orderId) return null
+
+  const [freshOrder] = await db
+    .select()
+    .from(b2c_orders)
+    .where(eq(b2c_orders.id, orderId))
+    .limit(1)
+
+  if (!freshOrder) return null
+
+  const providerMeta =
+    freshOrder.provider_meta &&
+    typeof freshOrder.provider_meta === 'object' &&
+    !Array.isArray(freshOrder.provider_meta)
+      ? (freshOrder.provider_meta as Record<string, any>)
+      : {}
+  const isShopifyOrder =
+    String(freshOrder.order_id || '').startsWith('shopify_') ||
+    String(providerMeta.source || '').toLowerCase() === 'shopify' ||
+    String(providerMeta.shopify_order_id || '').trim().length > 0
+
+  if (!isShopifyOrder) return freshOrder
+
+  const { syncShopifyStatusForLocalOrder } = await import('./shopify.service')
+  await syncShopifyStatusForLocalOrder(freshOrder, db, { source }).catch((err: any) => {
+    console.warn('Shopify status sync skipped after courier booking:', err?.message || err)
+  })
+
+  const [syncedOrder] = await db
+    .select()
+    .from(b2c_orders)
+    .where(eq(b2c_orders.id, orderId))
+    .limit(1)
+
+  return syncedOrder || freshOrder
+}
+
 // Main service function
 export const createB2CShipmentService = async (
   params: ShipmentParams,
@@ -9058,7 +9099,9 @@ export const createB2CShipmentService = async (
           )
         })
     }
-    return result
+
+    const syncedShopifyOrder = await syncShopifyAfterB2CBooking(result?.order?.id, 'courier-booking')
+    return syncedShopifyOrder ? { ...result, order: syncedShopifyOrder } : result
   } catch (error) {
     await notifyAdminsForProviderBalanceIssue({
       orders: [
@@ -9260,13 +9303,6 @@ export const bookExistingB2COrderWithCourierService = async (
     .from(b2c_orders)
     .where(eq(b2c_orders.id, existingOrder.id))
     .limit(1)
-
-  if (updatedOrder && String(updatedOrder.order_id || '').startsWith('shopify_')) {
-    const { syncShopifyStatusForLocalOrder } = await import('./shopify.service')
-    await syncShopifyStatusForLocalOrder(updatedOrder, db, { source: 'courier-booking' }).catch((err: any) => {
-      console.warn('Shopify status sync skipped after courier booking:', err?.message || err)
-    })
-  }
 
   if (updatedOrder && String(updatedOrder.order_id || '').startsWith('woo_')) {
     const { syncWooCommerceStatusForLocalOrder } = await import('./woocommerce.service')

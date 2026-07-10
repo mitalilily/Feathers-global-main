@@ -1353,7 +1353,13 @@ const statusPriority: Record<string, number> = {
   pickup_scheduled: 1,
   in_transit: 2,
   out_for_delivery: 3,
+  ndr: 3,
+  undelivered: 3,
+  delivery_attempted: 3,
+  rto: 3,
+  rto_in_transit: 3,
   delivered: 4,
+  rto_delivered: 4,
 }
 
 const triggerPriority: Record<FulfillTrigger, number> = {
