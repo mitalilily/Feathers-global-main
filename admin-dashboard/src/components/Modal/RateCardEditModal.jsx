@@ -116,7 +116,23 @@ export const RateCardEditModal = ({
         rto: data?.rates?.[zone.name]?.rto ?? '',
         reverse_pickup: data?.rates?.[zone.name]?.reverse_pickup ?? '',
       }
-      initialForm.zone_slabs[zone.name] = normalizeEditableZoneSlabs(data?.zone_slabs?.[zone.name])
+      const normalizedExistingZoneSlabs = normalizeEditableZoneSlabs(data?.zone_slabs?.[zone.name])
+      const hasExistingZoneSlabs = B2C_RATE_TYPES.some(
+        (type) => (normalizedExistingZoneSlabs?.[type] || []).length > 0,
+      )
+
+      initialForm.zone_slabs[zone.name] = hasExistingZoneSlabs
+        ? normalizedExistingZoneSlabs
+        : {
+            forward: buildLegacySlabs(zone.name, 'forward', data?.min_weight, data?.rates),
+            rto: buildLegacySlabs(zone.name, 'rto', data?.min_weight, data?.rates),
+            reverse_pickup: buildLegacySlabs(
+              zone.name,
+              'reverse_pickup',
+              data?.min_weight,
+              data?.rates,
+            ),
+          }
     })
 
     setForm(initialForm)

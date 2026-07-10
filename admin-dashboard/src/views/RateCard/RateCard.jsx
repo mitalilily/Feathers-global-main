@@ -23,13 +23,18 @@ import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 
 import { useImportShippingRates, useShippingRates } from 'hooks/useCouriers'
 import { useZones } from 'hooks/useZones'
-import { fetchAllCouriers } from 'services/courier.service'
+import { fetchAllCouriers, fetchAllCouriersList } from 'services/courier.service'
 import { PlansService } from 'services/plan.service'
 
 const RateCard = () => {
   const toast = useToast()
-  const { zones } = useZones()
+  const [selectedBusinessType, setSelectedBusinessType] = useState('b2c')
+  const { zones } = useZones(selectedBusinessType)
   const { data: courierList } = useQuery({ queryKey: ['all-couriers'], queryFn: fetchAllCouriers })
+  const { data: courierOptions = [] } = useQuery({
+    queryKey: ['all-couriers-full'],
+    queryFn: () => fetchAllCouriersList(),
+  })
   const { data: plans = [], isLoading: plansLoading } = useQuery({
     queryKey: ['plans'],
     queryFn: () => PlansService.getPlans(),
@@ -37,7 +42,7 @@ const RateCard = () => {
 
   const { mutate: importRates, isPending: isImporting } = useImportShippingRates()
   const [filters, setFilters] = useState({})
-  const { data, isLoading } = useShippingRates(filters)
+  const { data, isLoading } = useShippingRates({ ...filters, businessType: selectedBusinessType })
 
   const [selectedRate, setSelectedRate] = useState(null)
   const [isModalOpen, setModalOpen] = useState(false)
@@ -180,7 +185,7 @@ const RateCard = () => {
         ? [{ key: 'min_weight', label: 'Min Weight', width: '120px' }]
         : []),
     ],
-    [],
+    [selectedBusinessType],
   )
 
   const postZoneColumns = useMemo(
@@ -253,6 +258,19 @@ const RateCard = () => {
         </TabList>
       </Tabs>
 
+      <Tabs
+        variant="soft-rounded"
+        colorScheme="blue"
+        index={selectedBusinessType === 'b2c' ? 0 : 1}
+        onChange={(index) => setSelectedBusinessType(index === 0 ? 'b2c' : 'b2b')}
+        mb={2}
+      >
+        <TabList>
+          <Tab>B2C</Tab>
+          <Tab>B2B</Tab>
+        </TabList>
+      </Tabs>
+
       {/* Filters and actions */}
       <Grid templateColumns="3fr 2fr" width="100%" gap={4} mb={4} alignItems="center">
         <TableFilters filters={filterOptions} values={filters} onApply={setFilters} />
@@ -302,6 +320,10 @@ const RateCard = () => {
         data={selectedRate}
         zones={zones}
         onSave={handleSaveRates}
+        businessType={selectedRate?.business_type || selectedBusinessType}
+        planId={filters.planId || plans[selectedPlanIndex]?.id}
+        couriers={courierOptions}
+        existingRates={data ?? []}
       />
 
       {/* Import Modal */}
