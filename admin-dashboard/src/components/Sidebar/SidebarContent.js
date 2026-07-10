@@ -22,6 +22,7 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
   const iconBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.06)')
   const iconActiveBg = useColorModeValue('rgba(4,123,133,0.16)', 'rgba(217,4,22,0.18)')
   const textColor = useColorModeValue(BRAND.colors.text, 'rgba(255,255,255,0.8)')
+  const activeTextColor = useColorModeValue(BRAND.colors.tealDark, 'white')
   const iconColor = useColorModeValue(BRAND.colors.muted, 'rgba(255,255,255,0.56)')
   const dividerColor = useColorModeValue(BRAND.colors.border, 'rgba(255,255,255,0.08)')
   const thumbColor = useColorModeValue('rgba(4,123,133,0.22)', 'rgba(255,255,255,0.18)')
@@ -90,9 +91,9 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
           </Box>
         )}
         {showText && (
-              <Text color={isActive ? 'white' : textColor} fontWeight={isActive ? '700' : '600'} fontSize={textSize}>
-                {prop.name}
-              </Text>
+          <Text color={isActive ? activeTextColor : textColor} fontWeight={isActive ? '700' : '600'} fontSize={textSize}>
+            {prop.name}
+          </Text>
         )}
       </Flex>
     </Button>
@@ -144,7 +145,7 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
                   </Box>
                   {showText && (
                     <Text
-                      color={isChildActive ? 'white' : textColor}
+                      color={isChildActive ? activeTextColor : textColor}
                       fontWeight={isChildActive ? '700' : '600'}
                       fontSize={textSize}
                       textAlign="left"
