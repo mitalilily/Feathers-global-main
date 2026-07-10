@@ -1,5 +1,8 @@
 // controllers/shipmentController.ts
+import axios from 'axios'
 import { Request, Response } from 'express'
+import { and, eq, inArray } from 'drizzle-orm'
+import { PDFDocument } from 'pdf-lib'
 import {
   bookExistingB2COrderWithCourierService,
   checkMerchantOrderNumberAvailability,
@@ -15,6 +18,11 @@ import {
   trackByOrderService,
 } from '../models/services/shiprocket.service'
 import { regenerateOrderDocumentsServiceAdmin } from '../models/services/adminOrders.service'
+import { db } from '../models/client'
+import { b2c_orders } from '../models/schema/b2cOrders'
+import { generateLabelForOrder } from '../models/services/generateCustomLabelService'
+import { presignDownload } from '../models/services/upload.service'
+import { getOrderLabelReference, isExternalLabelReference } from '../utils/orderLabels'
 import { getMerchantSafeOperationalError } from '../utils/merchantErrorMessages'
 
 const isOperationalTimeoutError = (error: any) => {
@@ -28,6 +36,49 @@ const isOperationalTimeoutError = (error: any) => {
     message.includes('timeout') ||
     message.includes('timed out')
   )
+}
+
+const BULK_LABEL_DOWNLOAD_TIMEOUT_MS = 30000
+
+const sanitizeBulkPdfFileName = (value: string) =>
+  value
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80) || 'bulk-labels'
+
+const resolveLabelDownloadUrl = async (labelReference: string) => {
+  const trimmedReference = String(labelReference || '').trim()
+  if (!trimmedReference) return null
+
+  if (/^data:application\/pdf;base64,/i.test(trimmedReference)) {
+    return trimmedReference
+  }
+
+  if (isExternalLabelReference(trimmedReference)) {
+    return trimmedReference
+  }
+
+  const signed = await presignDownload(trimmedReference, {
+    disposition: 'inline',
+    contentType: 'application/pdf',
+    checkExists: true,
+  })
+  return Array.isArray(signed) ? signed[0] : signed
+}
+
+const fetchPdfBuffer = async (source: string) => {
+  if (/^data:application\/pdf;base64,/i.test(source)) {
+    const base64 = source.replace(/^data:application\/pdf;base64,/i, '')
+    return Buffer.from(base64, 'base64')
+  }
+
+  const response = await axios.get(source, {
+    responseType: 'arraybuffer',
+    timeout: BULK_LABEL_DOWNLOAD_TIMEOUT_MS,
+  })
+  return Buffer.from(response.data)
 }
 
 export const createB2CShipmentController = async (req: any, res: Response) => {
@@ -539,6 +590,124 @@ export const retryFailedManifestController = async (req: any, res: Response) => 
     return res.status(statusCode).json({
       success: false,
       message: getMerchantSafeOperationalError(errorMessage),
+    })
+  }
+}
+
+export const downloadBulkB2CLabelsController = async (req: any, res: Response) => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
+
+    const orderIds: string[] = Array.isArray(req.body?.orderIds)
+      ? Array.from(
+          new Set<string>(
+            req.body.orderIds
+              .map((value: unknown) => String(value || '').trim())
+              .filter(Boolean),
+          ),
+        )
+      : []
+
+    if (!orderIds.length) {
+      return res.status(400).json({ success: false, message: 'Select at least one order.' })
+    }
+
+    const rows = await db
+      .select()
+      .from(b2c_orders)
+      .where(and(eq(b2c_orders.user_id, userId), inArray(b2c_orders.id, orderIds)))
+
+    if (rows.length !== orderIds.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'One or more selected orders were not found.',
+      })
+    }
+
+    const rowsById = new Map(rows.map((order) => [String(order.id), order]))
+    const orderedRows = orderIds.map((orderId) => rowsById.get(orderId)).filter(Boolean) as any[]
+    const mergedPdf = await PDFDocument.create()
+    const generatedLabels: string[] = []
+    const failedLabels: string[] = []
+
+    for (const order of orderedRows) {
+      let labelReference = getOrderLabelReference(order)
+
+      if (!labelReference) {
+        if (!String(order.awb_number || '').trim()) {
+          failedLabels.push(`${order.order_number || order.id}: AWB missing`)
+          continue
+        }
+
+        try {
+          const generatedLabelKey = await generateLabelForOrder(order, userId, db)
+          labelReference = generatedLabelKey
+          generatedLabels.push(String(order.order_number || order.id))
+          await db
+            .update(b2c_orders)
+            .set({ label: generatedLabelKey, updated_at: new Date() })
+            .where(and(eq(b2c_orders.id, order.id), eq(b2c_orders.user_id, userId)))
+        } catch (error: any) {
+          failedLabels.push(
+            `${order.order_number || order.id}: ${error?.message || 'label generation failed'}`,
+          )
+          continue
+        }
+      }
+
+      try {
+        const downloadUrl = await resolveLabelDownloadUrl(labelReference)
+        if (!downloadUrl) {
+          failedLabels.push(`${order.order_number || order.id}: label file unavailable`)
+          continue
+        }
+
+        const labelBuffer = await fetchPdfBuffer(downloadUrl)
+        const sourcePdf = await PDFDocument.load(labelBuffer, { ignoreEncryption: true })
+        const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices())
+        pages.forEach((page) => mergedPdf.addPage(page))
+      } catch (error: any) {
+        failedLabels.push(
+          `${order.order_number || order.id}: ${error?.message || 'label merge failed'}`,
+        )
+      }
+    }
+
+    if (mergedPdf.getPageCount() === 0) {
+      return res.status(400).json({
+        success: false,
+        message: failedLabels.length
+          ? `No labels could be prepared. ${failedLabels.slice(0, 3).join(' ')}`
+          : 'No labels could be prepared for the selected orders.',
+      })
+    }
+
+    const pdfBytes = await mergedPdf.save()
+    const fileName = `${sanitizeBulkPdfFileName(`bulk-labels-${new Date().toISOString().slice(0, 10)}`)}.pdf`
+
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.setHeader('X-Bulk-Label-Total', String(orderedRows.length))
+    res.setHeader('X-Bulk-Label-Generated', String(generatedLabels.length))
+    res.setHeader('X-Bulk-Label-Failed', String(failedLabels.length))
+    if (failedLabels.length) {
+      res.setHeader('X-Bulk-Label-Warnings', encodeURIComponent(failedLabels.slice(0, 10).join(' | ')))
+    }
+
+    return res.status(failedLabels.length ? 207 : 200).send(Buffer.from(pdfBytes))
+  } catch (error: any) {
+    console.error('Bulk B2C label download failed:', {
+      userId: req.user?.sub ?? null,
+      count: Array.isArray(req.body?.orderIds) ? req.body.orderIds.length : 0,
+      message: error?.message || error,
+      stack: error?.stack,
+    })
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to download bulk labels.',
     })
   }
 }

@@ -23,6 +23,7 @@ import {
   useTheme,
 } from '@mui/material'
 import { useQueryClient } from '@tanstack/react-query'
+import { saveAs } from 'file-saver'
 import Papa from 'papaparse'
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import {
@@ -42,6 +43,7 @@ import {
 } from 'react-icons/md'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
+  downloadBulkB2CLabelsService,
   fetchAllOrders,
   fetchOrdersForCsvExport,
   generateManifestService,
@@ -72,7 +74,6 @@ import {
   downloadClientOrdersCsv,
 } from '../../utils/orderCsvExport'
 import {
-  BULK_MANIFEST_LIMIT,
   downloadFile,
   getActionableErrorMessage,
   getB2CManifestIdentifier,
@@ -660,15 +661,13 @@ const AllOrders = () => {
   const manifestValidationMessage =
     selectedOrders.length === 0
       ? 'Select orders to start a bulk action.'
-      : selectedOrders.length > BULK_MANIFEST_LIMIT
-        ? `You can manifest a maximum of ${BULK_MANIFEST_LIMIT} orders at a time.`
-        : selectedOrders.some((order) => !canManifestOrder(order))
+      : selectedOrders.some((order) => !canManifestOrder(order))
           ? 'Some selected orders are not ready for manifest yet.'
           : ''
 
   const handleBulkManifest = async () => {
     if (!selectedOrders.length) {
-      const message = 'Select up to 5 eligible orders to manifest.'
+      const message = 'Select eligible orders to manifest.'
       setBulkFeedback({
         severity: 'error',
         title: 'No orders selected',
@@ -827,10 +826,43 @@ const AllOrders = () => {
     setBulkFeedback({
       severity: 'info',
       title: `Downloading ${type}s`,
-      message: `Preparing ${selectedOrders.length} selected order(s) for ${type} download.`,
+      message:
+        type === 'label'
+          ? `Generating missing labels and preparing one PDF for ${selectedOrders.length} selected order(s).`
+          : `Preparing ${selectedOrders.length} selected order(s) for ${type} download.`,
     })
 
     try {
+      if (type === 'label') {
+        const nonB2COrders = selectedOrders.filter((order) => order.type && order.type !== 'b2c')
+        if (nonB2COrders.length) {
+          const message = 'Bulk label PDF currently supports B2C orders only. Please select B2C orders.'
+          setBulkFeedback({
+            severity: 'error',
+            title: 'Unsupported order type',
+            message,
+          })
+          toast.open({ message, severity: 'error' })
+          return
+        }
+
+        const result = await downloadBulkB2CLabelsService(selectedOrders.map((order) => order.id))
+        saveAs(result.blob, `bulk-labels-${new Date().toISOString().slice(0, 10)}.pdf`)
+
+        const summaryMessage =
+          result.failed > 0
+            ? `Downloaded one PDF with ${result.total - result.failed} label(s). ${result.failed} label(s) could not be prepared.${result.warnings ? ` ${result.warnings}` : ''}`
+            : `Downloaded one PDF with ${result.total} label(s).${result.generated ? ` Generated ${result.generated} missing label(s).` : ''}`
+
+        setBulkFeedback({
+          severity: result.failed > 0 ? 'warning' : 'success',
+          title: result.failed > 0 ? 'Labels downloaded with warnings' : 'Labels downloaded',
+          message: summaryMessage,
+        })
+        toast.open({ message: summaryMessage, severity: result.failed > 0 ? 'info' : 'success' })
+        return
+      }
+
       const documentEntries = selectedOrders.reduce<DocumentEntry[]>((entries, order) => {
         const { key, url } = getDocumentReference(order, type)
         if (!key && !url) return entries

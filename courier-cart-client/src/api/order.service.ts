@@ -343,6 +343,22 @@ export const generateManifestService = async (params: GenerateManifestParams) =>
   return res.data
 }
 
+export const downloadBulkB2CLabelsService = async (orderIds: Array<string | number>) => {
+  const res = await axiosInstance.post('/orders/b2c/bulk-labels', { orderIds }, {
+    responseType: 'blob',
+    timeout: 600000,
+  })
+  return {
+    blob: res.data as Blob,
+    generated: Number(res.headers?.['x-bulk-label-generated'] || 0),
+    failed: Number(res.headers?.['x-bulk-label-failed'] || 0),
+    total: Number(res.headers?.['x-bulk-label-total'] || orderIds.length),
+    warnings: res.headers?.['x-bulk-label-warnings']
+      ? decodeURIComponent(String(res.headers['x-bulk-label-warnings']))
+      : '',
+  }
+}
+
 export interface RetryManifestResponse extends GenerateManifestResponse {
   manifest_key?: string | null
   retry_count: number
