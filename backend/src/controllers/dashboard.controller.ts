@@ -7,6 +7,7 @@ import {
   getCourierDistribution,
   getMerchantDashboardStats,
 } from '../models/services/dashboard.service'
+import { getAdminOpsAnalytics } from '../models/services/adminOpsAnalytics.service'
 
 const parseDashboardDate = (value: unknown) => {
   const normalized = String(value || '').trim()
@@ -129,5 +130,33 @@ export const getMerchantDashboardStatsController = async (req: any, res: Respons
   } catch (error) {
     console.error('Error fetching merchant dashboard stats:', error)
     return res.status(500).json({ success: false, message: 'Failed to fetch merchant dashboard stats' })
+  }
+}
+
+export const getMerchantOpsAnalyticsController = async (req: any, res: Response) => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
+
+    const data = await getAdminOpsAnalytics({
+      fromDate: req.query.fromDate || undefined,
+      toDate: req.query.toDate || undefined,
+      userId,
+      accountId: req.query.accountId || undefined,
+      courier: req.query.courier || undefined,
+      zone: req.query.zone || undefined,
+      search: req.query.search || undefined,
+    })
+
+    return res.json(data)
+  } catch (error: any) {
+    console.error('[getMerchantOpsAnalyticsController]', error)
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Failed to fetch merchant ops analytics',
+    })
   }
 }
