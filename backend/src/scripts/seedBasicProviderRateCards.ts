@@ -98,8 +98,8 @@ const isXpressbeesAir = (name: string, mode?: unknown) =>
 const isSupportedXpressbeesSeed = (name: string, mode?: unknown) => {
   const lowerName = name.toLowerCase()
   if (lowerName.includes('reverse')) return false
-  if (lowerName.includes('stressed')) return false
   if (isXpressbeesAir(name, mode)) return true
+  if (lowerName.includes('stressed')) return true
   if (lowerName.includes('surface')) return true
   return /\b(?:1|2|5|10|20)\s*(?:k\.?\s*g\.?|kg|kgs)\b/i.test(name)
 }
@@ -336,11 +336,7 @@ const disableUnsupportedCouriers = async (client: PoolClient) => {
      where lower("serviceProvider") = 'xpressbees'
        and "isEnabled" = true
        and coalesce(business_type, '[]'::jsonb) @> '["b2c"]'::jsonb
-       and (
-         lower(name) like '%air%'
-         or name !~* $1
-       )`,
-    ['2\\s*(k\\.?\\s*g\\.?|kg|kgs)'],
+       and lower(name) like '%reverse%'`,
   )
 }
 

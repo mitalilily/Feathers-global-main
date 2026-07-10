@@ -26,6 +26,14 @@ export type XpressbeesServiceabilityResponse = {
   raw: any
 }
 
+export type XpressbeesCourierCatalogRecord = {
+  id: string
+  name: string
+  mode?: string
+  business_service?: string
+  raw?: any
+}
+
 export type XpressbeesShipmentResponse = {
   status: boolean
   data?: {
@@ -1243,6 +1251,128 @@ export class XpressbeesService {
     }
   }
 
+  private normalizeCourierCatalogRecord(record: any): XpressbeesCourierCatalogRecord {
+    const id = String(
+      record?.id ??
+        record?.courier_id ??
+        record?.courierId ??
+        record?.carrier_id ??
+        record?.carrierId ??
+        record?.service_id ??
+        record?.serviceId ??
+        '',
+    ).trim()
+
+    const mode = String(
+      record?.mode ??
+        record?.service_type ??
+        record?.serviceType ??
+        record?.service_mode ??
+        record?.serviceMode ??
+        record?.business_service ??
+        record?.businessService ??
+        '',
+    ).trim()
+
+    const nameCandidates = [
+      record?.name,
+      record?.courier_name,
+      record?.courierName,
+      record?.service_name,
+      record?.serviceName,
+      record?.carrier_name,
+      record?.carrierName,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean)
+
+    let name = nameCandidates[0] || ''
+    if (!name && mode) {
+      name = `Xpressbees ${mode}`
+    }
+    if (!name) {
+      name = 'Xpressbees'
+    }
+
+    return {
+      id,
+      name,
+      mode: mode || undefined,
+      business_service: String(
+        record?.business_service ?? record?.businessService ?? record?.BusinessService ?? '',
+      ).trim() || undefined,
+      raw: record,
+    }
+  }
+
+  extractCourierCatalogRecords(raw: any): XpressbeesCourierCatalogRecord[] {
+    const candidates = [
+      raw?.data,
+      raw?.couriers,
+      raw?.records,
+      raw?.result,
+      raw?.response,
+      raw?.items,
+      raw?.services,
+      raw?.data?.data,
+      raw?.data?.couriers,
+      raw?.data?.records,
+      raw?.data?.items,
+      raw?.data?.services,
+      raw?.result?.data,
+      raw?.result?.couriers,
+      raw?.result?.records,
+      raw?.result?.items,
+      raw?.result?.services,
+      raw?.response?.data,
+      raw?.response?.couriers,
+      raw?.response?.records,
+      raw?.response?.items,
+      raw?.response?.services,
+    ]
+
+    const normalized = new Map<string, XpressbeesCourierCatalogRecord>()
+
+    const pushRecord = (value: any) => {
+      if (!value || typeof value !== 'object') return
+      const normalizedRecord = this.normalizeCourierCatalogRecord(value)
+      if (!normalizedRecord.id && !normalizedRecord.name) return
+      const key = `${normalizedRecord.id || 'unknown'}::${normalizedRecord.name.toLowerCase()}`
+      if (!normalized.has(key)) {
+        normalized.set(key, normalizedRecord)
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        for (const record of candidate) pushRecord(record)
+      } else if (candidate && typeof candidate === 'object') {
+        if (
+          candidate.id ||
+          candidate.courier_id ||
+          candidate.courierId ||
+          candidate.name ||
+          candidate.courier_name ||
+          candidate.service_name ||
+          candidate.serviceName
+        ) {
+          pushRecord(candidate)
+          continue
+        }
+
+        for (const nested of Object.values(candidate)) {
+          if (Array.isArray(nested)) {
+            for (const record of nested) pushRecord(record)
+          } else if (nested && typeof nested === 'object') {
+            pushRecord(nested)
+          }
+        }
+      }
+    }
+
+    return Array.from(normalized.values())
+  }
+
   private extractServiceabilityRecords(raw: any): XpressbeesServiceabilityRecord[] {
     const candidates = [
       raw?.data,
@@ -1822,13 +1952,7 @@ export class XpressbeesService {
     if (authPassed) {
       try {
         const response = await this.listCouriers()
-        const records = Array.isArray(response?.data)
-          ? response.data
-          : Array.isArray(response)
-            ? response
-            : Array.isArray(response?.couriers)
-              ? response.couriers
-              : []
+        const records = this.extractCourierCatalogRecords(response)
 
         checks.push({
           key: 'couriers',
