@@ -51,7 +51,7 @@ export const labelPreferences = createTable('label_preferences', {
         "itemName": true,
         "productCost": true,
         "productQuantity": true,
-        "skuCode": false,
+        "skuCode": true,
         "dimension": false,
         "deadWeight": false,
         "otherCharges": true

@@ -108,7 +108,7 @@ const DEFAULT_LABEL_SETTINGS = {
     itemName: true,
     productCost: true,
     productQuantity: true,
-    skuCode: false,
+    skuCode: true,
     dimension: false,
     deadWeight: false,
     otherCharges: true,
@@ -271,7 +271,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   const includeProductName = isEnabled(settings.product_info?.itemName)
   const includeCost = isEnabled(settings.product_info?.productCost)
   const includeQty = isEnabled(settings.product_info?.productQuantity)
-  const includeSku = isEnabled(settings.product_info?.skuCode)
+  const includeSku = true
   const includeDimension = isEnabled(settings.product_info?.dimension)
   const includeDeadWeight = isEnabled(settings.product_info?.deadWeight)
   const showOrderValueSection = includeCost && isEnabled(settings.product_info?.otherCharges)
@@ -381,6 +381,35 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     const text = String(value ?? '').trim()
     if (!text) return '-'
     return text.length > max ? `${text.slice(0, max)}...` : text
+  }
+
+  const rawProductSubtotal = products.reduce((sum: number, p: any) => {
+    const qty = Math.max(1, toAmount(p?.qty ?? p?.quantity ?? 1))
+    const unitPrice = toAmount(p?.original_price ?? p?.price)
+    return sum + unitPrice * qty
+  }, 0)
+  const netOrderSubtotal = toAmount(order.order_amount)
+  const subtotalScaleFactor =
+    rawProductSubtotal > 0 &&
+    netOrderSubtotal > 0 &&
+    Math.abs(rawProductSubtotal - netOrderSubtotal) > 0.01 &&
+    toAmount(order.shipping_charges) === 0 &&
+    toAmount(order.other_charges) === 0
+      ? netOrderSubtotal / rawProductSubtotal
+      : 1
+
+  const getDisplayedUnitPrice = (product: any) => {
+    const qty = Math.max(1, toAmount(product?.qty ?? product?.quantity ?? 1))
+    const storedNetUnitPrice = toAmount(product?.net_price ?? product?.display_price ?? product?.price)
+    const originalUnitPrice = toAmount(product?.original_price ?? product?.price)
+    const lineDiscount = toAmount(product?.discount)
+    if (lineDiscount > 0) {
+      return Math.max(0, (originalUnitPrice * qty - lineDiscount) / qty)
+    }
+    if (subtotalScaleFactor !== 1) {
+      return originalUnitPrice * subtotalScaleFactor
+    }
+    return storedNetUnitPrice > 0 ? storedNetUnitPrice : originalUnitPrice
   }
 
   const sellerBrandName =
@@ -648,7 +677,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       const rowCells: any[] = []
       const itemName = p.name ?? p.productName ?? p.box_name ?? '-'
       const qty = Number(p.qty ?? p.quantity ?? 1)
-      const price = Number(p.price ?? 0)
+      const price = getDisplayedUnitPrice(p)
       const sku = p.sku ?? p.skuCode ?? '-'
       const dim =
         p.length && p.breadth && p.height
@@ -658,11 +687,20 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
           : '-'
       const deadWeight = order.weight ? `${order.weight}g` : '-'
 
-      if (includeProductName) rowCells.push({ text: trimText(itemName, charLimit), fontSize: 7 })
+      if (includeProductName) {
+        rowCells.push({
+          stack: [
+            { text: String(itemName || '-').trim() || '-', fontSize: 7, bold: true },
+            ...(includeSku && String(sku || '').trim() && String(sku || '').trim() !== '-'
+              ? [{ text: `SKU: ${String(sku).trim()}`, fontSize: 6, color: '#475569', margin: [0, 1, 0, 0] }]
+              : []),
+          ],
+        })
+      }
       if (includeQty) rowCells.push({ text: String(qty), alignment: 'right', fontSize: 7 })
       if (includeCost)
         rowCells.push({ text: formatCurrency(price), alignment: 'right', fontSize: 7 })
-      if (includeSku) rowCells.push({ text: trimText(sku, 14), fontSize: 7 })
+      if (includeSku) rowCells.push({ text: String(sku || '-').trim() || '-', fontSize: 6, noWrap: false })
       if (includeDimension) rowCells.push({ text: trimText(dim, 18), fontSize: 7 })
       if (includeDeadWeight) rowCells.push({ text: deadWeight, alignment: 'right', fontSize: 7 })
 

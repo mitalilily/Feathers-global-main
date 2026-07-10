@@ -1384,10 +1384,16 @@ const mapProducts = (order: any) => {
   const items = Array.isArray(order?.line_items) ? order.line_items : []
   return items.map((item: any) => {
     const qty = Math.max(1, toNumber(item?.quantity, 1))
-    const price = toNumber(item?.price, 0)
-    const discount = Array.isArray(item?.discount_allocations)
+    const originalPrice = toNumber(item?.original_price ?? item?.price, 0)
+    const discountedUnitPrice = toNumber(
+      item?.discounted_unit_price_after_all_discounts ?? item?.discounted_price ?? item?.final_price,
+      originalPrice,
+    )
+    const explicitDiscount = Array.isArray(item?.discount_allocations)
       ? item.discount_allocations.reduce((sum: number, d: any) => sum + toNumber(d?.amount, 0), 0)
       : 0
+    const inferredDiscount = Math.max(0, originalPrice * qty - discountedUnitPrice * qty)
+    const discount = explicitDiscount > 0 ? explicitDiscount : inferredDiscount
     const lineTaxRate = Array.isArray(item?.tax_lines)
       ? item.tax_lines.reduce((sum: number, t: any) => sum + toNumber(t?.rate, 0), 0) * 100
       : 0
@@ -1395,7 +1401,8 @@ const mapProducts = (order: any) => {
       name: item?.name || item?.title || 'Item',
       sku: item?.sku || 'NA',
       qty,
-      price,
+      price: discountedUnitPrice,
+      original_price: originalPrice,
       discount,
       tax_rate: lineTaxRate,
       hsn: '',
@@ -1481,11 +1488,20 @@ const normalizeGraphqlOrder = (
       title: item?.title || item?.name,
       sku: item?.sku,
       quantity: item?.quantity,
-      price: moneyAmount(item?.originalUnitPriceSet),
+      price: moneyAmount(item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet),
+      original_price: moneyAmount(item?.originalUnitPriceSet),
+      discounted_unit_price_after_all_discounts: moneyAmount(
+        item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet,
+      ),
       grams: Math.round(toNumber(node?.totalWeight, 0) / Math.max(1, totalQuantity)),
       discount_allocations: [
         {
-          amount: moneyAmount(item?.totalDiscountSet),
+          amount: Math.max(
+            moneyAmount(item?.totalDiscountSet),
+            moneyAmount(item?.originalUnitPriceSet) * Math.max(1, toNumber(item?.quantity, 1)) -
+              moneyAmount(item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet) *
+                Math.max(1, toNumber(item?.quantity, 1)),
+          ),
         },
       ],
       tax_lines: Array.isArray(item?.taxLines)
@@ -2392,13 +2408,11 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
       fulfillmentOrders: {
         nodes: Array<{ id: string; status: string; requestStatus?: string }>
       }
-      fulfillments: {
-        nodes: Array<{
-          id: string
-          status?: string
-          trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
-        }>
-      }
+      fulfillments: Array<{
+        id: string
+        status?: string
+        trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
+      }>
     } | null
   }>({
     store,
@@ -2418,14 +2432,12 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
             }
           }
           fulfillments(first: 20) {
-            nodes {
-              id
-              status
-              trackingInfo {
-                company
-                number
-                url
-              }
+            id
+            status
+            trackingInfo(first: 10) {
+              company
+              number
+              url
             }
           }
         }
@@ -2713,7 +2725,7 @@ export const syncShopifyStatusForLocalOrder = async (
         })
         actions.push('fulfillment_created')
       } else if (trackingNumber) {
-        const fulfillments = remoteOrder.fulfillments?.nodes || []
+        const fulfillments = Array.isArray(remoteOrder.fulfillments) ? remoteOrder.fulfillments : []
         const fulfillmentWithCurrentTracking = fulfillments.find((fulfillment: any) =>
           (fulfillment?.trackingInfo || []).some(
             (tracking: any) => String(tracking?.number || '').trim() === trackingNumber,

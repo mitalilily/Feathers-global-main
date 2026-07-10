@@ -32,7 +32,7 @@ export const DEFAULT_PREFERENCES = {
     itemName: true,
     productCost: true,
     productQuantity: true,
-    skuCode: false,
+    skuCode: true,
     dimension: false,
     deadWeight: false,
     otherCharges: true,

@@ -699,7 +699,7 @@ export async function createUserWithWallet(data: Partial<IUser>, txn: any = db) 
         itemName: true,
         productCost: true,
         productQuantity: true,
-        skuCode: false,
+        skuCode: true,
         dimension: false,
         deadWeight: false,
         otherCharges: true,
