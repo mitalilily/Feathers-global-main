@@ -38,9 +38,11 @@ type RateSlab = {
 type ZoneRateMap = {
   forward?: number | string
   rto?: number | string
+  reverse?: number | string
   description?: string
   forward_per_kg?: number | string
   rto_per_kg?: number | string
+  reverse_per_kg?: number | string
   min_weight?: number
 }
 
@@ -105,6 +107,37 @@ const formatCurrency = (value: unknown, allowNA = true) => {
   return Number.isInteger(parsed) ? parsed.toString() : parsed.toFixed(2)
 }
 
+const pickZoneRateValue = (
+  zoneRates: ZoneRateMap | undefined,
+  keys: Array<keyof ZoneRateMap>,
+): number | string => {
+  for (const key of keys) {
+    const value = zoneRates?.[key]
+    if (value !== undefined && value !== null && value !== '') {
+      return value
+    }
+  }
+
+  return 'NA'
+}
+
+const getForwardRateValue = (zoneRates: ZoneRateMap | undefined, businessType: 'b2b' | 'b2c') =>
+  pickZoneRateValue(zoneRates, businessType === 'b2b' ? ['forward_per_kg', 'forward'] : ['forward'])
+
+const getRtoRateValue = (zoneRates: ZoneRateMap | undefined, businessType: 'b2b' | 'b2c') =>
+  pickZoneRateValue(zoneRates, businessType === 'b2b' ? ['rto_per_kg', 'rto'] : ['rto'])
+
+const getReverseRateValue = (zoneRates: ZoneRateMap | undefined, businessType: 'b2b' | 'b2c') =>
+  pickZoneRateValue(
+    zoneRates,
+    businessType === 'b2b'
+      ? ['reverse_per_kg', 'reverse', 'rto_per_kg', 'rto']
+      : ['reverse', 'rto'],
+  )
+
+const formatZoneRateSummary = (forward: unknown, rto: unknown, reverse: unknown) =>
+  `F: ${formatCurrency(forward)} | RTO: ${formatCurrency(rto)} | Reverse: ${formatCurrency(reverse)}`
+
 const formatWeightUnit = (value: number) => {
   if (!Number.isFinite(value) || value <= 0) return '-'
   if (value < 1) return `${value.toFixed(2)} kg`
@@ -130,6 +163,13 @@ const formatAdditionalWeightLabel = (slab: RateSlab) => {
 }
 
 const slabKey = (slab: RateSlab) => `${slab.weight_from}|${slab.weight_to ?? 'open'}`
+
+const getMatchingZoneSlab = (
+  rate: ShippingRate,
+  zoneName: string,
+  slabType: 'forward' | 'rto' | 'reverse_pickup',
+  rangeKey: string,
+) => rate.zone_slabs?.[zoneName]?.[slabType]?.find((candidate) => slabKey(candidate) === rangeKey)
 
 const sortZones = (zones: ZoneItem[]) =>
   [...zones].sort((left, right) => {
@@ -173,7 +213,17 @@ const buildB2CMatrixRows = (rate: ShippingRate, zones: ZoneItem[]): RateMatrixRo
       mode: rate.mode,
       weightLabel: rate.min_weight ? `Per ${formatWeightUnit(rate.min_weight)}` : 'Base rate',
       zoneValues: Object.fromEntries(
-        zones.map((zone) => [zone.id || zone.code || zone.name, formatCurrency(rate.rates?.[zone.name]?.forward)]),
+        zones.map((zone) => {
+          const zoneRates = rate.rates?.[zone.name]
+          return [
+            zone.id || zone.code || zone.name,
+            formatZoneRateSummary(
+              getForwardRateValue(zoneRates, 'b2c'),
+              getRtoRateValue(zoneRates, 'b2c'),
+              getReverseRateValue(zoneRates, 'b2c'),
+            ),
+          ]
+        }),
       ),
       codLabel,
       otherLabel,
@@ -192,9 +242,17 @@ const buildB2CMatrixRows = (rate: ShippingRate, zones: ZoneItem[]): RateMatrixRo
       weightLabel: formatBaseWeightLabel(slab),
       zoneValues: Object.fromEntries(
         zones.map((zone) => {
-          const zoneSlab =
-            rate.zone_slabs?.[zone.name]?.forward?.find((candidate) => slabKey(candidate) === rangeKey) || slab
-          return [zone.id || zone.code || zone.name, formatCurrency(zoneSlab.rate)]
+          const forwardSlab = getMatchingZoneSlab(rate, zone.name, 'forward', rangeKey) || slab
+          const rtoSlab = getMatchingZoneSlab(rate, zone.name, 'rto', rangeKey)
+          const reverseSlab = getMatchingZoneSlab(rate, zone.name, 'reverse_pickup', rangeKey)
+          return [
+            zone.id || zone.code || zone.name,
+            formatZoneRateSummary(
+              forwardSlab.rate,
+              rtoSlab?.rate,
+              reverseSlab?.rate ?? rtoSlab?.rate,
+            ),
+          ]
         }),
       ),
       codLabel,
@@ -210,9 +268,17 @@ const buildB2CMatrixRows = (rate: ShippingRate, zones: ZoneItem[]): RateMatrixRo
         weightLabel: formatAdditionalWeightLabel(slab),
         zoneValues: Object.fromEntries(
           zones.map((zone) => {
-            const zoneSlab =
-              rate.zone_slabs?.[zone.name]?.forward?.find((candidate) => slabKey(candidate) === rangeKey) || slab
-            return [zone.id || zone.code || zone.name, formatCurrency(zoneSlab.extra_rate)]
+            const forwardSlab = getMatchingZoneSlab(rate, zone.name, 'forward', rangeKey) || slab
+            const rtoSlab = getMatchingZoneSlab(rate, zone.name, 'rto', rangeKey)
+            const reverseSlab = getMatchingZoneSlab(rate, zone.name, 'reverse_pickup', rangeKey)
+            return [
+              zone.id || zone.code || zone.name,
+              formatZoneRateSummary(
+                forwardSlab.extra_rate,
+                rtoSlab?.extra_rate,
+                reverseSlab?.extra_rate ?? rtoSlab?.extra_rate,
+              ),
+            ]
           }),
         ),
         codLabel,
@@ -234,8 +300,14 @@ const buildB2BMatrixRows = (rate: ShippingRate, zones: ZoneItem[]): RateMatrixRo
     zoneValues: Object.fromEntries(
       zones.map((zone) => {
         const zoneRate = rate.rates?.[zone.name] || {}
-        const forward = zoneRate.forward_per_kg ?? zoneRate.forward
-        return [zone.id || zone.code || zone.name, formatCurrency(forward)]
+        return [
+          zone.id || zone.code || zone.name,
+          formatZoneRateSummary(
+            getForwardRateValue(zoneRate, 'b2b'),
+            getRtoRateValue(zoneRate, 'b2b'),
+            getReverseRateValue(zoneRate, 'b2b'),
+          ),
+        ]
       }),
     ),
     codLabel: `${formatCurrency(rate.cod_charges, false)} | ${formatCurrency(rate.cod_percent, false)}`,
@@ -380,6 +452,7 @@ const RateMatrixTable = ({
                 <Stack spacing={0.15}>
                   <Typography sx={headerTitleSx}>{zone.title}</Typography>
                   <Typography sx={headerSubtitleSx}>{zone.subtitle}</Typography>
+                  <Typography sx={{ ...headerSubtitleSx, fontSize: '0.68rem' }}>F | RTO | Reverse</Typography>
                 </Stack>
               </TableCell>
             ))}
@@ -516,10 +589,16 @@ const RateCard = () => {
         const zoneRates = rate.rates?.[zoneKey] || {}
         base[zone.name] =
           businessType === 'b2c'
-            ? `F: ${formatCurrency(zoneRates.forward)} | RTO: ${formatCurrency(zoneRates.rto)}`
-            : `F: ${formatCurrency(zoneRates.forward_per_kg ?? zoneRates.forward)} | RTO: ${formatCurrency(
-                zoneRates.rto_per_kg ?? zoneRates.rto,
-              )}`
+            ? formatZoneRateSummary(
+                getForwardRateValue(zoneRates, 'b2c'),
+                getRtoRateValue(zoneRates, 'b2c'),
+                getReverseRateValue(zoneRates, 'b2c'),
+              )
+            : formatZoneRateSummary(
+                getForwardRateValue(zoneRates, 'b2b'),
+                getRtoRateValue(zoneRates, 'b2b'),
+                getReverseRateValue(zoneRates, 'b2b'),
+              )
       })
 
       return base
