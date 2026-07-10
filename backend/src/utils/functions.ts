@@ -39,6 +39,28 @@ export const parsePhone = (input: string) => {
   return { prefix, national, e164: `+${prefix}${national}` }
 }
 
+export const normalizeIndianPhoneForBooking = (input: string | number | null | undefined) => {
+  const raw = String(input ?? '').trim()
+  if (!raw) return ''
+
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return ''
+
+  if (digits.length === 13 && digits.startsWith('091')) {
+    return digits.slice(-10)
+  }
+
+  if (digits.length >= 12 && digits.startsWith('91')) {
+    return digits.slice(-10)
+  }
+
+  if (digits.length > 10) {
+    return digits.slice(-10)
+  }
+
+  return digits
+}
+
 export function deepMerge<T>(target: T, patch: Partial<T>): T {
   const out: any = { ...target }
   for (const [k, v] of Object.entries(patch)) {

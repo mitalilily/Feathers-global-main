@@ -9,6 +9,7 @@ import {
   getProviderMetaCourierName,
   resolveCourierProviderKeyFromFields,
 } from '../../utils/courierProvider'
+import { normalizeIndianPhoneForBooking } from '../../utils/functions'
 import {
   ensurePlatformRegistration,
   setUserChannelIntegration,
@@ -1373,7 +1374,7 @@ const toPhone = (order: any): string => {
     order?.billing_address?.phone ||
     order?.customer?.phone ||
     ''
-  const clean = String(phone).replace(/[^\d+]/g, '').trim()
+  const clean = normalizeIndianPhoneForBooking(phone)
   return clean || '0000000000'
 }
 
@@ -2182,7 +2183,7 @@ const redactShopifyOrderCustomerData = async ({
       : []
   const orderIds = buildShopifyOrderIdsForPayload(store, ordersToRedact)
   const customerEmail = String(payload?.customer?.email || '').trim().toLowerCase()
-  const customerPhone = String(payload?.customer?.phone || '').trim()
+  const customerPhone = normalizeIndianPhoneForBooking(payload?.customer?.phone)
 
   const redactedFields = {
     buyer_name: 'Redacted Shopify customer',
@@ -2234,7 +2235,7 @@ const getShopifyDataRequestSummary = async ({
   const requestedOrderIds = Array.isArray(payload?.orders_requested) ? payload.orders_requested : []
   const orderIds = buildShopifyOrderIdsForPayload(store, requestedOrderIds)
   const customerEmail = String(payload?.customer?.email || '').trim().toLowerCase()
-  const customerPhone = String(payload?.customer?.phone || '').trim()
+  const customerPhone = normalizeIndianPhoneForBooking(payload?.customer?.phone)
 
   if (!orderIds.length && !customerEmail && !customerPhone) {
     return { matchingOrders: 0, requestedOrders: requestedOrderIds.length }
