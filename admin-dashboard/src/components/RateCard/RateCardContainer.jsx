@@ -608,19 +608,21 @@ export const RateCardContainer = ({ forceBusinessType = null, embedded = false }
                   B2C import format
                 </Text>
                 <Text fontSize="sm" color="gray.600">
-                  Use one row per slab with `Slab Type` set to `First` or `Additional`.
+                  Use one row per slab with `Slab Type` set to `First`, `Additional`,
+                  `Forward`, `Reverse`, or `Reverse Additional`.
                 </Text>
                 <Text fontSize="sm" color="gray.600">
-                  Fill forward rates zone-wise, then use `RTO %` and `Reverse Pickup %` as
-                  percentage multipliers of the forward slab.
+                  Fill forward rates zone-wise. For separate reverse pricing, add explicit
+                  `Reverse` and `Reverse Additional` rows; otherwise `Reverse Pickup %` remains a
+                  multiplier of the forward slab.
                 </Text>
                 <Text fontSize="sm" color="gray.600">
                   The downloaded sample template already includes the accepted B2C headers and
                   default reverse logic columns.
                 </Text>
                 <Text fontSize="sm" color="gray.600">
-                  Forward slabs remain the base input, and `RTO %` plus `Reverse Pickup %` create
-                  the matching RTO and reverse slabs from that same forward slab structure.
+                  `RTO %` creates RTO slabs only when it is greater than zero, so forward and
+                  reverse-only cards can be imported without creating RTO rates.
                 </Text>
               </Stack>
             )}

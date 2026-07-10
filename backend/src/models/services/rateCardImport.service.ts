@@ -28,7 +28,8 @@ type RateCardImportOptions = {
   targetCourier?: ImportTargetCourier | null
 }
 
-type SlabRow = CSVRow & { readonly _weight: number; readonly _type: 'first' | 'additional' }
+type SlabRowType = 'first' | 'additional' | 'reverse' | 'reverse_additional'
+type SlabRow = CSVRow & { readonly _weight: number; readonly _type: SlabRowType }
 type ZoneHeaderMap = Record<string, string | undefined>
 type PreparedSlabRow = {
   readonly firstRow: SlabRow
@@ -296,6 +297,33 @@ const roundMoney = (value: number) => Math.round(value * 100) / 100
 
 const weightsMatch = (left: number, right: number) => Math.abs(left - right) < 0.001
 
+const normalizeSlabType = (value: RateCardCell): SlabRowType | null => {
+  const raw = cellToString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+  if (['first', 'forward', 'forward_first'].includes(raw)) return 'first'
+  if (['additional', 'forward_additional', 'additional_forward'].includes(raw)) {
+    return 'additional'
+  }
+  if (['reverse', 'reverse_pickup', 'reverse_first', 'reverse_pickup_first'].includes(raw)) {
+    return 'reverse'
+  }
+  if (
+    [
+      'reverse_additional',
+      'reverse_pickup_additional',
+      'additional_reverse',
+      'additional_reverse_pickup',
+    ].includes(raw)
+  ) {
+    return 'reverse_additional'
+  }
+
+  return null
+}
+
 const normalizeSlabLabel = (value: RateCardCell) => {
   const raw = cellToString(value)
   if (!raw) return ''
@@ -310,8 +338,12 @@ const normalizeSlabLabel = (value: RateCardCell) => {
     .trim()
 }
 
-const findAdditionalRowForSlab = (rows: SlabRow[], firstRow: SlabRow) => {
-  const additionalRows = rows.filter((row) => row._type === 'additional')
+const findAdditionalRowForSlab = (
+  rows: SlabRow[],
+  firstRow: SlabRow,
+  additionalType: SlabRowType = 'additional',
+) => {
+  const additionalRows = rows.filter((row) => row._type === additionalType)
   const slabLabel = normalizeSlabLabel(firstRow['Slab'])
   if (slabLabel) {
     const labelMatches = additionalRows.filter(
@@ -331,16 +363,20 @@ const findAdditionalRowForSlab = (rows: SlabRow[], firstRow: SlabRow) => {
   return matchingWeightRows.length === 1 ? matchingWeightRows[0] : undefined
 }
 
-const prepareFirstSlabRows = (rows: SlabRow[]): PreparedSlabRow[] => {
+const prepareFirstSlabRows = (
+  rows: SlabRow[],
+  firstType: SlabRowType = 'first',
+  additionalType: SlabRowType = 'additional',
+): PreparedSlabRow[] => {
   const firstRows = rows
-    .filter((r) => r._type === 'first')
+    .filter((r) => r._type === firstType)
     .sort((a, b) => a._weight - b._weight)
 
   let previousWeightTo = 0
   let previousAdditionalRow: SlabRow | undefined
 
   return firstRows.map((firstRow, index) => {
-    const additionalRow = findAdditionalRowForSlab(rows, firstRow)
+    const additionalRow = findAdditionalRowForSlab(rows, firstRow, additionalType)
     const startsIndependentSlab = index === 0 || Boolean(previousAdditionalRow)
     const prepared: PreparedSlabRow = {
       firstRow,
@@ -371,9 +407,9 @@ export const importB2CSlabFormat = async (
     const courierName = cell(row, 'Courier') || cell(row, 'Courier Name')
     const serviceProvider = inferServiceProvider(cell(row, 'Service Provider'), courierName)
     const mode = cell(row, 'Mode')
-    const slabType = cell(row, 'Slab Type').toLowerCase()
+    const slabType = normalizeSlabType(row['Slab Type'])
     if ((!courierId || !mode) && !options.targetCourier) continue
-    if (slabType !== 'first' && slabType !== 'additional') continue
+    if (!slabType) continue
     const weight = toRateCardNumber(row['Weight (KG)'])
     if (!weight) continue
 
@@ -399,28 +435,32 @@ export const importB2CSlabFormat = async (
           'Service Provider': canonicalCourier.serviceProvider,
           Mode: canonicalCourier.mode,
           _weight: weight,
-          _type: slabType as 'first' | 'additional',
+          _type: slabType,
         }) as SlabRow,
       )
   }
 
   for (const rows of groups.values()) {
     const first = rows.find((r) => r._type === 'first')
-    if (!first) continue
+    const reverseFirst = rows.find((r) => r._type === 'reverse')
+    const metadataRow = first || reverseFirst
+    if (!metadataRow) continue
 
-    const courierId = cell(first, 'Courier ID')
-    const courierName = cell(first, 'Courier') || cell(first, 'Courier Name')
-    const serviceProvider = inferServiceProvider(cell(first, 'Service Provider'), courierName)
-    const mode = cell(first, 'Mode')
-    const codCharges = toRateCardNumber(first['COD Rs'] ?? first['COD Charges'], 0) || null
-    const codPercent = toRateCardNumber(first['COD %'] ?? first['COD Percent'], 0) || null
-    const rtoMultiplier = rateMultiplierFromCell(first['RTO %'])
+    const courierId = cell(metadataRow, 'Courier ID')
+    const courierName = cell(metadataRow, 'Courier') || cell(metadataRow, 'Courier Name')
+    const serviceProvider = inferServiceProvider(cell(metadataRow, 'Service Provider'), courierName)
+    const mode = cell(metadataRow, 'Mode')
+    const codCharges = toRateCardNumber(metadataRow['COD Rs'] ?? metadataRow['COD Charges'], 0) || null
+    const codPercent = toRateCardNumber(metadataRow['COD %'] ?? metadataRow['COD Percent'], 0) || null
+    const rtoMultiplier = first ? rateMultiplierFromCell(first['RTO %']) : 0
     const reversePickupMultiplier = rateMultiplierFromCell(
-      first['Reverse Pickup %'] ?? first['Reverse %'],
+      (first || reverseFirst)?.['Reverse Pickup %'] ?? (first || reverseFirst)?.['Reverse %'],
     )
+    const hasExplicitReverseRows = Boolean(reverseFirst)
 
-    const preparedFirstRows = prepareFirstSlabRows(rows)
-    const zoneHeaders = resolveZoneHeaders(first, zonesList)
+    const preparedForwardRows = prepareFirstSlabRows(rows, 'first', 'additional')
+    const preparedReverseRows = prepareFirstSlabRows(rows, 'reverse', 'reverse_additional')
+    const zoneHeaders = resolveZoneHeaders(metadataRow, zonesList)
 
     const zoneForwardSlabs: Record<string, any[]> = {}
     const zoneRtoSlabs: Record<string, any[]> = {}
@@ -431,7 +471,7 @@ export const importB2CSlabFormat = async (
       const rtoSlabs: any[] = []
       const reversePickupSlabs: any[] = []
 
-      for (const preparedSlab of preparedFirstRows) {
+      for (const preparedSlab of preparedForwardRows) {
         const {
           firstRow: fr,
           additionalRow: addRow,
@@ -477,30 +517,57 @@ export const importB2CSlabFormat = async (
         }
       }
 
-      if (fwdSlabs.length) {
-        zoneForwardSlabs[zone.id] = fwdSlabs
-        if (rtoSlabs.length) zoneRtoSlabs[zone.id] = rtoSlabs
-        if (reversePickupSlabs.length) zoneReversePickupSlabs[zone.id] = reversePickupSlabs
+      if (hasExplicitReverseRows) {
+        reversePickupSlabs.length = 0
+
+        for (const preparedSlab of preparedReverseRows) {
+          const {
+            firstRow: reverseRow,
+            additionalRow: reverseAddRow,
+            weight_from: weightFrom,
+            weight_to: weightTo,
+          } = preparedSlab
+          const reverseRate = toRateCardNumber(getZoneCell(reverseRow, zone, zoneHeaders))
+          if (!reverseRate) continue
+
+          const reverseExtraRate = reverseAddRow
+            ? toRateCardNumber(getZoneCell(reverseAddRow, zone, zoneHeaders)) || null
+            : null
+          const reverseExtraWeightUnit =
+            reverseAddRow && reverseExtraRate ? reverseAddRow._weight || null : null
+
+          reversePickupSlabs.push({
+            weight_from: weightFrom,
+            weight_to: weightTo,
+            rate: reverseRate,
+            extra_rate: reverseExtraRate,
+            extra_weight_unit: reverseExtraWeightUnit,
+          })
+        }
       }
+
+      if (fwdSlabs.length) zoneForwardSlabs[zone.id] = fwdSlabs
+      if (rtoSlabs.length) zoneRtoSlabs[zone.id] = rtoSlabs
+      if (reversePickupSlabs.length) zoneReversePickupSlabs[zone.id] = reversePickupSlabs
     }
 
     for (const zone of zonesList) {
       const fwdSlabs = zoneForwardSlabs[zone.id]
-      if (!fwdSlabs?.length) continue
-
-      savedRows += await upsertShippingRate({
-        courier_id: courierId,
-        courier_name: courierName,
-        service_provider: serviceProvider,
-        plan_id,
-        mode,
-        business_type: 'b2c',
-        cod_charges: codCharges,
-        cod_percent: codPercent,
-        other_charges: null,
-        rates: [{ zone_id: zone.id, type: 'forward', rate: fwdSlabs[0]?.rate ?? 0 }],
-        zone_slabs: { [zone.id]: { forward: fwdSlabs } },
-      })
+      if (fwdSlabs?.length) {
+        savedRows += await upsertShippingRate({
+          courier_id: courierId,
+          courier_name: courierName,
+          service_provider: serviceProvider,
+          plan_id,
+          mode,
+          business_type: 'b2c',
+          cod_charges: codCharges,
+          cod_percent: codPercent,
+          other_charges: null,
+          rates: [{ zone_id: zone.id, type: 'forward', rate: fwdSlabs[0]?.rate ?? 0 }],
+          zone_slabs: { [zone.id]: { forward: fwdSlabs } },
+        })
+      }
 
       const rtoSlabs = zoneRtoSlabs[zone.id]
       if (rtoSlabs?.length) {
