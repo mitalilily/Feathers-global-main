@@ -389,27 +389,38 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     return sum + unitPrice * qty
   }, 0)
   const netOrderSubtotal = toAmount(order.order_amount)
+  const netProductSubtotal = Math.max(
+    0,
+    netOrderSubtotal -
+      toAmount(order.shipping_charges) -
+      toAmount(order.other_charges) -
+      toAmount(order.gift_wrap) -
+      toAmount(order.transaction_fee),
+  )
   const subtotalScaleFactor =
     rawProductSubtotal > 0 &&
-    netOrderSubtotal > 0 &&
-    Math.abs(rawProductSubtotal - netOrderSubtotal) > 0.01 &&
-    toAmount(order.shipping_charges) === 0 &&
-    toAmount(order.other_charges) === 0
-      ? netOrderSubtotal / rawProductSubtotal
+    netProductSubtotal > 0 &&
+    Math.abs(rawProductSubtotal - netProductSubtotal) > 0.01
+      ? netProductSubtotal / rawProductSubtotal
       : 1
 
   const getDisplayedUnitPrice = (product: any) => {
     const qty = Math.max(1, toAmount(product?.qty ?? product?.quantity ?? 1))
-    const storedNetUnitPrice = toAmount(product?.net_price ?? product?.display_price ?? product?.price)
+    const storedNetUnitPrice = toAmount(
+      product?.net_price ?? product?.discounted_price ?? product?.display_price,
+    )
     const originalUnitPrice = toAmount(product?.original_price ?? product?.price)
     const lineDiscount = toAmount(product?.discount)
-    if (lineDiscount > 0) {
-      return Math.max(0, (originalUnitPrice * qty - lineDiscount) / qty)
+    if (storedNetUnitPrice > 0) {
+      return storedNetUnitPrice
     }
     if (subtotalScaleFactor !== 1) {
       return originalUnitPrice * subtotalScaleFactor
     }
-    return storedNetUnitPrice > 0 ? storedNetUnitPrice : originalUnitPrice
+    if (lineDiscount > 0) {
+      return Math.max(0, (originalUnitPrice * qty - lineDiscount) / qty)
+    }
+    return originalUnitPrice
   }
 
   const sellerBrandName =
@@ -765,10 +776,8 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
 
   if (showOrderValueSection) {
     const productValue = products.reduce((sum: number, p: any) => {
-      const qty = toAmount(p?.qty ?? p?.quantity ?? 1)
-      const price = toAmount(p?.price)
-      const discount = toAmount(p?.discount)
-      return sum + Math.max(0, price * qty - discount)
+      const qty = Math.max(1, toAmount(p?.qty ?? p?.quantity ?? 1))
+      return sum + Math.max(0, getDisplayedUnitPrice(p) * qty)
     }, 0)
     const normalizedOrderValue = toAmount(order.order_amount)
     const orderValue = normalizedOrderValue > 0 ? normalizedOrderValue : productValue

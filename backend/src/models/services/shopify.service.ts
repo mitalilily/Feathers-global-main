@@ -1407,14 +1407,41 @@ const mapProducts = (order: any) => {
       name: item?.name || item?.title || 'Item',
       sku: item?.sku || 'NA',
       qty,
-      price: discountedUnitPrice,
+      price: originalPrice,
       original_price: originalPrice,
+      net_price: discountedUnitPrice,
+      display_price: discountedUnitPrice,
+      discounted_price: discountedUnitPrice,
       discount,
       tax_rate: lineTaxRate,
       hsn: '',
     }
   })
 }
+
+const buildShopifyFinancialSignature = ({
+  orderAmount,
+  shippingCharges,
+  discount,
+  products,
+}: {
+  orderAmount: number
+  shippingCharges: number
+  discount: number
+  products: any[]
+}) =>
+  JSON.stringify({
+    orderAmount: Number(orderAmount || 0).toFixed(2),
+    shippingCharges: Number(shippingCharges || 0).toFixed(2),
+    discount: Number(discount || 0).toFixed(2),
+    products: products.map((product) => ({
+      sku: String(product?.sku || ''),
+      qty: Number(product?.qty || 0),
+      price: Number(product?.price || 0).toFixed(2),
+      netPrice: Number(product?.net_price ?? product?.display_price ?? product?.discounted_price ?? 0).toFixed(2),
+      discount: Number(product?.discount || 0).toFixed(2),
+    })),
+  })
 
 const toPhone = (order: any): string => {
   const phone =
@@ -1494,8 +1521,11 @@ const normalizeGraphqlOrder = (
       title: item?.title || item?.name,
       sku: item?.sku,
       quantity: item?.quantity,
-      price: moneyAmount(item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet),
+      price: moneyAmount(item?.originalUnitPriceSet),
       original_price: moneyAmount(item?.originalUnitPriceSet),
+      net_price: moneyAmount(item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet),
+      display_price: moneyAmount(item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet),
+      discounted_price: moneyAmount(item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet),
       discounted_unit_price_after_all_discounts: moneyAmount(
         item?.discountedUnitPriceAfterAllDiscountsSet ?? item?.originalUnitPriceSet,
       ),
@@ -1805,6 +1835,13 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   )
   const declaredWeight = totalWeightGrams > 0 ? totalWeightGrams : 500
   const orderAmount = toNumber(order?.total_price, 0)
+  const discountAmount = toNumber(order?.total_discounts, 0)
+  const shopifyFinancialSignature = buildShopifyFinancialSignature({
+    orderAmount,
+    shippingCharges,
+    discount: discountAmount,
+    products,
+  })
   const orderName = String(order?.name || order?.order_number || shopifyOrderId).trim()
   const piiAccessRestricted = order?.shopify_pii_restricted === true
   const existingTags = String(order?.tags || '').trim()
@@ -1813,6 +1850,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
     source: 'shopify',
     shopify_store_id: String(store.id),
     shopify_order_id: shopifyOrderId,
+    shopify_financial_signature: shopifyFinancialSignature,
     shopify_pii_restricted: piiAccessRestricted,
     customer_data_note: piiAccessRestricted
       ? 'Shopify did not grant this app access to customer PII; buyer address and phone were not available during sync.'
@@ -1898,7 +1936,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
     shipping_charges: shippingCharges,
     transaction_fee: 0,
     gift_wrap: 0,
-    discount: toNumber(order?.total_discounts, 0),
+    discount: discountAmount,
     order_status: mappedStatus,
     courier_partner: 'Shopify',
     provider_meta: providerMeta,
@@ -1918,6 +1956,11 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
       row.provider_meta && typeof row.provider_meta === 'object' && !Array.isArray(row.provider_meta)
         ? row.provider_meta
         : {}
+    const existingFinancialSignature = String(
+      existingProviderMeta.shopify_financial_signature || '',
+    ).trim()
+    const shouldInvalidateStaleLabel =
+      !existingFinancialSignature || existingFinancialSignature !== shopifyFinancialSignature
     const providerMetaCourierName = getProviderMetaCourierName(existingProviderMeta)
     const bookedProviderKey = resolveCourierProviderKeyFromFields(
       row.integration_type,
@@ -1942,6 +1985,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
         ...existingProviderMeta,
         ...providerMeta,
       },
+      ...(shouldInvalidateStaleLabel ? { label: null } : {}),
     }
   }
 
