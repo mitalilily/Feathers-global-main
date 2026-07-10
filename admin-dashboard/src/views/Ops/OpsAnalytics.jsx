@@ -58,7 +58,7 @@ const defaultFilters = {
 const formatPercent = (value) => `${Number(value || 0).toFixed(1)}%`
 const formatDays = (value) => `${Number(value || 0).toFixed(1)} days`
 
-export default function OpsAnalytics() {
+export default function OpsAnalytics({ embedded = false } = {}) {
   const [filters, setFilters] = useState(defaultFilters)
   const { data, isLoading, error, refetch, isRefetching } = useOpsAnalytics(filters)
 
@@ -142,7 +142,7 @@ export default function OpsAnalytics() {
 
   if (isLoading) {
     return (
-      <Box minH="70vh" display="flex" alignItems="center" justifyContent="center">
+      <Box minH={embedded ? '240px' : '70vh'} display="flex" alignItems="center" justifyContent="center">
         <Stack spacing={3} align="center">
           <Spinner size="xl" color="brand.500" thickness="4px" />
           <Text color={textSecondary}>Loading ops analytics...</Text>
@@ -153,7 +153,7 @@ export default function OpsAnalytics() {
 
   if (error) {
     return (
-      <Box minH="70vh" display="flex" alignItems="center" justifyContent="center">
+      <Box minH={embedded ? '240px' : '70vh'} display="flex" alignItems="center" justifyContent="center">
         <Stack spacing={3} align="center">
           <Text color="red.500" fontWeight="700" fontSize="lg">
             Failed to load ops analytics
@@ -166,9 +166,38 @@ export default function OpsAnalytics() {
     )
   }
 
-  return (
-    <Box minH="100vh" bg={pageBg} pb={8}>
-      <Container maxW="full" pt={{ base: '120px', md: '75px' }} px={{ base: 4, md: 6 }}>
+  const content = (
+    <>
+      {embedded ? (
+        <Box mb={6}>
+          <HStack justify="space-between" align={{ base: 'flex-start', md: 'center' }} flexWrap="wrap" spacing={4}>
+            <Box>
+              <Text fontSize="xs" fontWeight="800" letterSpacing="0.08em" textTransform="uppercase" color="brand.500">
+                Seller analytics on admin
+              </Text>
+              <Text mt={1} fontSize="2xl" fontWeight="800" color={textPrimary}>
+                Zone, courier and pincode intelligence
+              </Text>
+              <Text mt={1} fontSize="sm" color={textSecondary} maxW="4xl">
+                This mirrors the full seller analytics stack directly on the admin dashboard, using the same synced live data source.
+              </Text>
+            </Box>
+            <Button
+              size="sm"
+              leftIcon={isRefetching ? <Spinner size="sm" /> : <IconRefresh size={16} />}
+              isLoading={isRefetching}
+              onClick={() => refetch()}
+              bg="brand.500"
+              color="white"
+              borderRadius="14px"
+              px={5}
+              _hover={{ bg: 'brand.600' }}
+            >
+              Refresh data
+            </Button>
+          </HStack>
+        </Box>
+      ) : (
         <PageHeader
           eyebrow={`${BRAND.name} Operations`}
           title="Analytics cockpit for zone, courier and pincode decisions"
@@ -192,126 +221,138 @@ export default function OpsAnalytics() {
             </HStack>
           }
         />
+      )}
 
-        <Box mt={6} mb={6}>
-          <TableFilters filters={tableFilters} values={filters} onApply={setFilters} cardStyle />
-        </Box>
+      <Box mt={embedded ? 0 : 6} mb={6}>
+        <TableFilters filters={tableFilters} values={filters} onApply={setFilters} cardStyle />
+      </Box>
 
-        <SimpleGrid columns={{ base: 1, sm: 2, xl: 4 }} spacing={4} mb={6}>
-          <MetricTile
-            label="Orders"
-            value={Number(summary.totalOrders || 0).toLocaleString()}
-            muted="Orders in the selected range"
-            icon={<IconPackageExport size={18} />}
-            accent="brand.500"
+      <SimpleGrid columns={{ base: 1, sm: 2, xl: 4 }} spacing={4} mb={6}>
+        <MetricTile
+          label="Orders"
+          value={Number(summary.totalOrders || 0).toLocaleString()}
+          muted="Orders in the selected range"
+          icon={<IconPackageExport size={18} />}
+          accent="brand.500"
+        />
+        <MetricTile
+          label="Delivery rate"
+          value={formatPercent(summary.deliveryRate)}
+          muted={`Avg delivery ${formatDays(summary.avgDeliveryDays)}`}
+          icon={<IconCheck size={18} />}
+          accent="green.500"
+        />
+        <MetricTile
+          label="RTO rate"
+          value={formatPercent(summary.rtoRate)}
+          muted={`Avg dispatch ${formatDays(summary.avgDispatchDays)}`}
+          icon={<IconAlertTriangle size={18} />}
+          accent="orange.500"
+        />
+        <MetricTile
+          label="Best courier"
+          value={summary.bestCourier?.label || summary.bestCourier?.courier || 'Unknown'}
+          muted={summary.bestZone?.label ? `Best zone: ${summary.bestZone.label}` : 'Zone ranking ready'}
+          icon={<IconTruck size={18} />}
+          accent="secondary.500"
+        />
+      </SimpleGrid>
+
+      <Grid templateColumns={{ base: '1fr', xl: '1.05fr 0.95fr' }} gap={6} mb={6}>
+        <DashboardCard title="Overall Zone Dashboard" subtitle="Zone-level performance and seller guidance" bg={panelBg} borderColor={borderColor}>
+          <CompactTable
+            headers={['Zone', 'Orders', 'Delivery %', 'RTO %', 'Avg Delivery Days', 'Best Courier']}
+            rows={zoneOverview}
+            renderRow={(row) => (
+              <Tr key={row.label}>
+                <Td fontWeight="700" color={textPrimary}>
+                  {row.label}
+                </Td>
+                <Td>{Number(row.orders || 0).toLocaleString()}</Td>
+                <Td>{formatPercent(row.deliveryRate)}</Td>
+                <Td>{formatPercent(row.rtoRate)}</Td>
+                <Td>{formatDays(row.avgDeliveryDays)}</Td>
+                <Td>
+                  <Badge colorScheme="blue" borderRadius="full">
+                    {row.bestCourier || 'Unknown'}
+                  </Badge>
+                </Td>
+              </Tr>
+            )}
           />
-          <MetricTile
-            label="Delivery rate"
-            value={formatPercent(summary.deliveryRate)}
-            muted={`Avg delivery ${formatDays(summary.avgDeliveryDays)}`}
-            icon={<IconCheck size={18} />}
-            accent="green.500"
+
+          <Box mt={4} p={4} borderRadius="14px" bg={softBg} borderWidth="1px" borderColor={borderColor}>
+            <Text fontSize="sm" fontWeight="700" color={textPrimary} mb={2}>
+              Seller guidance
+            </Text>
+            <Stack spacing={1.5}>
+              {guidance.map((line) => (
+                <HStack key={line} spacing={2}>
+                  <IconArrowUpRight size={16} color="#2B6CB0" />
+                  <Text fontSize="sm" color={textPrimary}>
+                    {line}
+                  </Text>
+                </HStack>
+              ))}
+            </Stack>
+          </Box>
+        </DashboardCard>
+
+        <DashboardCard title="Courier vs Zone Matrix" subtitle="Courier delivery rate by zone" bg={panelBg} borderColor={borderColor}>
+          <Box h={{ base: '340px', md: '420px' }}>
+            {heatmapSeries.length > 0 ? (
+              <HeatmapChart series={heatmapSeries} categories={zoneMatrix.zones} />
+            ) : (
+              <EmptyState text="No courier-zone data available for the selected range." />
+            )}
+          </Box>
+        </DashboardCard>
+      </Grid>
+
+      <Grid templateColumns={{ base: '1fr', xl: '1fr 1fr' }} gap={6} mb={6}>
+        <DashboardCard title="Zone Wise RTO Analytics" subtitle="COD RTO vs prepaid RTO" bg={panelBg} borderColor={borderColor}>
+          <CompactTable
+            headers={['Zone', 'COD RTO', 'Prepaid RTO']}
+            rows={zoneRtoAnalytics}
+            renderRow={(row) => (
+              <Tr key={row.zone}>
+                <Td fontWeight="700" color={textPrimary}>
+                  {row.zone}
+                </Td>
+                <Td>{formatPercent(row.codRto)}</Td>
+                <Td>{formatPercent(row.prepaidRto)}</Td>
+              </Tr>
+            )}
           />
-          <MetricTile
-            label="RTO rate"
-            value={formatPercent(summary.rtoRate)}
-            muted={`Avg dispatch ${formatDays(summary.avgDispatchDays)}`}
-            icon={<IconAlertTriangle size={18} />}
-            accent="orange.500"
+        </DashboardCard>
+
+        <DashboardCard title="Zone Wise Delivery Speed" subtitle="Best courier and average days by zone" bg={panelBg} borderColor={borderColor}>
+          <CompactTable
+            headers={['Zone', 'Best Courier', 'Avg Days']}
+            rows={zoneSpeed}
+            renderRow={(row) => (
+              <Tr key={row.zone}>
+                <Td fontWeight="700" color={textPrimary}>
+                  {row.zone}
+                </Td>
+                <Td>{row.bestCourier}</Td>
+                <Td>{formatDays(row.avgDays)}</Td>
+              </Tr>
+            )}
           />
-          <MetricTile
-            label="Best courier"
-            value={summary.bestCourier?.label || summary.bestCourier?.courier || 'Unknown'}
-            muted={summary.bestZone?.label ? `Best zone: ${summary.bestZone.label}` : 'Zone ranking ready'}
-            icon={<IconTruck size={18} />}
-            accent="secondary.500"
-          />
-        </SimpleGrid>
+        </DashboardCard>
+      </Grid>
+    </>
+  )
 
-        <Grid templateColumns={{ base: '1fr', xl: '1.05fr 0.95fr' }} gap={6} mb={6}>
-          <DashboardCard title="Overall Zone Dashboard" subtitle="Zone-level performance and seller guidance" bg={panelBg} borderColor={borderColor}>
-            <CompactTable
-              headers={['Zone', 'Orders', 'Delivery %', 'RTO %', 'Avg Delivery Days', 'Best Courier']}
-              rows={zoneOverview}
-              renderRow={(row) => (
-                <Tr key={row.label}>
-                  <Td fontWeight="700" color={textPrimary}>
-                    {row.label}
-                  </Td>
-                  <Td>{Number(row.orders || 0).toLocaleString()}</Td>
-                  <Td>{formatPercent(row.deliveryRate)}</Td>
-                  <Td>{formatPercent(row.rtoRate)}</Td>
-                  <Td>{formatDays(row.avgDeliveryDays)}</Td>
-                  <Td>
-                    <Badge colorScheme="blue" borderRadius="full">
-                      {row.bestCourier || 'Unknown'}
-                    </Badge>
-                  </Td>
-                </Tr>
-              )}
-            />
-
-            <Box mt={4} p={4} borderRadius="14px" bg={softBg} borderWidth="1px" borderColor={borderColor}>
-              <Text fontSize="sm" fontWeight="700" color={textPrimary} mb={2}>
-                Seller guidance
-              </Text>
-              <Stack spacing={1.5}>
-                {guidance.map((line) => (
-                  <HStack key={line} spacing={2}>
-                    <IconArrowUpRight size={16} color="#2B6CB0" />
-                    <Text fontSize="sm" color={textPrimary}>
-                      {line}
-                    </Text>
-                  </HStack>
-                ))}
-              </Stack>
-            </Box>
-          </DashboardCard>
-
-          <DashboardCard title="Courier vs Zone Matrix" subtitle="Courier delivery rate by zone" bg={panelBg} borderColor={borderColor}>
-            <Box h={{ base: '340px', md: '420px' }}>
-              {heatmapSeries.length > 0 ? (
-                <HeatmapChart series={heatmapSeries} categories={zoneMatrix.zones} />
-              ) : (
-                <EmptyState text="No courier-zone data available for the selected range." />
-              )}
-            </Box>
-          </DashboardCard>
-        </Grid>
-
-        <Grid templateColumns={{ base: '1fr', xl: '1fr 1fr' }} gap={6} mb={6}>
-          <DashboardCard title="Zone Wise RTO Analytics" subtitle="COD RTO vs prepaid RTO" bg={panelBg} borderColor={borderColor}>
-            <CompactTable
-              headers={['Zone', 'COD RTO', 'Prepaid RTO']}
-              rows={zoneRtoAnalytics}
-              renderRow={(row) => (
-                <Tr key={row.zone}>
-                  <Td fontWeight="700" color={textPrimary}>
-                    {row.zone}
-                  </Td>
-                  <Td>{formatPercent(row.codRto)}</Td>
-                  <Td>{formatPercent(row.prepaidRto)}</Td>
-                </Tr>
-              )}
-            />
-          </DashboardCard>
-
-          <DashboardCard title="Zone Wise Delivery Speed" subtitle="Best courier and average days by zone" bg={panelBg} borderColor={borderColor}>
-            <CompactTable
-              headers={['Zone', 'Best Courier', 'Avg Days']}
-              rows={zoneSpeed}
-              renderRow={(row) => (
-                <Tr key={row.zone}>
-                  <Td fontWeight="700" color={textPrimary}>
-                    {row.zone}
-                  </Td>
-                  <Td>{row.bestCourier}</Td>
-                  <Td>{formatDays(row.avgDays)}</Td>
-                </Tr>
-              )}
-            />
-          </DashboardCard>
-        </Grid>
+  return embedded ? (
+    <Box>
+      {content}
+    </Box>
+  ) : (
+    <Box minH="100vh" bg={pageBg} pb={8}>
+      <Container maxW="full" pt={{ base: '120px', md: '75px' }} px={{ base: 4, md: 6 }}>
+        {content}
 
         <Grid templateColumns={{ base: '1fr', xl: '0.95fr 1.05fr' }} gap={6} mb={6}>
           <DashboardCard title="NDR Analytics" subtitle="Reason-wise summary" bg={panelBg} borderColor={borderColor}>

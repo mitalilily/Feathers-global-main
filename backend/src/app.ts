@@ -29,6 +29,7 @@ import {
 } from './controllers/shopify.controller'
 import { wooCommerceOrderWebhookController } from './controllers/woocommerce.controller'
 import adminCourierRoutes from './routes/adminRoutes/adminCourier.routes'
+import adminDashboardRoutes from './routes/adminRoutes/dashboard.routes'
 import adminSupportRoutes from './routes/adminRoutes/adminSupport.routes'
 import adminUserRoutes from './routes/adminRoutes/adminUser.routes'
 import adminWalletRoutes from './routes/adminRoutes/adminWallet.routes'
@@ -39,6 +40,7 @@ import adminCodRemittanceRoutes from './routes/adminRoutes/codRemittance.admin.r
 import adminDeveloperRoutes from './routes/adminRoutes/developer.routes'
 import locationRoutes from './routes/adminRoutes/location.routes'
 import adminOrderRoutes from './routes/adminRoutes/order.routes'
+import adminOpsAnalyticsRoutes from './routes/adminRoutes/opsAnalytics.routes'
 import adminPaymentOptionsRoutes from './routes/adminRoutes/paymentOptions.admin.routes'
 import planRoutes from './routes/adminRoutes/plan.routes'
 import adminWeightReconciliationRoutes from './routes/adminRoutes/weightReconciliation.admin.routes'
@@ -206,6 +208,8 @@ app.use('/api/support', supportRoutes)
 app.use('/api/admin', adminSupportRoutes)
 app.use('/api/admin/users', adminUserRoutes)
 app.use('/api/admin/orders', adminOrderRoutes)
+app.use('/api/admin/dashboard', adminDashboardRoutes)
+app.use('/api/admin/ops', adminOpsAnalyticsRoutes)
 app.use('/api/admin/developer', adminDeveloperRoutes)
 app.use('/api/admin/couriers', adminCourierRoutes)
 app.use('/api/admin/zones', zoneRoutes)

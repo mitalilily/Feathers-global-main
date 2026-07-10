@@ -36,6 +36,7 @@ import { useDashboardStats } from 'hooks/useDashboardStats'
 import { useMemo } from 'react'
 import { useHistory } from 'react-router-dom'
 import { BRAND } from '../../../constants/brand'
+import OpsAnalytics from '../../Ops/OpsAnalytics'
 
 const formatCurrency = (amount) =>
   new Intl.NumberFormat('en-IN', {
@@ -525,6 +526,17 @@ export default function Dashboard() {
             </VStack>
           </SectionCard>
         </Grid>
+
+        <SectionCard
+          title="Seller Ops Analytics"
+          subtitle="The full zone, courier, pincode and RTO analytics stack is now visible directly on the admin dashboard."
+          panelBg={panelBg}
+          borderColor={borderColor}
+        >
+          <OpsAnalytics embedded />
+        </SectionCard>
+
+        <Box h={6} />
 
         <Grid templateColumns={{ base: '1fr', xl: '1fr 1fr' }} gap={6} mb={6}>
           <SectionCard
