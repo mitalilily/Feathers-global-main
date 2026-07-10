@@ -19,6 +19,22 @@ export interface RateCardSlabInput {
 export const B2C_RATE_TYPES = ['forward', 'rto', 'reverse_pickup'] as const
 export type B2CRateType = (typeof B2C_RATE_TYPES)[number]
 
+export function resolveAllowedB2CRateTypes(params: {
+  courierName?: string | null
+  serviceProvider?: string | null
+}) {
+  const serviceProvider = normalizeB2CServiceProvider(params.serviceProvider)
+  const courierName = String(params.courierName ?? '')
+    .trim()
+    .toLowerCase()
+
+  if (serviceProvider === 'xpressbees' && courierName.includes('reverse')) {
+    return ['reverse_pickup'] as const
+  }
+
+  return B2C_RATE_TYPES
+}
+
 export interface ResolvedRateCardSlab {
   id?: string
   weight_from: number

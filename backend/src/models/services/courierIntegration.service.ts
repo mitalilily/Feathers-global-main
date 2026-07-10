@@ -15,6 +15,7 @@ import {
   normalizeB2CServiceProvider,
   normaliseRateCardSlabs,
   replaceShippingRateSlabs,
+  resolveAllowedB2CRateTypes,
   validateRateCardSlabs,
   type RateCardSlabInput,
 } from './b2cRateCard.service'
@@ -380,6 +381,14 @@ export const updateShippingRate = async (
       ...Object.keys(zone_slabs || {}),
     ]),
   )
+  const allowedRateTypes = new Set(
+    businessType === 'b2c'
+      ? resolveAllowedB2CRateTypes({
+          courierName: courier_name,
+          serviceProvider: normalizedServiceProvider,
+        })
+      : B2C_RATE_TYPES,
+  )
   let savedRows = 0
 
   if (zoneNames.length > 0) {
@@ -388,11 +397,31 @@ export const updateShippingRate = async (
       .from(zones)
       .where(inArray(zones.name, zoneNames))
 
+    const disallowedRateTypes = B2C_RATE_TYPES.filter((type) => !allowedRateTypes.has(type))
+    if (businessType === 'b2c' && disallowedRateTypes.length && zoneRows.length) {
+      await db
+        .delete(shippingRates)
+        .where(
+          and(
+            eq(shippingRates.courier_id, courierId),
+            eq(shippingRates.plan_id, planId),
+            eq(shippingRates.business_type, businessType),
+            inArray(shippingRates.zone_id, zoneRows.map((zone) => zone.id)),
+            inArray(shippingRates.type, disallowedRateTypes),
+            eq(sql`LOWER(${shippingRates.mode})`, previousMode),
+            previousServiceProvider
+              ? eq(sql`LOWER(${shippingRates.service_provider})`, previousServiceProvider)
+              : sql`1=1`,
+          ),
+        )
+    }
+
     for (const zn of zoneRows) {
       const zoneRate = rates[zn.name] || {}
       const zoneSlabs = zone_slabs?.[zn.name] || {}
 
       for (const type of B2C_RATE_TYPES) {
+        if (!allowedRateTypes.has(type)) continue
         const value = zoneRate[type]
         const explicitSlabs = normaliseRateCardSlabs(
           normaliseEditableRateCardSlabs(zoneSlabs[type] || []),
@@ -515,6 +544,14 @@ export const upsertShippingRate = async (input: RateInput) => {
 
   // Check if service_provider is provided in input (for CSV imports that might have it)
   const providedServiceProvider = normalizeB2CServiceProvider((input as any).service_provider) || null
+  const allowedRateTypes = new Set(
+    input.business_type === 'b2c'
+      ? resolveAllowedB2CRateTypes({
+          courierName: input.courier_name,
+          serviceProvider: providedServiceProvider,
+        })
+      : B2C_RATE_TYPES,
+  )
 
   if (input.courier_id && input.courier_name) {
     console.log(
@@ -623,7 +660,28 @@ export const upsertShippingRate = async (input: RateInput) => {
     }
   }
 
+  const disallowedRateTypes = B2C_RATE_TYPES.filter((type) => !allowedRateTypes.has(type))
+  const zoneIds = Array.from(new Set(input.rates.map((rate) => rate.zone_id).filter(Boolean)))
+  if (input.business_type === 'b2c' && disallowedRateTypes.length && zoneIds.length) {
+    await db
+      .delete(shippingRates)
+      .where(
+        and(
+          eq(shippingRates.courier_id, Number(input.courier_id)),
+          eq(shippingRates.plan_id, input.plan_id),
+          eq(shippingRates.business_type, input.business_type),
+          inArray(shippingRates.zone_id, zoneIds),
+          inArray(shippingRates.type, disallowedRateTypes),
+          eq(sql`LOWER(${shippingRates.mode})`, normalizedMode),
+          finalServiceProvider
+            ? eq(sql`LOWER(${shippingRates.service_provider})`, finalServiceProvider)
+            : sql`1=1`,
+        ),
+      )
+  }
+
   for (const r of input.rates) {
+    if (!allowedRateTypes.has(r.type)) continue
     const explicitSlabs = normaliseRateCardSlabs(
       normaliseEditableRateCardSlabs(input.zone_slabs?.[r.zone_id]?.[r.type] || []),
     )
