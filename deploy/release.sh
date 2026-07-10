@@ -236,6 +236,9 @@ const client = new Client({
 })
 NODE
 NODE_ENV=production npm run seed:basic-provider-ratecards
+if ! NODE_ENV=production npm run sync:xpressbees-couriers; then
+  echo "Warning: Xpressbees courier sync failed during release; continuing with existing courier records." >&2
+fi
 npm run build
 BACKEND_PORT="$(
   node -e "require('dotenv').config({ path: '.env.production' }); process.stdout.write(process.env.PORT || '5003')"

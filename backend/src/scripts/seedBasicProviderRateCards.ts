@@ -95,10 +95,14 @@ const inferMode = (name: string, mode?: unknown) => {
 const isXpressbeesAir = (name: string, mode?: unknown) =>
   inferMode(name, mode) === 'air' || name.toLowerCase().includes('air')
 
-const isXpressbees2Kg = (name: string, mode?: unknown) =>
-  !isXpressbeesAir(name, mode) &&
-  !name.toLowerCase().includes('reverse') &&
-  /\b2\s*(?:k\.?\s*g\.?|kg|kgs)\b/i.test(name)
+const isSupportedXpressbeesSeed = (name: string, mode?: unknown) => {
+  const lowerName = name.toLowerCase()
+  if (lowerName.includes('reverse')) return false
+  if (lowerName.includes('stressed')) return false
+  if (isXpressbeesAir(name, mode)) return true
+  if (lowerName.includes('surface')) return true
+  return /\b(?:1|2|5|10|20)\s*(?:k\.?\s*g\.?|kg|kgs)\b/i.test(name)
+}
 
 const canonicalDelhiverySeed = (name: string, mode?: unknown): CourierSeed => {
   const resolvedMode = inferMode(name, mode)
@@ -123,7 +127,7 @@ const isSupportedProviderCourierSeed = (seed: CourierSeed) => {
   }
 
   if (seed.serviceProvider === 'xpressbees') {
-    return isXpressbees2Kg(seed.name, seed.mode)
+    return isSupportedXpressbeesSeed(seed.name, seed.mode)
   }
 
   return !seed.name.toLowerCase().includes('reverse')
