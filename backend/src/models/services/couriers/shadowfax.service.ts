@@ -335,9 +335,6 @@ type ShadowfaxForwardBookingAttemptSummary = ShadowfaxForwardBookingAttempt & {
   error?: string
 }
 
-const alternateForwardMode = (mode: ShadowfaxForwardMode): ShadowfaxForwardMode =>
-  mode === 'warehouse' ? 'marketplace' : 'warehouse'
-
 const alternateForwardService = (service: ShadowfaxServiceMode): ShadowfaxServiceMode =>
   service === 'surface' ? 'regular' : 'surface'
 
@@ -356,8 +353,6 @@ const buildForwardBookingAttempts = (
 
   add(mode, service)
   add(mode, alternateForwardService(service))
-  add(alternateForwardMode(mode), service)
-  add(alternateForwardMode(mode), alternateForwardService(service))
   return attempts
 }
 
@@ -423,10 +418,14 @@ const normalizeReverseShipmentResponse = (payload: any) => {
   if (Array.isArray(payload.data) && payload.data[0] && typeof payload.data[0] === 'object') {
     payload.data[0].client_request_id = payload.data[0].client_request_id || requestId
     payload.data[0].awb_number = payload.data[0].awb_number || requestId
+    payload.data[0].provider_mode = payload.data[0].provider_mode || 'warehouse'
   } else if (payload.data && typeof payload.data === 'object') {
     payload.data.client_request_id = payload.data.client_request_id || requestId
     payload.data.awb_number = payload.data.awb_number || requestId
+    payload.data.provider_mode = payload.data.provider_mode || 'warehouse'
   }
+
+  payload.provider_mode = payload.provider_mode || 'warehouse'
 
   return payload
 }
