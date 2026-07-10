@@ -457,6 +457,40 @@ const parseInternalShopifyOrderId = (
   return { shopifyOrderId: value.replace(/^shopify_/, '') }
 }
 
+const extractShopifySyncTarget = (
+  order: any,
+): { storeId?: string; shopifyOrderId?: string; isShopifyOrder: boolean } => {
+  const localOrderId = String(order?.order_id || '')
+  const parsedFromOrderId = parseInternalShopifyOrderId(localOrderId)
+  if (parsedFromOrderId.shopifyOrderId) {
+    return {
+      ...parsedFromOrderId,
+      isShopifyOrder: true,
+    }
+  }
+
+  const providerMeta =
+    order?.provider_meta && typeof order.provider_meta === 'object' && !Array.isArray(order.provider_meta)
+      ? order.provider_meta
+      : {}
+
+  const shopifyOrderId = String(providerMeta.shopify_order_id || '').trim()
+  const storeId = String(providerMeta.shopify_store_id || '').trim()
+  const integrationType = String(order?.integration_type || providerMeta.source || '')
+    .trim()
+    .toLowerCase()
+
+  if (shopifyOrderId && (integrationType === 'shopify' || String(providerMeta.source || '').trim() === 'shopify')) {
+    return {
+      storeId: storeId || undefined,
+      shopifyOrderId,
+      isShopifyOrder: true,
+    }
+  }
+
+  return { isShopifyOrder: false }
+}
+
 export const getConfiguredShopifyCredentials = () => {
   const storeUrl = normalizeShopifyDomain(process.env.SHOPIFY_STORE || process.env.SHOPIFY_STORE_URL)
   const adminApiAccessToken = String(
@@ -1314,7 +1348,9 @@ const normalizeFulfillTrigger = (value: unknown): FulfillTrigger => {
 
 const statusPriority: Record<string, number> = {
   booked: 1,
+  shipment_created: 1,
   pickup_initiated: 1,
+  pickup_scheduled: 1,
   in_transit: 2,
   out_for_delivery: 3,
   delivered: 4,
@@ -2613,18 +2649,17 @@ export const syncShopifyStatusForLocalOrder = async (
   tx: any = db,
   options: { source?: string } = {},
 ) => {
-  const localOrderId = String(order?.order_id || '')
-  if (!localOrderId.startsWith('shopify_')) {
+  const syncTarget = extractShopifySyncTarget(order)
+  if (!syncTarget.isShopifyOrder) {
     return { attempted: false, success: true, channel: 'shopify', reason: 'not_a_shopify_order' }
   }
 
-  const parsed = parseInternalShopifyOrderId(localOrderId)
-  const shopifyOrderId = parsed.shopifyOrderId || ''
+  const shopifyOrderId = syncTarget.shopifyOrderId || ''
   if (!shopifyOrderId) {
     return { attempted: false, success: false, channel: 'shopify', reason: 'missing_shopify_order_id' }
   }
 
-  const store = await getStoreForStatusSync(order.user_id, parsed.storeId, tx)
+  const store = await getStoreForStatusSync(order.user_id, syncTarget.storeId, tx)
   if (!store) {
     await recordSalesChannelSyncOutcome(
       order,
