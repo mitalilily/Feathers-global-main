@@ -230,6 +230,8 @@ const isXpressbeesAwbResolutionError = (error: any): boolean => {
     message.includes('xpressbees awb generation') ||
     message.includes('awb generation failed') ||
     message.includes('awb series') ||
+    message.includes('manual awb range is not configured') ||
+    message.includes('preallocated awbs') ||
     isXpressbeesAwbCredentialError(error)
   )
 }
