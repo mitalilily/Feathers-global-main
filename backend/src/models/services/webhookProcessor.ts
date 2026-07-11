@@ -1710,6 +1710,43 @@ const mapXpressbeesStatus = (status: string): string => {
   return ''
 }
 
+const hasXpressbeesStatusToken = (status: string, token: string) =>
+  new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(
+    String(status || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim(),
+  )
+
+const isXpressbeesPickupStageRawStatus = (...parts: unknown[]) => {
+  const status = parts
+    .map((part) => String(part || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' | ')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+
+  return Boolean(status) &&
+    (
+      status.includes('pending pickup') ||
+      status.includes('pickup scheduled') ||
+      status.includes('pickup requested') ||
+      status.includes('pickup assigned') ||
+      status.includes('assigned for pickup') ||
+      status.includes('out for pickup') ||
+      status.includes('pickup booked') ||
+      status.includes('manifest') ||
+      status.includes('data received') ||
+      status.includes('information received') ||
+      status.includes('shipment created') ||
+      status.includes('shipment booked') ||
+      status.includes('picked') ||
+      hasXpressbeesStatusToken(status, 'pp') ||
+      hasXpressbeesStatusToken(status, 'drc') ||
+      hasXpressbeesStatusToken(status, 'pnd') ||
+      hasXpressbeesStatusToken(status, 'pck') ||
+      hasXpressbeesStatusToken(status, 'pku') ||
+      hasXpressbeesStatusToken(status, 'pkd')
+    )
+}
+
 const isXpressbeesPickupProgressStatus = (status: string) =>
   [
     'pickup_initiated',
@@ -1722,7 +1759,11 @@ const isXpressbeesPickupProgressStatus = (status: string) =>
     'rto_delivered',
   ].includes(String(status || '').trim().toLowerCase())
 
-const preserveXpressbeesStatusTransition = (currentStatus: unknown, mappedStatus: string) => {
+const preserveXpressbeesStatusTransition = (
+  currentStatus: unknown,
+  mappedStatus: string,
+  rawStatus?: unknown,
+) => {
   const current = normalizeComparableText(currentStatus).replace(/\s+/g, '_')
   const mapped = normalizeComparableText(mappedStatus).replace(/\s+/g, '_')
   if (!mapped) return current || 'pickup_initiated'
@@ -1736,6 +1777,15 @@ const preserveXpressbeesStatusTransition = (currentStatus: unknown, mappedStatus
 
   if (current.startsWith('rto') && !mapped.startsWith('rto') && mapped !== 'cancelled') {
     return current
+  }
+
+  if (
+    mapped === 'pickup_initiated' &&
+    isXpressbeesPickupStageRawStatus(rawStatus) &&
+    !['cancelled', 'delivered', 'rto_delivered'].includes(current) &&
+    !current.startsWith('rto')
+  ) {
+    return 'pickup_initiated'
   }
 
   const rank: Record<string, number> = {
@@ -2244,7 +2294,11 @@ export async function processXpressbeesWebhook(payload: any, tx = db) {
   }
 
   const mappedStatus = mapXpressbeesStatus(statusRaw || remarks)
-  const internalStatus = preserveXpressbeesStatusTransition(order.order_status, mappedStatus)
+  const internalStatus = preserveXpressbeesStatusTransition(
+    order.order_status,
+    mappedStatus,
+    [statusRaw, remarks].filter(Boolean).join(' | '),
+  )
   const previousStatus = normalizeComparableText(order.order_status).replace(/\s+/g, '_')
   const statusLower = internalStatus.toLowerCase()
   const statusText = statusRaw || remarks || internalStatus

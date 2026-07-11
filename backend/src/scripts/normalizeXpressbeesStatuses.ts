@@ -1,9 +1,10 @@
 import * as dotenv from 'dotenv'
 import * as path from 'path'
-import { and, desc, eq, ilike, or } from 'drizzle-orm'
+import { and, desc, eq, ilike, inArray, or } from 'drizzle-orm'
 import { db, pool } from '../models/client'
 import { b2c_orders } from '../models/schema/b2cOrders'
 import { tracking_events } from '../models/schema/trackingEvents'
+import { trackByAwbService } from '../models/services/shiprocket.service'
 
 const env = process.env.NODE_ENV || 'development'
 dotenv.config({ path: path.resolve(__dirname, `../../.env.${env}`) })
@@ -13,9 +14,39 @@ const normalizeText = (...parts: unknown[]) =>
     .map((part) => String(part || '').trim().toLowerCase())
     .filter(Boolean)
     .join(' | ')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
 const normalizeInternalStatus = (value: unknown) =>
   String(value || '').trim().toLowerCase().replace(/\s+/g, '_')
+
+const hasStatusToken = (status: string, token: string) =>
+  new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(status)
+
+const isPickupStageStatus = (status: string) =>
+  Boolean(status) &&
+  (
+    status.includes('pending pickup') ||
+    status.includes('pickup scheduled') ||
+    status.includes('pickup requested') ||
+    status.includes('pickup assigned') ||
+    status.includes('assigned for pickup') ||
+    status.includes('out for pickup') ||
+    status.includes('pickup booked') ||
+    status.includes('manifest') ||
+    status.includes('picked') ||
+    status.includes('data received') ||
+    status.includes('information received') ||
+    status.includes('shipment created') ||
+    status.includes('shipment booked') ||
+    hasStatusToken(status, 'pp') ||
+    hasStatusToken(status, 'drc') ||
+    hasStatusToken(status, 'pnd') ||
+    hasStatusToken(status, 'pck') ||
+    hasStatusToken(status, 'pku') ||
+    hasStatusToken(status, 'pkd')
+  )
 
 const mapXpressbeesTrackingText = (...parts: unknown[]) => {
   const status = normalizeText(...parts)
@@ -29,18 +60,7 @@ const mapXpressbeesTrackingText = (...parts: unknown[]) => {
   }
   if (status.includes('out for delivery') || status.includes('ofd')) return 'out_for_delivery'
   if (status.includes('delivered')) return 'delivered'
-  if (
-    status.includes('pickup') ||
-    status.includes('manifest') ||
-    status.includes('picked') ||
-    status.includes('data received') ||
-    status.includes('information received') ||
-    status.includes('shipment created') ||
-    status.includes('shipment booked') ||
-    ['drc', 'pnd', 'pck', 'pku', 'pkd', 'manifested'].includes(status)
-  ) {
-    return 'pickup_initiated'
-  }
+  if (isPickupStageStatus(status)) return 'pickup_initiated'
   if (status.includes('booked') || status.includes('created') || status.includes('order placed')) {
     return 'booked'
   }
@@ -51,7 +71,11 @@ const mapXpressbeesTrackingText = (...parts: unknown[]) => {
     status.includes('reached at') ||
     status.includes('arrived at') ||
     status.includes('departed') ||
-    ['it', 'itran', 'rad', 'ship', 'shipped'].includes(status)
+    hasStatusToken(status, 'it') ||
+    hasStatusToken(status, 'itran') ||
+    hasStatusToken(status, 'rad') ||
+    hasStatusToken(status, 'ship') ||
+    hasStatusToken(status, 'shipped')
   ) {
     return 'in_transit'
   }
@@ -61,20 +85,92 @@ const mapXpressbeesTrackingText = (...parts: unknown[]) => {
 
 const terminalStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
 
+const parseTargetAwbs = () => {
+  const values: string[] = []
+
+  for (const arg of process.argv.slice(2)) {
+    if (arg.startsWith('--awb=')) {
+      values.push(...arg.split('=').slice(1).join('=').split(/[,\s]+/))
+      continue
+    }
+    if (/^\d{8,}$/.test(arg)) values.push(arg)
+  }
+
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+}
+
+async function fetchOrderById(id: string) {
+  const [order] = await db.select().from(b2c_orders).where(eq(b2c_orders.id, id)).limit(1)
+  return order
+}
+
+async function applyStoredTrackingFallback(order: typeof b2c_orders.$inferSelect) {
+  const currentStatus = normalizeInternalStatus(order.order_status)
+  if (terminalStatuses.has(currentStatus)) {
+    return { action: 'skipped_terminal', status: currentStatus }
+  }
+
+  const [latestEvent] = await db
+    .select()
+    .from(tracking_events)
+    .where(eq(tracking_events.order_id, order.id))
+    .orderBy(desc(tracking_events.created_at))
+    .limit(1)
+
+  const statusText = normalizeText(
+    latestEvent?.status_text,
+    latestEvent?.status_code,
+    order.provider_last_status,
+    order.delivery_message,
+  )
+  const mappedStatus = mapXpressbeesTrackingText(statusText)
+
+  if (!mappedStatus) {
+    return { action: 'skipped_unmapped', status: currentStatus }
+  }
+
+  const isMismatchedTransit =
+    currentStatus === 'in_transit' && mappedStatus === 'pickup_initiated' && isPickupStageStatus(statusText)
+  const isMissingPickup =
+    ['booked', 'shipment_created', 'pickup_initiated'].includes(mappedStatus) &&
+    order.pickup_status !== 'pickup_initiated'
+
+  if (!isMismatchedTransit && !isMissingPickup) {
+    return { action: 'skipped_current', status: currentStatus }
+  }
+
+  const updateData: Record<string, unknown> = {
+    pickup_status: 'pickup_initiated',
+    pickup_error: null,
+    manifest_error: null,
+    updated_at: new Date(),
+  }
+
+  if (isMismatchedTransit) {
+    updateData.order_status = mappedStatus
+    updateData.provider_last_status = String(
+      latestEvent?.status_text || latestEvent?.status_code || order.provider_last_status || mappedStatus,
+    ).slice(0, 80)
+  }
+
+  await db.update(b2c_orders).set(updateData as any).where(eq(b2c_orders.id, order.id))
+
+  return {
+    action: 'stored_tracking_fallback_updated',
+    status: String(updateData.order_status || currentStatus),
+    latest_tracking_status: latestEvent?.status_text || latestEvent?.status_code || null,
+  }
+}
+
 async function main() {
-  const targetAwb = process.argv
-    .find((arg) => arg.startsWith('--awb='))
-    ?.split('=')
-    .slice(1)
-    .join('=')
-    .trim()
+  const targetAwbs = parseTargetAwbs()
 
   const orders = await db
     .select()
     .from(b2c_orders)
     .where(
       and(
-        targetAwb ? eq(b2c_orders.awb_number, targetAwb) : undefined,
+        targetAwbs.length ? inArray(b2c_orders.awb_number, targetAwbs) : undefined,
         or(
           eq(b2c_orders.integration_type, 'xpressbees'),
           ilike(b2c_orders.courier_partner, '%xpress%'),
@@ -83,74 +179,68 @@ async function main() {
     )
 
   let checked = 0
-  let updated = 0
+  let liveUpdated = 0
+  let fallbackUpdated = 0
   let skipped = 0
+  let failed = 0
 
   for (const order of orders) {
     checked += 1
-    const currentStatus = normalizeInternalStatus(order.order_status)
-    if (terminalStatuses.has(currentStatus)) {
+    const beforeStatus = normalizeInternalStatus(order.order_status)
+    const awb = String(order.awb_number || '').trim()
+
+    if (!awb) {
       skipped += 1
       continue
     }
 
-    const [latestEvent] = await db
-      .select()
-      .from(tracking_events)
-      .where(eq(tracking_events.order_id, order.id))
-      .orderBy(desc(tracking_events.created_at))
-      .limit(1)
+    try {
+      await trackByAwbService(awb)
+      const freshOrder = await fetchOrderById(order.id)
+      const afterStatus = normalizeInternalStatus(freshOrder?.order_status)
 
-    const mappedStatus = mapXpressbeesTrackingText(
-      latestEvent?.status_text,
-      latestEvent?.status_code,
-      order.provider_last_status,
-      order.delivery_message,
-    )
+      if (afterStatus && afterStatus !== beforeStatus) liveUpdated += 1
+      else skipped += 1
 
-    if (!mappedStatus) {
-      skipped += 1
+      console.log('Live-normalized Xpressbees order', {
+        order_number: order.order_number,
+        awb_number: awb,
+        previous_status: beforeStatus,
+        normalized_status: afterStatus || beforeStatus,
+        provider_last_status: freshOrder?.provider_last_status || null,
+      })
       continue
+    } catch (err: any) {
+      console.warn('Live Xpressbees status fetch failed; trying stored tracking fallback', {
+        order_number: order.order_number,
+        awb_number: awb,
+        error: err?.message || err,
+      })
     }
 
-    const isMismatchedTransit =
-      currentStatus === 'in_transit' && ['booked', 'pickup_initiated'].includes(mappedStatus)
-    const isMissingPickup =
-      ['booked', 'shipment_created', 'pickup_initiated'].includes(mappedStatus) &&
-      order.pickup_status !== 'pickup_initiated'
+    const fallbackResult = await applyStoredTrackingFallback(order)
+    if (fallbackResult.action === 'stored_tracking_fallback_updated') fallbackUpdated += 1
+    else if (fallbackResult.action.startsWith('skipped')) skipped += 1
+    else failed += 1
 
-    if (!isMismatchedTransit && !isMissingPickup) {
-      skipped += 1
-      continue
-    }
-
-    const updateData: Record<string, unknown> = {
-      pickup_status: 'pickup_initiated',
-      pickup_error: null,
-      manifest_error: null,
-      updated_at: new Date(),
-    }
-
-    if (isMismatchedTransit) {
-      updateData.order_status = mappedStatus
-      updateData.provider_last_status = String(
-        latestEvent?.status_text || latestEvent?.status_code || order.provider_last_status || mappedStatus,
-      ).slice(0, 80)
-    }
-
-    await db.update(b2c_orders).set(updateData as any).where(eq(b2c_orders.id, order.id))
-    updated += 1
-
-    console.log('Normalized Xpressbees order', {
+    console.log('Stored-normalized Xpressbees order', {
       order_number: order.order_number,
-      awb_number: order.awb_number,
-      previous_status: currentStatus,
-      normalized_status: updateData.order_status || currentStatus,
-      latest_tracking_status: latestEvent?.status_text || latestEvent?.status_code || null,
+      awb_number: awb,
+      previous_status: beforeStatus,
+      normalized_status: fallbackResult.status,
+      action: fallbackResult.action,
+      latest_tracking_status: fallbackResult.latest_tracking_status || null,
     })
   }
 
-  console.log({ checked, updated, skipped, targetAwb: targetAwb || null })
+  console.log({
+    checked,
+    liveUpdated,
+    fallbackUpdated,
+    skipped,
+    failed,
+    targetAwbs: targetAwbs.length ? targetAwbs : null,
+  })
 }
 
 main()

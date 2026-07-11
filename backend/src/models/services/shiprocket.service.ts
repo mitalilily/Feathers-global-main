@@ -14850,6 +14850,30 @@ const preserveNonRegressiveTrackingStatus = (currentStatus: string, mappedStatus
   return mapped
 }
 
+const isXpressbeesPickupStageTrackingStatus = (status: string) =>
+  Boolean(status) &&
+  (
+    status.includes('pending pickup') ||
+    status.includes('pickup scheduled') ||
+    status.includes('pickup requested') ||
+    status.includes('pickup assigned') ||
+    status.includes('assigned for pickup') ||
+    status.includes('out for pickup') ||
+    status.includes('pickup booked') ||
+    status.includes('manifest') ||
+    status.includes('data received') ||
+    status.includes('information received') ||
+    status.includes('shipment created') ||
+    status.includes('shipment booked') ||
+    status.includes('picked') ||
+    hasTrackingStatusToken(status, 'pp') ||
+    hasTrackingStatusToken(status, 'drc') ||
+    hasTrackingStatusToken(status, 'pnd') ||
+    hasTrackingStatusToken(status, 'pck') ||
+    hasTrackingStatusToken(status, 'pku') ||
+    hasTrackingStatusToken(status, 'pkd')
+  )
+
 const mapLiveTrackingStatusToInternal = (
   rawStatus: unknown,
   providerKey: string,
@@ -14917,20 +14941,7 @@ const mapLiveTrackingStatusToInternal = (
   } else if (status.includes('delivered')) mapped = 'delivered'
   else if (
     provider === 'xpressbees' &&
-    (
-      status.includes('pickup scheduled') ||
-      status.includes('pickup requested') ||
-      status.includes('pickup assigned') ||
-      status.includes('assigned for pickup') ||
-      status.includes('out for pickup') ||
-      status.includes('pickup booked') ||
-      status.includes('manifest') ||
-      status.includes('data received') ||
-      status.includes('information received') ||
-      status.includes('shipment created') ||
-      status.includes('shipment booked') ||
-      status.includes('picked')
-    )
+    isXpressbeesPickupStageTrackingStatus(status)
   ) {
     mapped = 'pickup_initiated'
   }
@@ -14959,6 +14970,16 @@ const mapLiveTrackingStatusToInternal = (
     status.includes('assigned for pickup')
   ) {
     mapped = provider === 'shadowfax' ? 'pickup_initiated' : 'pickup_initiated'
+  }
+
+  if (
+    provider === 'xpressbees' &&
+    mapped === 'pickup_initiated' &&
+    isXpressbeesPickupStageTrackingStatus(status) &&
+    !['cancelled', 'delivered', 'rto_delivered'].includes(current) &&
+    !current.startsWith('rto')
+  ) {
+    return 'pickup_initiated'
   }
 
   return preserveNonRegressiveTrackingStatus(current, mapped)
