@@ -917,6 +917,7 @@ export class XpressbeesService {
       raw?.token,
       raw?.access_token,
       raw?.jwt,
+      raw?.data,
       raw?.data?.token,
       raw?.data?.access_token,
       raw?.data?.jwt,
@@ -1036,47 +1037,15 @@ export class XpressbeesService {
 
     if (!this.username || !this.password) {
       throw new Error(
-        'Xpressbees API token is not configured and username/password are missing. Save bearer token or login credentials in courier credentials.',
+        'Xpressbees API token is not configured and email/password are missing. Save Xpressbees email and password in courier credentials.',
       )
     }
 
-    const payloadVariants = [
-      ...(this.secretKey
-        ? [
-            { username: this.username, password: this.password, secretkey: this.secretKey },
-            { username: this.username, password: this.password, secretKey: this.secretKey },
-            { username: this.username, password: this.password, secret_key: this.secretKey },
-            { UserName: this.username, Password: this.password, SecretKey: this.secretKey },
-            { Username: this.username, Password: this.password, SecretKey: this.secretKey },
-            { email: this.username, password: this.password, secretkey: this.secretKey },
-            { Email: this.username, Password: this.password, SecretKey: this.secretKey },
-          ]
-        : []),
-      { email: this.username, password: this.password },
-      { Email: this.username, Password: this.password },
-      { username: this.username, password: this.password },
-      { Username: this.username, Password: this.password },
-      { UserName: this.username, Password: this.password },
-      { login_id: this.username, password: this.password },
-      { loginId: this.username, password: this.password },
-      { LoginId: this.username, Password: this.password },
-    ]
-    const endpointCandidates = this.getConfiguredPathCandidates('XPRESSBEES_TOKEN_ENDPOINTS', [
-      'https://userauthapis.xbees.in/api/auth/generateToken',
-      this.tokenEndpoint,
-      '/api/users/login',
-      '/api/login',
-      '/api/generate-token',
-      '/api/token',
-      '/api/auth/login',
-    ])
-    const baseCandidates = this.getAuthBaseCandidates()
+    const requestUrl = 'https://shipment.xpressbees.com/api/users/login'
+    const requestBody = { email: this.username, password: this.password }
     const maskedLogin = this.sanitizeForLogs({ email: this.username }).email
 
     let lastError: any = null
-    let authCredentialError: any = null
-    const attemptedUrls: string[] = []
-    const attemptedUrlSet = new Set<string>()
     const cachedFailure = this.getCachedAuthFailure()
     if (cachedFailure) {
       this.log('Skipping token generation during auth failure cooldown', {
@@ -1086,122 +1055,76 @@ export class XpressbeesService {
     }
 
     this.log('Generating API token', {
-      baseCandidates,
-      endpointCandidates,
-      hasUsername: Boolean(this.username),
+      endpoint: requestUrl,
+      payloadKeys: Object.keys(requestBody),
+      hasEmail: Boolean(this.username),
       hasPassword: Boolean(this.password),
-      tokenEndpointOverride:
-        process.env.XPRESSBEES_TOKEN_ENDPOINT || process.env.XPRESSBEES_TOKEN_ENDPOINTS || null,
     })
 
-    for (const baseCandidate of baseCandidates) {
-      for (const endpoint of endpointCandidates) {
-        const { baseURL, requestPath, requestUrl } = this.resolveEndpointTarget(
-          baseCandidate,
-          endpoint,
-        )
-        if (attemptedUrlSet.has(requestUrl)) continue
-        attemptedUrlSet.add(requestUrl)
-
-        const loginHttp = axios.create({
-          baseURL,
-          timeout: 20000,
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            ...(this.authBearer ? { Authorization: this.buildBearerHeader(this.authBearer) } : {}),
-            ...(this.xbKey || this.xbAccessKey
-              ? {
-                  XBKey: this.xbKey || this.xbAccessKey,
-                  xbKey: this.xbKey || this.xbAccessKey,
-                  xbAccessKey: this.xbAccessKey || this.xbKey,
-                  XbAccessKey: this.xbAccessKey || this.xbKey,
-                }
-              : {}),
-          },
+    try {
+      this.log('Auth attempt', {
+        url: requestUrl,
+        payloadKeys: Object.keys(requestBody),
+        login: maskedLogin,
+      })
+      const res = await axios.post(requestUrl, requestBody, {
+        timeout: 20000,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      })
+      const token = this.extractTokenFromResponse(res.data)
+      this.log('Auth response', {
+        url: requestUrl,
+        status: res.status,
+        hasToken: Boolean(token),
+        responseKeys: Object.keys(res.data || {}),
+      })
+      if (!token) {
+        this.log('Auth response body (no token extracted)', {
+          url: requestUrl,
+          body:
+            typeof res.data === 'string'
+              ? res.data.slice(0, 500)
+              : JSON.stringify(res.data).slice(0, 1000),
         })
-
-        for (const body of payloadVariants) {
-          attemptedUrls.push(requestUrl)
-          try {
-            this.log('Auth attempt', {
-              url: requestUrl,
-              payloadKeys: Object.keys(body),
-              login: maskedLogin,
-            })
-            const res = await loginHttp.post(requestPath, body)
-            const token = this.extractTokenFromResponse(res.data)
-            this.log('Auth response', {
-              url: requestUrl,
-              status: res.status,
-              hasToken: Boolean(token),
-              responseKeys: Object.keys(res.data || {}),
-            })
-            if (!token) {
-              this.log('Auth response body (no token extracted)', {
-                url: requestUrl,
-                body:
-                  typeof res.data === 'string'
-                    ? res.data.slice(0, 500)
-                    : JSON.stringify(res.data).slice(0, 1000),
-              })
-            }
-            if (token) {
-              this.apiToken = token
-              this.tokenEndpoint = endpoint
-              this.baseApi = baseURL
-              this.clearCachedAuthFailure()
-              await this.persistGeneratedToken(token)
-              this.log('Generated API token via login credentials', {
-                endpoint,
-                baseApi: baseURL,
-                login: maskedLogin,
-              })
-              return token
-            }
-          } catch (err: any) {
-            lastError = err
-            const status = Number(err?.response?.status || 0)
-            if (!authCredentialError && (status === 401 || status === 403)) {
-              authCredentialError = err
-            }
-            this.log('Auth attempt failed', {
-              url: requestUrl,
-              payloadKeys: Object.keys(body),
-              status: err?.response?.status || null,
-              statusText: err?.response?.statusText || null,
-              response:
-                typeof err?.response?.data === 'string'
-                  ? err.response.data.slice(0, 300)
-                  : err?.response?.data || null,
-              message: err?.message || err,
-            })
-          }
-        }
       }
+      if (token) {
+        this.apiToken = token
+        this.tokenEndpoint = requestUrl
+        this.baseApi = 'https://shipment.xpressbees.com'
+        this.clearCachedAuthFailure()
+        await this.persistGeneratedToken(token)
+        this.log('Generated API token via email/password login', {
+          endpoint: requestUrl,
+          baseApi: this.baseApi,
+          login: maskedLogin,
+        })
+        return token
+      }
+    } catch (err: any) {
+      lastError = err
+      this.log('Auth attempt failed', {
+        url: requestUrl,
+        payloadKeys: Object.keys(requestBody),
+        status: err?.response?.status || null,
+        statusText: err?.response?.statusText || null,
+        response:
+          typeof err?.response?.data === 'string'
+            ? err.response.data.slice(0, 300)
+            : err?.response?.data || null,
+        message: err?.message || err,
+      })
     }
 
-    const failure = authCredentialError || lastError
-    const credentialFailure = Boolean(authCredentialError)
-    const endpointFailure =
-      !credentialFailure &&
-      attemptedUrls.length > 0 &&
-      this.isRetryableEndpointError(lastError)
+    const failure = lastError
     const providerMessage =
       failure?.response?.data?.message ||
       failure?.response?.data?.error ||
       failure?.message ||
       'unknown error'
-
-    const reason = credentialFailure
-      ? `Xpressbees rejected the configured username/password or login payload (${providerMessage}).`
-      : endpointFailure
-        ? `None of the attempted login endpoints were found (${providerMessage}).`
-        : providerMessage
-    const uniqueAttemptedUrls = Array.from(new Set(attemptedUrls))
-    const failureMessage = `Failed to generate Xpressbees API token. Tried ${uniqueAttemptedUrls.join(
-      ', ',
-    )}. ${reason} Set XPRESSBEES_TOKEN_ENDPOINTS if your account uses a custom login path.`
+    const failureMessage = `Failed to generate Xpressbees API token from ${requestUrl}. Xpressbees rejected the configured email/password login payload (${providerMessage}).`
 
     if (this.shouldCacheAuthFailure(failure, failureMessage)) {
       this.cacheAuthFailure(failureMessage)
