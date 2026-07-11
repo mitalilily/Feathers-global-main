@@ -712,6 +712,21 @@ export async function processEkartWebhookV2(payload: any, tx = db) {
     return { success: false, reason: 'order_not_found' }
   }
 
+  if (
+    isEkartReverseOrder(order) &&
+    (
+      mapped === 'unknown' ||
+      normalized.includes('order placed') ||
+      normalized.includes('created') ||
+      normalized.includes('shipment created') ||
+      normalized.includes('manifest') ||
+      normalized.includes('manifested') ||
+      normalized.includes('consignment manifested')
+    )
+  ) {
+    mapped = 'booked'
+  }
+
   const update: any = {
     order_status: mapped,
     updated_at: new Date(),
@@ -1473,7 +1488,7 @@ export async function processDelhiveryDocumentWebhook(
 // =========================
 const mapEkartStatus = (...parts: unknown[]): string => {
   const s = normalizeWebhookText(...parts)
-  if (!s) return 'in_transit'
+  if (!s) return ''
   if (s.includes('cancel')) return 'cancelled'
   if (s.includes('rto delivered') || s.includes('return delivered')) return 'rto_delivered'
   if (s.includes('rto') || s.includes('return to origin') || s.includes('return in transit')) {
@@ -1502,7 +1517,29 @@ const mapEkartStatus = (...parts: unknown[]): string => {
     return 'pickup_initiated'
   }
   if (s.includes('transit') || s.includes('dispatched') || s.includes('shipped')) return 'in_transit'
-  return 'in_transit'
+  return ''
+}
+
+const isEkartReverseOrder = (order: any) =>
+  normalizeComparableText(order?.order_type).replace(/\s+/g, '_') === 'reverse'
+
+const normalizeEkartReverseWebhookStatus = (order: any, mappedStatus: string, ...parts: unknown[]) => {
+  if (!isEkartReverseOrder(order)) return mappedStatus
+
+  const s = normalizeWebhookText(...parts)
+  if (
+    !s ||
+    s.includes('order placed') ||
+    s.includes('created') ||
+    s.includes('shipment created') ||
+    s.includes('manifest') ||
+    s.includes('manifested') ||
+    s.includes('consignment manifested')
+  ) {
+    return 'booked'
+  }
+
+  return mappedStatus
 }
 
 const preserveEkartStatusTransition = (currentStatus: unknown, nextStatus: string) => {
@@ -1829,7 +1866,14 @@ export async function processEkartWebhook(payload: any, tx = db) {
     return { success: false, reason: 'order_not_found' }
   }
 
-  const mappedStatus = mapEkartStatus(statusRaw, remarks, event?.ndrStatus, event?.ndrActions)
+  const mappedStatus = normalizeEkartReverseWebhookStatus(
+    order,
+    mapEkartStatus(statusRaw, remarks, event?.ndrStatus, event?.ndrActions),
+    statusRaw,
+    remarks,
+    event?.ndrStatus,
+    event?.ndrActions,
+  )
   const internalStatus = preserveEkartStatusTransition(order.order_status, mappedStatus)
   const previousStatus = normalizeComparableText(order.order_status).replace(/\s+/g, '_')
   const statusLower = internalStatus.toLowerCase()

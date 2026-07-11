@@ -953,6 +953,7 @@ const resolveCourierBookingLifecycle = (
   options: {
     providerFlow?: string | null
     providerManifestStatus?: string | null
+    isReverse?: boolean | null
   } = {},
 ): {
   orderStatus: string
@@ -962,6 +963,15 @@ const resolveCourierBookingLifecycle = (
   const provider = String(integrationType || '')
     .trim()
     .toLowerCase()
+  const isReverse = options.isReverse === true
+
+  if (provider === 'ekart' && isReverse) {
+    return {
+      orderStatus: 'booked',
+      pickupStatus: 'pending',
+      providerLastStatus: 'booked',
+    }
+  }
 
   if (provider === 'shadowfax' || provider === 'ekart') {
     return {
@@ -8643,6 +8653,7 @@ export const createB2CShipmentService = async (
       const bookingLifecycle = resolveCourierBookingLifecycle(integrationType, {
         providerFlow: shipmentMeta.provider_flow,
         providerManifestStatus: shipmentMeta.provider_manifest_status,
+        isReverse: isReverseShipment,
       })
       const orderStatus = bookingLifecycle.orderStatus
       const manifestErrorMessage = null
@@ -14804,13 +14815,36 @@ const mapLiveTrackingStatusToInternal = (
   rawStatus: unknown,
   providerKey: string,
   currentStatus?: string | null,
+  orderType?: string | null,
 ) => {
   const status = normalizeLiveTrackingStatusText(rawStatus)
   const current = normalizeInternalTrackingStatus(currentStatus)
   const provider = normalizeLiveTrackingStatusText(providerKey)
+  const isReverseEkart =
+    provider === 'ekart' && normalizeInternalTrackingStatus(orderType) === 'reverse'
 
-  let mapped = current || (provider === 'xpressbees' ? 'pickup_initiated' : 'in_transit')
+  let mapped =
+    current ||
+    (provider === 'xpressbees'
+      ? 'pickup_initiated'
+      : isReverseEkart
+        ? 'booked'
+        : 'in_transit')
   if (!status) return mapped
+
+  if (
+    isReverseEkart &&
+    (
+      status.includes('order placed') ||
+      status.includes('created') ||
+      status.includes('shipment created') ||
+      status.includes('manifest') ||
+      status.includes('manifested') ||
+      status.includes('consignment manifested')
+    )
+  ) {
+    return preserveNonRegressiveTrackingStatus(current, 'booked')
+  }
 
   const providerCodeStatus = mapProviderTrackingCodeToInternal(rawStatus, providerKey)
   if (providerCodeStatus) {
@@ -15127,6 +15161,7 @@ const persistLiveTrackingStatus = async (
     statusForMapping,
     providerKey,
     order.order_status,
+    order.order_type,
   )
   const previousStatus = normalizeInternalTrackingStatus(order.order_status)
   const deliveryLocation = sanitizeString(latest?.location, '')
