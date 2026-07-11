@@ -18,6 +18,10 @@ const EKART_WEBHOOK_SECRET_HEADERS = [
 ]
 
 const EKART_PROVIDER = 'ekart'
+const EKART_REQUIRE_SIGNATURE =
+  String(process.env.EKART_WEBHOOK_REQUIRE_SIGNATURE || '')
+    .trim()
+    .toLowerCase() === 'true'
 
 const findSecretHeader = (headers: Request['headers']) => {
   const normalized = headers as Record<string, string | string[] | undefined>
@@ -36,14 +40,34 @@ const timingSafeStringEqual = (left: string, right: string) => {
   return leftBuf.length === rightBuf.length && crypto.timingSafeEqual(leftBuf, rightBuf)
 }
 
-const isValidEkartSignature = (receivedSecret: string, configuredSecret: string, rawBody: string) => {
-  if (timingSafeStringEqual(receivedSecret, configuredSecret)) return true
+const verifyEkartWebhookSignature = ({
+  receivedSecret,
+  configuredSecret,
+  rawBody,
+}: {
+  receivedSecret: string
+  configuredSecret: string
+  rawBody: string
+}) => {
+  if (!configuredSecret) return { valid: true, unsigned: !receivedSecret }
+  if (!receivedSecret) return { valid: !EKART_REQUIRE_SIGNATURE, unsigned: true }
+
+  const normalizedHeader = receivedSecret.startsWith('Bearer ')
+    ? receivedSecret.slice('Bearer '.length).trim()
+    : receivedSecret
+
+  if (timingSafeStringEqual(normalizedHeader, configuredSecret)) {
+    return { valid: true, unsigned: false }
+  }
 
   const hmacHex = crypto.createHmac('sha256', configuredSecret).update(rawBody).digest('hex')
   const hmacBase64 = crypto.createHmac('sha256', configuredSecret).update(rawBody).digest('base64')
   const candidates = [hmacHex, `sha256=${hmacHex}`, hmacBase64, `sha256=${hmacBase64}`]
 
-  return candidates.some((candidate) => timingSafeStringEqual(receivedSecret, candidate))
+  return {
+    valid: candidates.some((candidate) => timingSafeStringEqual(normalizedHeader, candidate)),
+    unsigned: false,
+  }
 }
 
 const sanitizeHeadersForLog = (headers: Request['headers']) => {
@@ -74,98 +98,136 @@ const fetchEkartWebhookSecret = async () => {
   }
 }
 
-export const ekartWebhookHandler = async (req: Request, res: Response) => {
-  const payload = req.body
-  const configuredSecret = await fetchEkartWebhookSecret()
-  const receivedSecret = findSecretHeader(req.headers)
-  const rawBody = (req as any).rawBody || (req.body ? JSON.stringify(req.body) : '')
+const extractEkartWebhookAwb = (payload: any) =>
+  payload?.tracking_id ||
+  payload?.trackingId ||
+  payload?.awb ||
+  payload?.waybill ||
+  payload?.wbn ||
+  payload?.id ||
+  payload?.track?.id ||
+  payload?.track?.wbn ||
+  payload?.track_updated?.id ||
+  payload?.track_updated?.wbn ||
+  payload?.barcodes?.wbn ||
+  'unknown'
 
-  if (configuredSecret) {
-    if (!receivedSecret) {
-      console.warn('Ekart webhook rejected: missing signature header')
-      return res.status(401).json({ success: false, message: 'missing signature' })
-    } else if (!isValidEkartSignature(receivedSecret, configuredSecret, rawBody)) {
-      console.warn('Ekart webhook rejected: invalid signature')
-      return res.status(401).json({ success: false, message: 'invalid signature' })
-    }
-  } else if (receivedSecret) {
-    console.info(
-      'Ekart webhook header received but no secret configured locally; payload will be accepted.',
-    )
+const extractEkartWebhookStatus = (payload: any) =>
+  String(
+    payload?.status ||
+      payload?.current_status ||
+      payload?.event ||
+      payload?.track_updated?.status ||
+      payload?.track?.status ||
+      'unknown',
+  )
+
+const processEkartWebhookAfterAck = async ({
+  payload,
+  awb,
+  status,
+}: {
+  payload: any
+  awb: unknown
+  status: unknown
+}) => {
+  const result = await processEkartWebhook(payload)
+
+  if (!result.success && result.reason === 'missing_awb') {
+    console.warn('Ekart webhook ignored after ack: missing AWB')
+    return
   }
 
-  const awb =
-    payload?.tracking_id ||
-    payload?.trackingId ||
-    payload?.awb ||
-    payload?.waybill ||
-    payload?.wbn ||
-    payload?.id ||
-    payload?.track?.id ||
-    payload?.track?.wbn ||
-    payload?.track_updated?.id ||
-    payload?.track_updated?.wbn ||
-    payload?.barcodes?.wbn ||
-    'unknown'
+  if (!result.success && result.reason === 'order_not_found') {
+    const dedupeWindowStart = new Date(Date.now() - 10 * 60 * 1000)
+    const awbValue = String(awb || 'unknown')
+    const statusValue = `ekart:${String(status || 'unknown')}`
+    const [existingPending] = await db
+      .select({ id: pending_webhooks.id })
+      .from(pending_webhooks)
+      .where(
+        and(
+          eq(pending_webhooks.awb_number, awbValue),
+          eq(pending_webhooks.status, statusValue),
+          isNull(pending_webhooks.processed_at),
+          gte(pending_webhooks.created_at, dedupeWindowStart),
+        ),
+      )
+      .limit(1)
+
+    if (!existingPending) {
+      await db.insert(pending_webhooks).values({
+        awb_number: awb ? String(awb) : null,
+        status: statusValue,
+        payload: {
+          __provider: 'ekart',
+          body: payload,
+        },
+      })
+      console.warn(`Stored Ekart webhook for AWB ${awb || 'N/A'} (order not yet created).`)
+    } else {
+      console.warn(
+        `Duplicate pending Ekart webhook skipped for AWB ${awb || 'N/A'} (within dedupe window).`,
+      )
+    }
+    return
+  }
+
+  if (!result.success) {
+    console.warn('Ekart webhook accepted but not processed:', result.reason)
+  }
+}
+
+export const ekartWebhookHandler = async (req: Request, res: Response) => {
+  const payload = req.body
+  const rawBody = (req as any).rawBody || (req.body ? JSON.stringify(req.body) : '')
+  const awb = extractEkartWebhookAwb(payload)
+  const status = extractEkartWebhookStatus(payload)
 
   console.log('='.repeat(80))
   console.log(`[Ekart] Webhook received - AWB: ${awb}`)
+  console.log(`Status: ${status}`)
+  console.log(`IP: ${req.ip || req.socket.remoteAddress || 'unknown'}`)
   console.log('Headers:', JSON.stringify(sanitizeHeadersForLog(req.headers), null, 2))
   console.log('Payload:', JSON.stringify(payload, null, 2))
   console.log('='.repeat(80))
 
-  try {
-    const result = await processEkartWebhook(payload)
+  res.status(200).json({
+    success: true,
+    accepted: true,
+    processing: true,
+  })
 
-    if (!result.success && result.reason === 'order_not_found') {
-      const dedupeWindowStart = new Date(Date.now() - 10 * 60 * 1000)
-      const status = String(
-        payload?.status ||
-          payload?.current_status ||
-          payload?.event ||
-          payload?.track_updated?.status ||
-          payload?.track?.status ||
-          'unknown',
-      )
-      const [existingPending] = await db
-        .select({ id: pending_webhooks.id })
-        .from(pending_webhooks)
-        .where(
-          and(
-            eq(pending_webhooks.awb_number, String(awb || 'unknown')),
-            eq(pending_webhooks.status, `ekart:${status}`),
-            isNull(pending_webhooks.processed_at),
-            gte(pending_webhooks.created_at, dedupeWindowStart),
-          ),
-        )
-        .limit(1)
+  setImmediate(() => {
+    ;(async () => {
+      const configuredSecret = await fetchEkartWebhookSecret()
+      const receivedSecret = findSecretHeader(req.headers)
+      const signature = verifyEkartWebhookSignature({
+        configuredSecret,
+        receivedSecret,
+        rawBody,
+      })
 
-      if (!existingPending) {
-        await db.insert(pending_webhooks).values({
-          awb_number: awb || null,
-          status: `ekart:${status}`,
-          payload: {
-            __provider: 'ekart',
-            body: payload,
-          },
+      if (!signature.valid) {
+        console.warn('Ekart webhook signature mismatch; acknowledged without processing.', {
+          requireSignature: EKART_REQUIRE_SIGNATURE,
+          hasConfiguredSecret: Boolean(configuredSecret),
+          hasReceivedSignature: Boolean(receivedSecret),
         })
-        console.warn(`Stored Ekart webhook for AWB ${awb || 'N/A'} (order not yet created).`)
-      } else {
+        return
+      }
+
+      if (signature.unsigned && configuredSecret) {
         console.warn(
-          `Duplicate pending Ekart webhook skipped for AWB ${awb || 'N/A'} (within dedupe window).`,
+          EKART_REQUIRE_SIGNATURE
+            ? 'Ekart webhook received without signature and strict verification is enabled; skipped.'
+            : 'Ekart webhook received without signature. Processing because Ekart tracking callbacks may not send a signature header.',
         )
       }
 
-      return res.status(202).json({ success: true, queued: true })
-    }
-
-    if (!result.success) {
-      return res.status(202).json({ success: false, reason: result.reason })
-    }
-
-    return res.status(200).json({ success: true })
-  } catch (err: any) {
-    console.error('Ekart webhook processing failed:', err?.message || err)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
-  }
+      await processEkartWebhookAfterAck({ payload, awb, status })
+    })().catch((err: any) => {
+      console.error('Ekart webhook background processing failed:', err?.message || err)
+    })
+  })
 }
