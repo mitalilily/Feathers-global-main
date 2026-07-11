@@ -5,6 +5,24 @@ import { processShadowfaxWebhook } from '../../models/services/webhookProcessor'
 import { pending_webhooks } from '../../schema/schema'
 import { ShadowfaxService } from '../../models/services/couriers/shadowfax.service'
 
+export const SHADOWFAX_WEBHOOK_PATH = '/webhooks/shadowfax'
+export const SHADOWFAX_WEBHOOK_URL =
+  process.env.SHADOWFAX_WEBHOOK_URL || `https://api.fgship.in${SHADOWFAX_WEBHOOK_PATH}`
+
+const SHADOWFAX_REQUIRE_AUTH =
+  String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '')
+    .trim()
+    .toLowerCase() === 'true'
+
+const SHADOWFAX_SUPPORTED_EVENTS = [
+  'FWD Marketplace',
+  'FWD Warehouse',
+  'Return Seller',
+  'Return Origin',
+  'Seller Delivery',
+  'Invoice',
+]
+
 const summarizeHeaders = (headers: Request['headers']) => ({
   'content-type': headers['content-type'] || null,
   'user-agent': headers['user-agent'] || null,
@@ -14,10 +32,175 @@ const summarizeHeaders = (headers: Request['headers']) => ({
   authorization_present: Boolean(headers['authorization']),
 })
 
+const unwrapShadowfaxPayload = (payload: any) => {
+  if (payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    return payload.data
+  }
+  if (payload?.event_data && typeof payload.event_data === 'object') return payload.event_data
+  if (payload?.payload && typeof payload.payload === 'object') return payload.payload
+  if (payload?.shipment && typeof payload.shipment === 'object') {
+    return { ...payload.shipment, shadowfax_parent_payload: payload }
+  }
+  if (payload?.order && typeof payload.order === 'object') {
+    return { ...payload.order, shadowfax_parent_payload: payload }
+  }
+  return payload || {}
+}
+
+const extractShadowfaxIdentifier = (payload: any) =>
+  payload?.awb_number ||
+  payload?.awb ||
+  payload?.waybill ||
+  payload?.tracking_id ||
+  payload?.trackingId ||
+  payload?.client_request_id ||
+  payload?.request_id ||
+  payload?.return_request_id ||
+  payload?.reverse_request_id ||
+  payload?.shipment_id ||
+  payload?.order_id ||
+  payload?.client_order_id ||
+  payload?.seller_order_id ||
+  payload?.invoice_id ||
+  null
+
+const extractShadowfaxStatus = (payload: any) =>
+  payload?.event ||
+  payload?.event_name ||
+  payload?.status ||
+  payload?.current_status ||
+  payload?.shipment_status ||
+  payload?.state ||
+  payload?.invoice_status ||
+  'unknown'
+
+const isShadowfaxAuthValid = (providedSecret: string, configuredSecret: string) => {
+  if (!configuredSecret) return true
+  if (!providedSecret) return !SHADOWFAX_REQUIRE_AUTH
+  return providedSecret.includes(configuredSecret)
+}
+
+const queuePendingShadowfaxWebhook = async ({
+  payload,
+  awb,
+  status,
+  eventTimestamp,
+}: {
+  payload: any
+  awb: unknown
+  status: unknown
+  eventTimestamp: unknown
+}) => {
+  const dedupeWindowStart = new Date(Date.now() - 10 * 60 * 1000)
+  const awbValue = String(awb || 'unknown')
+  const statusValue = `shadowfax:${String(status || 'unknown')}`
+  const [existingPending] = await db
+    .select({ id: pending_webhooks.id })
+    .from(pending_webhooks)
+    .where(
+      and(
+        eq(pending_webhooks.awb_number, awbValue),
+        eq(pending_webhooks.status, statusValue),
+        isNull(pending_webhooks.processed_at),
+        eventTimestamp
+          ? sql`coalesce(${pending_webhooks.payload}->>'shadowfax_event_timestamp', '') = ${String(eventTimestamp)}`
+          : sql`true`,
+        gte(pending_webhooks.created_at, dedupeWindowStart),
+      ),
+    )
+    .limit(1)
+
+  if (existingPending) {
+    console.log('Shadowfax webhook skipped duplicate pending queue insert', {
+      awb: awbValue,
+      status: statusValue,
+      eventTimestamp: eventTimestamp || null,
+      pendingId: existingPending.id,
+    })
+    return
+  }
+
+  await db.insert(pending_webhooks).values({
+    awb_number: awb ? String(awb) : null,
+    status: statusValue,
+    payload,
+  })
+  console.log('Shadowfax webhook queued in pending_webhooks', {
+    awb: awb ? String(awb) : null,
+    status: statusValue,
+    eventTimestamp: eventTimestamp || null,
+  })
+}
+
+const processShadowfaxWebhookAfterAck = async ({
+  payload,
+  awb,
+  status,
+  eventTimestamp,
+}: {
+  payload: any
+  awb: unknown
+  status: unknown
+  eventTimestamp: unknown
+}) => {
+  const result = await processShadowfaxWebhook(payload)
+  console.log('Shadowfax webhook processed result', {
+    awb: awb ? String(awb) : null,
+    status: String(status || 'unknown'),
+    eventTimestamp: eventTimestamp || null,
+    success: Boolean(result?.success),
+    reason: result?.reason || null,
+    orderType: result?.orderType || null,
+  })
+
+  if (!result.success && result.reason === 'missing_awb') {
+    console.warn('Shadowfax webhook ignored after ack: missing AWB/request identifier', {
+      status: String(status || 'unknown'),
+      eventTimestamp: eventTimestamp || null,
+    })
+    return
+  }
+
+  if (!result.success && result.reason === 'order_not_found') {
+    await queuePendingShadowfaxWebhook({ payload, awb, status, eventTimestamp })
+    return
+  }
+
+  if (!result.success) {
+    console.warn('Shadowfax webhook accepted but not processed:', {
+      awb: awb ? String(awb) : null,
+      status: String(status || 'unknown'),
+      reason: result.reason || null,
+    })
+  }
+}
+
+export const shadowfaxWebhookHealthHandler = (_req: Request, res: Response) =>
+  res.status(200).json({
+    success: true,
+    provider: 'shadowfax',
+    deliveryUrl: SHADOWFAX_WEBHOOK_URL,
+    clientPushUrl: SHADOWFAX_WEBHOOK_URL,
+    aliases: ['/api/webhook/shadowfax', '/api/webhook/shadowfax/track'],
+    supportedEvents: SHADOWFAX_SUPPORTED_EVENTS,
+    authentication: {
+      required: SHADOWFAX_REQUIRE_AUTH,
+      authorizationPresent: SHADOWFAX_REQUIRE_AUTH,
+      acceptedHeaders: ['x-shadowfax-secret', 'authorization'],
+    },
+    expectedResponse: '200 OK',
+  })
+
 export const shadowfaxWebhookHandler = async (req: Request, res: Response) => {
   const timestamp = new Date().toISOString()
   const rawPayload = req.body || {}
+  const normalizedPayload = unwrapShadowfaxPayload(rawPayload)
   const eventTimestamp =
+    normalizedPayload?.event_timestamp ||
+    normalizedPayload?.event_time ||
+    normalizedPayload?.status_time ||
+    normalizedPayload?.updated_at ||
+    normalizedPayload?.timestamp ||
     rawPayload?.event_timestamp ||
     rawPayload?.event_time ||
     rawPayload?.status_time ||
@@ -25,125 +208,66 @@ export const shadowfaxWebhookHandler = async (req: Request, res: Response) => {
     rawPayload?.timestamp ||
     null
   const payload = {
-    ...rawPayload,
+    ...normalizedPayload,
+    shadowfax_raw_payload: rawPayload,
     shadowfax_event_timestamp: eventTimestamp ? String(eventTimestamp) : null,
   }
-  const awb =
-    payload?.awb_number || payload?.client_request_id || payload?.request_id || payload?.order_id || null
-  const status = payload?.event || payload?.status || payload?.current_status || 'unknown'
-  const bodyKeys = Object.keys(payload || {})
+  const awb = extractShadowfaxIdentifier(payload)
+  const status = extractShadowfaxStatus(payload)
 
   console.log('='.repeat(80))
-  console.log(`📦 [${timestamp}] Shadowfax Webhook Received`)
-  console.log(`   AWB/Request: ${awb || 'N/A'}`)
-  console.log(`   Status: ${status}`)
-  console.log(`   Event Timestamp: ${eventTimestamp || 'N/A'}`)
-  console.log(`   IP: ${req.ip || req.socket.remoteAddress || 'unknown'}`)
-  console.log(`   Headers:`, summarizeHeaders(req.headers))
-  console.log(`   Body Keys:`, bodyKeys)
-  console.log(`   Full Payload:`, JSON.stringify(payload, null, 2))
+  console.log(`[${timestamp}] Shadowfax webhook received`)
+  console.log(`AWB/Request: ${awb || 'N/A'}`)
+  console.log(`Status: ${status}`)
+  console.log(`Event Timestamp: ${eventTimestamp || 'N/A'}`)
+  console.log(`IP: ${req.ip || req.socket.remoteAddress || 'unknown'}`)
+  console.log('Headers:', summarizeHeaders(req.headers))
+  console.log('Body Keys:', Object.keys(payload || {}))
+  console.log('Full Payload:', JSON.stringify(payload, null, 2))
   console.log('='.repeat(80))
 
-  try {
-    const shadowfax = new ShadowfaxService()
-    const configuredSecret = await shadowfax.getConfiguredWebhookSecret()
-    if (configuredSecret) {
-      const providedSecret =
-        String(req.headers['x-shadowfax-secret'] || req.headers['authorization'] || '').trim()
-      if (!providedSecret || !providedSecret.includes(configuredSecret)) {
-        console.warn('❌ Shadowfax webhook auth validation failed', {
+  res.status(200).json({
+    success: true,
+    accepted: true,
+    processing: true,
+  })
+
+  setImmediate(() => {
+    ;(async () => {
+      const shadowfax = new ShadowfaxService()
+      const configuredSecret = await shadowfax.getConfiguredWebhookSecret()
+      const providedSecret = String(
+        req.headers['x-shadowfax-secret'] || req.headers['authorization'] || '',
+      ).trim()
+
+      if (!isShadowfaxAuthValid(providedSecret, configuredSecret)) {
+        console.warn('Shadowfax webhook auth validation failed; acknowledged without processing.', {
           awb: awb || null,
           status: String(status || 'unknown'),
           eventTimestamp: eventTimestamp || null,
           headers: summarizeHeaders(req.headers),
+          strictAuth: SHADOWFAX_REQUIRE_AUTH,
         })
-        return res.status(401).json({ message: 'Invalid Shadowfax webhook signature' })
+        return
       }
-    }
 
-    if (!awb) {
-      console.warn('❌ Shadowfax webhook missing identifier', {
-        status: String(status || 'unknown'),
-        eventTimestamp: eventTimestamp || null,
-        bodyKeys,
-      })
-      return res.status(400).json({ message: 'Missing AWB/request identifier' })
-    }
-
-    const result = await processShadowfaxWebhook(payload)
-    console.log('📦 Shadowfax webhook processed result', {
-      awb: String(awb),
-      status: String(status || 'unknown'),
-      eventTimestamp: eventTimestamp || null,
-      success: Boolean(result?.success),
-      reason: result?.reason || null,
-      orderType: result?.orderType || null,
-    })
-    if (!result.success && result.reason === 'order_not_found') {
-      const dedupeWindowStart = new Date(Date.now() - 10 * 60 * 1000)
-      const [existingPending] = await db
-        .select({ id: pending_webhooks.id })
-        .from(pending_webhooks)
-        .where(
-          and(
-            eq(pending_webhooks.awb_number, String(awb)),
-            eq(pending_webhooks.status, `shadowfax:${String(status || 'unknown')}`),
-            isNull(pending_webhooks.processed_at),
-            eventTimestamp
-              ? sql`coalesce(${pending_webhooks.payload}->>'shadowfax_event_timestamp', '') = ${String(eventTimestamp)}`
-              : sql`true`,
-            gte(pending_webhooks.created_at, dedupeWindowStart),
-          ),
+      if (configuredSecret && !providedSecret) {
+        console.warn(
+          SHADOWFAX_REQUIRE_AUTH
+            ? 'Shadowfax webhook received without auth and strict verification is enabled; skipped.'
+            : 'Shadowfax webhook received without auth. Processing because Shadowfax webhook auth is optional.',
         )
-        .limit(1)
-
-      if (!existingPending) {
-        await db.insert(pending_webhooks).values({
-          awb_number: String(awb),
-          status: `shadowfax:${String(status || 'unknown')}`,
-          payload,
-        })
-        console.log('📥 Shadowfax webhook queued in pending_webhooks', {
-          awb: String(awb),
-          status: String(status || 'unknown'),
-          eventTimestamp: eventTimestamp || null,
-        })
-      } else {
-        console.log('ℹ️ Shadowfax webhook skipped duplicate pending queue insert', {
-          awb: String(awb),
-          status: String(status || 'unknown'),
-          eventTimestamp: eventTimestamp || null,
-          pendingId: existingPending.id,
-        })
       }
 
-      return res.status(202).json({ success: true, queued: true })
-    }
-
-    if (result.success) {
-      console.log('✅ Shadowfax webhook completed', {
-        awb: String(awb),
+      await processShadowfaxWebhookAfterAck({ payload, awb, status, eventTimestamp })
+    })().catch((err: any) => {
+      console.error('Shadowfax webhook background error:', {
+        message: err?.message || String(err),
+        awb: awb || null,
         status: String(status || 'unknown'),
         eventTimestamp: eventTimestamp || null,
+        stack: err?.stack || null,
       })
-      return res.status(200).json({ success: true })
-    }
-
-    console.warn('⚠️ Shadowfax webhook returned non-success outcome', {
-      awb: String(awb),
-      status: String(status || 'unknown'),
-      eventTimestamp: eventTimestamp || null,
-      result,
     })
-    return res.status(202).json({ success: false })
-  } catch (err: any) {
-    console.error('❌ Shadowfax webhook error:', {
-      message: err?.message || String(err),
-      awb: awb || null,
-      status: String(status || 'unknown'),
-      eventTimestamp: eventTimestamp || null,
-      stack: err?.stack || null,
-    })
-    return res.status(500).json({ message: 'Internal Server Error' })
-  }
+  })
 }

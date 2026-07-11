@@ -3122,17 +3122,94 @@ const extractShadowfaxWeightSnapshot = (payload: any) => {
 }
 
 export async function processShadowfaxWebhook(payload: any, tx = db) {
-  const event = payload || {}
-  const awb =
-    event?.awb_number ||
-    event?.client_request_id ||
-    event?.request_id ||
-    event?.order_id ||
-    null
-  const orderRef = event?.order_id || event?.client_order_id || null
-  const statusRaw = event?.event || event?.status || event?.current_status || ''
-  const location = event?.current_location || event?.location || null
-  const remarks = event?.comments || event?.message || null
+  const event =
+    payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
+      ? payload.data
+      : payload?.event_data && typeof payload.event_data === 'object'
+        ? payload.event_data
+        : payload?.payload && typeof payload.payload === 'object'
+          ? payload.payload
+          : payload || {}
+  const awb = pickWebhookText(
+    event?.awb_number,
+    event?.awb,
+    event?.waybill,
+    event?.tracking_id,
+    event?.trackingId,
+    event?.client_request_id,
+    event?.request_id,
+    event?.return_request_id,
+    event?.reverse_request_id,
+    event?.shipment_id,
+    event?.order_id,
+    payload?.awb_number,
+    payload?.awb,
+    payload?.waybill,
+    payload?.tracking_id,
+    payload?.trackingId,
+    payload?.client_request_id,
+    payload?.request_id,
+    payload?.return_request_id,
+    payload?.reverse_request_id,
+    payload?.shipment_id,
+    payload?.order_id,
+  )
+  const orderRef = pickWebhookText(
+    event?.order_id,
+    event?.client_order_id,
+    event?.seller_order_id,
+    event?.reference_id,
+    event?.merchant_order_id,
+    event?.invoice_id,
+    event?.invoice_number,
+    payload?.order_id,
+    payload?.client_order_id,
+    payload?.seller_order_id,
+    payload?.reference_id,
+    payload?.merchant_order_id,
+    payload?.invoice_id,
+    payload?.invoice_number,
+  )
+  const statusRaw = pickWebhookText(
+    event?.event,
+    event?.event_name,
+    event?.status,
+    event?.current_status,
+    event?.shipment_status,
+    event?.state,
+    event?.invoice_status,
+    payload?.event,
+    payload?.event_name,
+    payload?.status,
+    payload?.current_status,
+    payload?.shipment_status,
+    payload?.state,
+    payload?.invoice_status,
+  )
+  const location = pickWebhookText(
+    event?.current_location,
+    event?.location,
+    event?.scan_location,
+    event?.hub,
+    payload?.current_location,
+    payload?.location,
+    payload?.scan_location,
+    payload?.hub,
+  ) || null
+  const remarks = pickWebhookText(
+    event?.comments,
+    event?.comment,
+    event?.message,
+    event?.remarks,
+    event?.description,
+    event?.desc,
+    payload?.comments,
+    payload?.comment,
+    payload?.message,
+    payload?.remarks,
+    payload?.description,
+    payload?.desc,
+  ) || null
 
   console.log('🔄 processShadowfaxWebhook:start', {
     awb: awb || null,
@@ -3292,7 +3369,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
           height: Number(order.height || 0),
         },
         originalShippingCharge: Number(order.shipping_charges || order.freight_charges || 0),
-        courierRemarks: shadowfaxWeight.remarks || remarks || null,
+        courierRemarks: shadowfaxWeight.remarks || remarks || undefined,
         courierWeightSlipUrl: shadowfaxProof.weightSlipUrl,
         courierWeightProofImages: shadowfaxProof.weightImages,
         weighingMetadata: shadowfaxProof.metadata as any,

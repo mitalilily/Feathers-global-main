@@ -468,6 +468,44 @@ const buildEkartWebhookConfig = () => ({
   ],
 })
 
+const buildShadowfaxWebhookConfig = () => ({
+  clientPushUrl: resolvePublicWebhookUrl('SHADOWFAX_WEBHOOK_URL', '/webhooks/shadowfax'),
+  trackingUrl: resolvePublicWebhookUrl('SHADOWFAX_WEBHOOK_URL', '/webhooks/shadowfax'),
+  legacyUrl: resolvePublicWebhookUrl('SHADOWFAX_LEGACY_WEBHOOK_URL', '/api/webhook/shadowfax'),
+  trackAliasUrl: resolvePublicWebhookUrl(
+    'SHADOWFAX_TRACK_WEBHOOK_URL',
+    '/api/webhook/shadowfax/track',
+  ),
+  method: 'POST',
+  contentType: 'application/json',
+  expectedResponse: '200 OK',
+  authorizationPresent: String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '').toLowerCase() === 'true',
+  authentication: {
+    type: 'optional_shared_secret',
+    secretRequired: String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '').toLowerCase() === 'true',
+    supportedHeaders: ['x-shadowfax-secret', 'authorization'],
+  },
+  suggestedTopics: [
+    'FWD Marketplace',
+    'FWD Warehouse',
+    'Return Seller',
+    'Return Origin',
+    'Seller Delivery',
+    'Invoice',
+  ],
+  samplePayloadFields: [
+    'awb_number',
+    'request_id',
+    'client_request_id',
+    'order_id',
+    'event',
+    'status',
+    'current_status',
+    'current_location',
+    'comments',
+  ],
+})
+
 const buildXpressbeesWebhookConfig = () => ({
   trackingUrl: resolvePublicWebhookUrl('XPRESSBEES_WEBHOOK_URL', XPRESSBEES_WEBHOOK_PATH),
   legacyUrl: resolvePublicWebhookUrl('XPRESSBEES_LEGACY_WEBHOOK_URL', '/api/webhook/xpressbees'),
@@ -551,6 +589,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
         hasApiKey: false,
         apiKeyMasked: '',
         hasWebhookSecret: false,
+        webhookConfig: buildShadowfaxWebhookConfig(),
       },
       amazon: buildAmazonCredentialResponse(),
     }
@@ -602,6 +641,7 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
             ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(apiKey.length - 8, 0))}${apiKey.slice(-4)}`
             : '',
           hasWebhookSecret,
+          webhookConfig: buildShadowfaxWebhookConfig(),
         }
       } else if (provider === AMAZON_CREDENTIALS_PROVIDER) {
         acc.amazon = buildAmazonCredentialResponse(row)

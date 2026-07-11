@@ -18,7 +18,11 @@ import {
 import { AMAZON_SHIPPING_WEBHOOK_PATH } from './config/amazonShippingWebhook'
 import { XPRESSBEES_WEBHOOK_PATH } from './config/xpressbeesWebhook'
 import { ekartWebhookHandler } from './controllers/webhooks/ekart.webhook'
-import { shadowfaxWebhookHandler } from './controllers/webhooks/shadowfax.webhook'
+import {
+  SHADOWFAX_WEBHOOK_PATH,
+  shadowfaxWebhookHandler,
+  shadowfaxWebhookHealthHandler,
+} from './controllers/webhooks/shadowfax.webhook'
 import {
   xpressbeesWebhookHandler,
   xpressbeesWebhookHealthHandler,
@@ -301,6 +305,8 @@ app.post('/api/webhook/delhivery/scan', express.json(), delhiveryScanPushHandler
 app.post('/api/webhook/delhivery/document', express.json(), delhiveryDocumentPushHandler) // Document Push (POD, Sorter Image, QC Image)
 // Legacy unified endpoint (auto-detects type) - kept for backward compatibility
 app.post('/api/webhook/delhivery/order', express.json(), delhiveryWebhookHandler)
+app.get(SHADOWFAX_WEBHOOK_PATH, shadowfaxWebhookHealthHandler)
+app.post(SHADOWFAX_WEBHOOK_PATH, express.json(), shadowfaxWebhookHandler)
 app.post('/api/webhook/shadowfax', express.json(), shadowfaxWebhookHandler)
 app.post('/api/webhook/shadowfax/track', express.json(), shadowfaxWebhookHandler)
 
