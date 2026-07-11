@@ -57,10 +57,11 @@ async function generateBarcodeBase64(text: string): Promise<string | null> {
     const png = await bwipjs.toBuffer({
       bcid: 'code128',
       text,
-      scale: 3,
-      height: 15,
-      includetext: true,
-      textxalign: 'center',
+      scale: 4,
+      height: 22,
+      includetext: false,
+      paddingwidth: 0,
+      paddingheight: 0,
     })
     return `data:image/png;base64,${png.toString('base64')}`
   } catch (err) {
@@ -249,6 +250,10 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   const pages: any[] = []
   const primaryColor = '#1a237e'
   const accentColor = '#eef3ff'
+  const darkTextColor = '#0f172a'
+  const mutedTextColor = '#334155'
+  const lightBorderColor = '#cbd5e1'
+  const strongBorderColor = '#111827'
   const isEnabled = (value: unknown) => (value === undefined ? true : value === true)
   const awbEnabled = isEnabled(settings.order_info?.awb)
   const showOrderId = isEnabled(settings.order_info?.orderId)
@@ -279,8 +284,8 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   const charLimit = Math.max(10, Number(settings.char_limit ?? 25))
   const maxItems = Math.max(1, Number(settings.max_items ?? 3))
 
-  // For Delhivery, prefer barcode_img coming from provider APIs (if stored on order);
-  // otherwise fall back to a locally generated AWB barcode.
+  // Prefer a locally generated AWB barcode so labels do not repeat the AWB text below the bars.
+  // Courier barcode images are still used as a fallback when an AWB number is unavailable.
   let awbBarcode: string | null = null
   const providerKey = (order.integration_type || order.courier_partner || '')
     .toString()
@@ -290,7 +295,12 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   const barcodeSource =
     order.barcode_img || order.barcode_url || order.barcode_image || order.barcode || null
 
-  if (awbEnabled && providerKey.includes('delhivery') && barcodeSource) {
+  if (awbEnabled && order.awb_number) {
+    awbBarcode = await generateBarcodeBase64(order.awb_number)
+    console.log('✅ Generated AWB barcode locally')
+  }
+
+  if (!awbBarcode && awbEnabled && providerKey.includes('delhivery') && barcodeSource) {
     try {
       // Check if it's already a data URL
       if (isValidDataUrl(barcodeSource)) {
@@ -326,11 +336,6 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     }
   }
 
-  // Fallback to generating AWB barcode locally if no courier barcode available
-  if (!awbBarcode && awbEnabled && order.awb_number) {
-    awbBarcode = await generateBarcodeBase64(order.awb_number)
-    console.log('✅ Generated AWB barcode locally')
-  }
   const orderBarcode =
     showOrderBarcode && order.order_number ? await generateBarcodeBase64(order.order_number) : null
   const invoiceBarcode =
@@ -502,22 +507,23 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       fontSize: 12,
       bold: true,
       alignment: 'center',
+      color: darkTextColor,
       margin: [0, 3, 0, 2],
     })
   }
   if (awbEnabled && awbBarcode && isValidDataUrl(awbBarcode)) {
     headerRightStack.push({
       image: awbBarcode,
-      width: 128,
+      width: 158,
       alignment: 'center',
-      margin: [0, 3, 0, 4],
+      margin: [0, 4, 0, 5],
     })
   } else if (awbEnabled && images.awbBarcode) {
     headerRightStack.push({
       image: 'awbBarcode',
-      width: 118,
+      width: 158,
       alignment: 'center',
-      margin: [0, 3, 0, 4],
+      margin: [0, 4, 0, 5],
     })
   }
   if (showRtoRoutingCode && normalizedSortCode) {
@@ -532,17 +538,38 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   }
   if (showCodBanner) {
     headerRightStack.push({
-      text: paymentType === 'cod' ? 'COD' : 'PREPAID',
-      fontSize: 8,
-      bold: true,
-      alignment: 'center',
-      color: paymentType === 'cod' ? '#b45309' : '#166534',
-      margin: [0, 2, 0, 0],
+      table: {
+        widths: ['*'],
+        body: [
+          [
+            {
+              text: paymentType === 'cod' ? 'COD' : 'PREPAID',
+              fontSize: 10,
+              bold: true,
+              alignment: 'center',
+              color: '#000000',
+              fillColor: paymentType === 'cod' ? '#fef3c7' : '#dcfce7',
+              margin: [0, 2, 0, 2],
+            },
+          ],
+        ],
+      },
+      layout: {
+        hLineWidth: () => 0.8,
+        vLineWidth: () => 0.8,
+        hLineColor: () => strongBorderColor,
+        vLineColor: () => strongBorderColor,
+        paddingLeft: () => 0,
+        paddingRight: () => 0,
+        paddingTop: () => 0,
+        paddingBottom: () => 0,
+      },
+      margin: [32, 2, 32, 0],
     })
   }
   pageContent.push({
     table: {
-      widths: ['*', 136],
+      widths: ['*', 166],
       body: [[{ stack: headerLeftStack }, { stack: headerRightStack }]],
     },
     layout: 'noBorders',
@@ -564,11 +591,18 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
         90,
       ),
       fontSize: 7,
+      color: darkTextColor,
       margin: [0, 1, 0, 0],
     },
   ]
   if (showCustomerPhone && consignee.phone) {
-    shipToStack.push({ text: `Ph: ${trimText(consignee.phone, 20)}`, fontSize: 7, margin: [0, 1, 0, 0] })
+    shipToStack.push({
+      text: `Ph: ${trimText(consignee.phone, 20)}`,
+      fontSize: 7,
+      bold: true,
+      color: darkTextColor,
+      margin: [0, 1, 0, 0],
+    })
   }
 
   const fromLine = [
@@ -587,10 +621,17 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     shipFromStack.push({
       text: trimText(fromLine, 90),
       fontSize: 7,
+      color: darkTextColor,
     })
   }
   if (showShipperPhone && pickup.phone) {
-    shipFromStack.push({ text: `Ph: ${trimText(pickup.phone, 20)}`, fontSize: 7, margin: [0, 1, 0, 0] })
+    shipFromStack.push({
+      text: `Ph: ${trimText(pickup.phone, 20)}`,
+      fontSize: 7,
+      bold: true,
+      color: darkTextColor,
+      margin: [0, 1, 0, 0],
+    })
   }
   if (showShipperGst && pickup.gst_number) {
     shipFromStack.push({
@@ -606,8 +647,8 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       body: [[{ stack: shipToStack }, { stack: shipFromStack }]],
     },
     layout: {
-      hLineColor: () => '#dbeafe',
-      vLineColor: () => '#dbeafe',
+      hLineColor: () => lightBorderColor,
+      vLineColor: () => lightBorderColor,
       paddingLeft: () => 6,
       paddingRight: () => 6,
       paddingTop: () => 5,
@@ -653,6 +694,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       fontSize: 7,
       margin: [0, 0, 0, 4],
       color: '#334155',
+      bold: true,
     })
   }
 
@@ -701,9 +743,9 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       if (includeProductName) {
         rowCells.push({
           stack: [
-            { text: String(itemName || '-').trim() || '-', fontSize: 7, bold: true },
+            { text: String(itemName || '-').trim() || '-', fontSize: 7, bold: true, color: darkTextColor },
             ...(includeSku && String(sku || '').trim() && String(sku || '').trim() !== '-'
-              ? [{ text: `SKU: ${String(sku).trim()}`, fontSize: 6, color: '#475569', margin: [0, 1, 0, 0] }]
+              ? [{ text: `SKU: ${String(sku).trim()}`, fontSize: 6, color: mutedTextColor, margin: [0, 1, 0, 0] }]
               : []),
           ],
         })
@@ -798,9 +840,10 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
 
     pageContent.push({
       text: summaryParts.join(' | '),
-      fontSize: 7,
+      fontSize: 8,
+      bold: true,
       margin: [0, 0, 0, 4],
-      color: '#334155',
+      color: darkTextColor,
     })
   }
 
@@ -828,7 +871,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     additionalBarcodes.push({
       stack: [
         { text: 'Order Barcode', fontSize: 6, alignment: 'center', color: '#64748b' },
-        { image: 'orderBarcode', width: 88, alignment: 'center', margin: [0, 1, 0, 0] },
+        { image: 'orderBarcode', width: 98, alignment: 'center', margin: [0, 1, 0, 0] },
       ],
     })
   }
@@ -836,7 +879,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     additionalBarcodes.push({
       stack: [
         { text: 'Invoice Barcode', fontSize: 6, alignment: 'center', color: '#64748b' },
-        { image: 'invoiceBarcode', width: 88, alignment: 'center', margin: [0, 1, 0, 0] },
+        { image: 'invoiceBarcode', width: 98, alignment: 'center', margin: [0, 1, 0, 0] },
       ],
     })
   }
@@ -888,10 +931,23 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
   pages.push({ stack: pageContent })
 
   const docDefinition: any = {
-    defaultStyle: { font: 'Helvetica' },
+    defaultStyle: { font: 'Helvetica', color: darkTextColor },
     pageSize: settings.printer_type === 'thermal' ? { width: 288, height: 432 } : 'A4',
     content: pages,
     pageMargins: [10, 10, 10, 10], // Reduced margins for more space
+    background: (_currentPage: number, pageSize: { width: number; height: number }) => ({
+      canvas: [
+        {
+          type: 'rect',
+          x: 5,
+          y: 5,
+          w: pageSize.width - 10,
+          h: pageSize.height - 10,
+          lineWidth: 1.4,
+          lineColor: strongBorderColor,
+        },
+      ],
+    }),
     ...(Object.keys(images).length > 0 && { images }),
   }
 
