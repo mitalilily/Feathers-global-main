@@ -15,7 +15,7 @@ import {
   alpha,
 } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchAvailableCouriers } from "../../api/courier";
 import { bookExistingB2COrderCourier } from "../../api/order.service";
 import { usePickupAddresses } from "../../hooks/Pickup/usePickupAddresses";
@@ -38,6 +38,11 @@ type CommonCourierOption = {
   representative: Record<string, any>;
   perOrder: Record<string, any>[];
   total: number;
+};
+
+type CourierCacheEntry = {
+  commonCouriers: CommonCourierOption[];
+  courierError: string;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -109,6 +114,29 @@ const getCourierLogo = (name: string) =>
     name.toLowerCase().includes(key.toLowerCase()),
   )?.[1] ?? defaultLogo;
 
+const buildOrdersRateSignature = (orders: BulkOrder[]) =>
+  orders
+    .map((order) =>
+      [
+        order.id,
+        order.pincode,
+        order.order_type,
+        getOrderAmount(order),
+        order.weight,
+        order.length,
+        order.breadth,
+        order.height,
+        order.buyer_name,
+        order.buyer_phone,
+        order.address,
+        order.city,
+        order.state,
+      ]
+        .map((value) => String(value ?? "").trim())
+        .join("~"),
+    )
+    .join("|");
+
 export default function BulkOrderCourierDrawer({
   open,
   orders,
@@ -138,10 +166,30 @@ export default function BulkOrderCourierDrawer({
   const [booking, setBooking] = useState(false);
   const [bookingProgress, setBookingProgress] = useState(0);
   const [bookingError, setBookingError] = useState("");
+  const courierCacheRef = useRef(new Map<string, CourierCacheEntry>());
 
   const selectedWarehouse = warehouses.find(
     (warehouse) => String(warehouse.pickupId) === warehouseId,
   );
+  const ordersRateSignature = useMemo(
+    () => buildOrdersRateSignature(orders),
+    [orders],
+  );
+  const courierRequestKey = useMemo(() => {
+    if (!open || !selectedWarehouse || !orders.length) return "";
+
+    const pickup = selectedWarehouse.pickup;
+    return JSON.stringify({
+      warehouseId,
+      pickupId: selectedWarehouse.pickupId,
+      pickupPincode: pickup?.pincode || "",
+      pickupName: pickup?.addressNickname || "",
+      pickupAddress: pickup?.addressLine1 || "",
+      pickupCity: pickup?.city || "",
+      pickupState: pickup?.state || "",
+      orders: ordersRateSignature,
+    });
+  }, [open, orders.length, ordersRateSignature, selectedWarehouse, warehouseId]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,10 +202,24 @@ export default function BulkOrderCourierDrawer({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !selectedWarehouse || !orders.length) return;
+    if (!open || !selectedWarehouse || !orders.length || !courierRequestKey)
+      return;
     let cancelled = false;
 
     const loadCouriers = async () => {
+      const cached = courierCacheRef.current.get(courierRequestKey);
+      if (cached) {
+        setLoadingCouriers(false);
+        setCourierError(cached.courierError);
+        setCommonCouriers(cached.commonCouriers);
+        setSelectedCourierKey((currentKey) =>
+          cached.commonCouriers.some((option) => option.key === currentKey)
+            ? currentKey
+            : "",
+        );
+        return;
+      }
+
       setLoadingCouriers(true);
       setCourierError("");
       setCommonCouriers([]);
@@ -225,8 +287,18 @@ export default function BulkOrderCourierDrawer({
           ];
         });
 
-        setCommonCouriers(intersection.sort((a, b) => a.total - b.total));
-        if (!intersection.length) {
+        const sortedIntersection = intersection.sort((a, b) => a.total - b.total);
+        const nextError = !sortedIntersection.length
+          ? "No single courier is currently serviceable for every selected order."
+          : "";
+
+        courierCacheRef.current.set(courierRequestKey, {
+          commonCouriers: sortedIntersection,
+          courierError: nextError,
+        });
+
+        setCommonCouriers(sortedIntersection);
+        if (nextError) {
           setCourierError(
             "No single courier is currently serviceable for every selected order.",
           );
@@ -246,7 +318,7 @@ export default function BulkOrderCourierDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, orders, selectedWarehouse]);
+  }, [courierRequestKey]);
 
   const handleBook = async () => {
     const option = commonCouriers.find(

@@ -2142,6 +2142,16 @@ const B2COrdersList = () => {
                   px: 1.5,
                   fontSize: '0.8rem',
                   fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  '&.Mui-disabled': {
+                    opacity: 1,
+                    color: '#ffffff',
+                    backgroundColor: 'rgba(4, 123, 133, 0.62)',
+                    border: '1px solid rgba(4, 123, 133, 0.45)',
+                    '& .MuiButton-startIcon': {
+                      color: '#ffffff',
+                    },
+                  },
                 }}
               >
                 {bulkManifesting ? 'Manifesting...' : 'Manifest Selected'}
