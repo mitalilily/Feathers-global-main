@@ -479,11 +479,21 @@ const buildShadowfaxWebhookConfig = () => ({
   method: 'POST',
   contentType: 'application/json',
   expectedResponse: '200 OK',
-  authorizationPresent: String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '').toLowerCase() === 'true',
+  authorizationPresent:
+    Boolean(
+      String(process.env.SHADOWFAX_WEBHOOK_BASIC_USERNAME || '').trim() &&
+        String(process.env.SHADOWFAX_WEBHOOK_BASIC_PASSWORD || '').trim(),
+    ) || String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '').toLowerCase() === 'true',
   authentication: {
-    type: 'optional_shared_secret',
-    secretRequired: String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '').toLowerCase() === 'true',
-    supportedHeaders: ['x-shadowfax-secret', 'authorization'],
+    type: String(process.env.SHADOWFAX_WEBHOOK_BASIC_USERNAME || '').trim()
+      ? 'basic_auth'
+      : 'optional_shared_secret',
+    secretRequired:
+      Boolean(
+        String(process.env.SHADOWFAX_WEBHOOK_BASIC_USERNAME || '').trim() &&
+          String(process.env.SHADOWFAX_WEBHOOK_BASIC_PASSWORD || '').trim(),
+      ) || String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '').toLowerCase() === 'true',
+    supportedHeaders: ['authorization', 'x-shadowfax-secret'],
   },
   suggestedTopics: [
     'FWD Marketplace',

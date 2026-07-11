@@ -13,6 +13,16 @@ const SHADOWFAX_REQUIRE_AUTH =
   String(process.env.SHADOWFAX_WEBHOOK_REQUIRE_AUTH || '')
     .trim()
     .toLowerCase() === 'true'
+const SHADOWFAX_WEBHOOK_BASIC_USERNAME = String(
+  process.env.SHADOWFAX_WEBHOOK_BASIC_USERNAME || '',
+).trim()
+const SHADOWFAX_WEBHOOK_BASIC_PASSWORD = String(
+  process.env.SHADOWFAX_WEBHOOK_BASIC_PASSWORD || '',
+).trim()
+const SHADOWFAX_BASIC_AUTH_CONFIGURED = Boolean(
+  SHADOWFAX_WEBHOOK_BASIC_USERNAME && SHADOWFAX_WEBHOOK_BASIC_PASSWORD,
+)
+const SHADOWFAX_AUTH_REQUIRED = SHADOWFAX_REQUIRE_AUTH || SHADOWFAX_BASIC_AUTH_CONFIGURED
 
 const SHADOWFAX_SUPPORTED_EVENTS = [
   'FWD Marketplace',
@@ -31,6 +41,31 @@ const summarizeHeaders = (headers: Request['headers']) => ({
   'x-shadowfax-secret-present': Boolean(headers['x-shadowfax-secret']),
   authorization_present: Boolean(headers['authorization']),
 })
+
+const getHeaderValue = (value: string | string[] | undefined) => {
+  if (Array.isArray(value)) return String(value[0] || '').trim()
+  return String(value || '').trim()
+}
+
+const isValidShadowfaxBasicAuth = (authorizationHeader: string) => {
+  if (!SHADOWFAX_BASIC_AUTH_CONFIGURED) return false
+  const [scheme, encodedCredentials] = authorizationHeader.split(/\s+/, 2)
+  if (!/^basic$/i.test(scheme || '') || !encodedCredentials) return false
+
+  let decoded = ''
+  try {
+    decoded = Buffer.from(encodedCredentials, 'base64').toString('utf8')
+  } catch {
+    return false
+  }
+
+  const separatorIndex = decoded.indexOf(':')
+  if (separatorIndex < 0) return false
+  const username = decoded.slice(0, separatorIndex)
+  const password = decoded.slice(separatorIndex + 1)
+
+  return username === SHADOWFAX_WEBHOOK_BASIC_USERNAME && password === SHADOWFAX_WEBHOOK_BASIC_PASSWORD
+}
 
 const unwrapShadowfaxPayload = (payload: any) => {
   if (payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
@@ -74,10 +109,19 @@ const extractShadowfaxStatus = (payload: any) =>
   payload?.invoice_status ||
   'unknown'
 
-const isShadowfaxAuthValid = (providedSecret: string, configuredSecret: string) => {
-  if (!configuredSecret) return true
-  if (!providedSecret) return !SHADOWFAX_REQUIRE_AUTH
-  return providedSecret.includes(configuredSecret)
+const isShadowfaxAuthValid = ({
+  authorizationHeader,
+  providedSecret,
+  configuredSecret,
+}: {
+  authorizationHeader: string
+  providedSecret: string
+  configuredSecret: string
+}) => {
+  if (isValidShadowfaxBasicAuth(authorizationHeader)) return true
+  if (configuredSecret && providedSecret.includes(configuredSecret)) return true
+  if (configuredSecret && authorizationHeader.includes(configuredSecret)) return true
+  return !SHADOWFAX_AUTH_REQUIRED && !configuredSecret
 }
 
 const queuePendingShadowfaxWebhook = async ({
@@ -184,9 +228,10 @@ export const shadowfaxWebhookHealthHandler = (_req: Request, res: Response) =>
     aliases: ['/api/webhook/shadowfax', '/api/webhook/shadowfax/track'],
     supportedEvents: SHADOWFAX_SUPPORTED_EVENTS,
     authentication: {
-      required: SHADOWFAX_REQUIRE_AUTH,
-      authorizationPresent: SHADOWFAX_REQUIRE_AUTH,
-      acceptedHeaders: ['x-shadowfax-secret', 'authorization'],
+      type: SHADOWFAX_BASIC_AUTH_CONFIGURED ? 'basic_auth' : 'optional_shared_secret',
+      required: SHADOWFAX_AUTH_REQUIRED,
+      authorizationPresent: SHADOWFAX_BASIC_AUTH_CONFIGURED,
+      acceptedHeaders: ['authorization', 'x-shadowfax-secret'],
     },
     expectedResponse: '200 OK',
   })
@@ -236,26 +281,24 @@ export const shadowfaxWebhookHandler = async (req: Request, res: Response) => {
     ;(async () => {
       const shadowfax = new ShadowfaxService()
       const configuredSecret = await shadowfax.getConfiguredWebhookSecret()
-      const providedSecret = String(
-        req.headers['x-shadowfax-secret'] || req.headers['authorization'] || '',
-      ).trim()
+      const authorizationHeader = getHeaderValue(req.headers['authorization'])
+      const providedSecret = getHeaderValue(req.headers['x-shadowfax-secret'])
 
-      if (!isShadowfaxAuthValid(providedSecret, configuredSecret)) {
+      if (!isShadowfaxAuthValid({ authorizationHeader, providedSecret, configuredSecret })) {
         console.warn('Shadowfax webhook auth validation failed; acknowledged without processing.', {
           awb: awb || null,
           status: String(status || 'unknown'),
           eventTimestamp: eventTimestamp || null,
           headers: summarizeHeaders(req.headers),
-          strictAuth: SHADOWFAX_REQUIRE_AUTH,
+          strictAuth: SHADOWFAX_AUTH_REQUIRED,
+          basicAuthConfigured: SHADOWFAX_BASIC_AUTH_CONFIGURED,
         })
         return
       }
 
-      if (configuredSecret && !providedSecret) {
+      if (SHADOWFAX_AUTH_REQUIRED && !authorizationHeader && !providedSecret) {
         console.warn(
-          SHADOWFAX_REQUIRE_AUTH
-            ? 'Shadowfax webhook received without auth and strict verification is enabled; skipped.'
-            : 'Shadowfax webhook received without auth. Processing because Shadowfax webhook auth is optional.',
+          'Shadowfax webhook received without authorization; acknowledged without processing.',
         )
       }
 
