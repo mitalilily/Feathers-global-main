@@ -134,6 +134,8 @@ const pdfFonts = {
 }
 
 const MAX_MANIFEST_RETRY_ATTEMPTS = 3
+const MANIFEST_ORDER_LOOKUP_CHUNK_SIZE = 500
+const PROVIDER_MANIFEST_REQUEST_CHUNK_SIZE = 100
 const WALLET_TRANSACTION_GST_PERCENT = 18
 export const ORIGINAL_WALLET_DEBIT_REASONS = [
   'B2C Prepaid Order Payment',
@@ -142,6 +144,15 @@ export const ORIGINAL_WALLET_DEBIT_REASONS = [
 ]
 
 type ShadowfaxForwardModeSelection = 'marketplace' | 'warehouse'
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = []
+  const chunkSize = Math.max(1, size)
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+  return chunks
+}
 
 let b2cRazorpayChargeSchemaReady: Promise<void> | null = null
 
@@ -10465,28 +10476,37 @@ export const generateManifestService = async (params: {
           awb_number: b2b_orders.awb_number,
         }
 
-  const orderMatchCondition =
-    params.type === 'b2c'
-      ? or(
-          inArray(table.awb_number, normalizedRefs),
-          inArray(table.order_number, normalizedRefs),
-          inArray((table as typeof b2c_orders).shipment_id, normalizedRefs),
-          inArray((table as typeof b2c_orders).provider_reference, normalizedRefs),
-          inArray((table as typeof b2c_orders).provider_request_id, normalizedRefs),
-        )
-      : or(
-          inArray(table.awb_number, normalizedRefs),
-          inArray(table.order_number, normalizedRefs),
-        )
+  const ordersById = new Map<string, any>()
+  for (const refChunk of chunkArray(normalizedRefs, MANIFEST_ORDER_LOOKUP_CHUNK_SIZE)) {
+    const orderMatchCondition =
+      params.type === 'b2c'
+        ? or(
+            inArray(table.awb_number, refChunk),
+            inArray(table.order_number, refChunk),
+            inArray((table as typeof b2c_orders).shipment_id, refChunk),
+            inArray((table as typeof b2c_orders).provider_reference, refChunk),
+            inArray((table as typeof b2c_orders).provider_request_id, refChunk),
+          )
+        : or(
+            inArray(table.awb_number, refChunk),
+            inArray(table.order_number, refChunk),
+          )
 
-  const scopedOrderCondition = params.userId
-    ? and(orderMatchCondition, eq(table.user_id, params.userId))
-    : orderMatchCondition
+    const scopedOrderCondition = params.userId
+      ? and(orderMatchCondition, eq(table.user_id, params.userId))
+      : orderMatchCondition
 
-  const orders = await db
-    .select(orderLookupColumns as any)
-    .from(table)
-    .where(scopedOrderCondition as any)
+    const chunkOrders = await db
+      .select(orderLookupColumns as any)
+      .from(table)
+      .where(scopedOrderCondition as any)
+
+    chunkOrders.forEach((order: any) => {
+      ordersById.set(String(order.id), order)
+    })
+  }
+
+  const orders = Array.from(ordersById.values())
 
   if (!orders.length) {
     throw new HttpError(404, 'No orders found for the selected manifest request.')
@@ -11392,28 +11412,37 @@ export const generateManifestService = async (params: {
                 awb_number: b2b_orders.awb_number,
               }
 
-        const orderMatchCondition =
-          params.type === 'b2c'
-            ? or(
-                inArray(table.awb_number, normalizedRefs),
-                inArray(table.order_number, normalizedRefs),
-                inArray((table as typeof b2c_orders).shipment_id, normalizedRefs),
-                inArray((table as typeof b2c_orders).provider_reference, normalizedRefs),
-                inArray((table as typeof b2c_orders).provider_request_id, normalizedRefs),
-              )
-            : or(
-                inArray(table.awb_number, normalizedRefs),
-                inArray(table.order_number, normalizedRefs),
-              )
+        const ordersById = new Map<string, any>()
+        for (const refChunk of chunkArray(normalizedRefs, MANIFEST_ORDER_LOOKUP_CHUNK_SIZE)) {
+          const orderMatchCondition =
+            params.type === 'b2c'
+              ? or(
+                  inArray(table.awb_number, refChunk),
+                  inArray(table.order_number, refChunk),
+                  inArray((table as typeof b2c_orders).shipment_id, refChunk),
+                  inArray((table as typeof b2c_orders).provider_reference, refChunk),
+                  inArray((table as typeof b2c_orders).provider_request_id, refChunk),
+                )
+              : or(
+                  inArray(table.awb_number, refChunk),
+                  inArray(table.order_number, refChunk),
+                )
 
-        const scopedOrderCondition = params.userId
-          ? and(orderMatchCondition, eq(table.user_id, params.userId))
-          : orderMatchCondition
+          const scopedOrderCondition = params.userId
+            ? and(orderMatchCondition, eq(table.user_id, params.userId))
+            : orderMatchCondition
 
-        const orders = await tx
-          .select(orderLookupColumns as any)
-          .from(table)
-          .where(scopedOrderCondition as any)
+          const chunkOrders = await tx
+            .select(orderLookupColumns as any)
+            .from(table)
+            .where(scopedOrderCondition as any)
+
+          chunkOrders.forEach((order: any) => {
+            ordersById.set(String(order.id), order)
+          })
+        }
+
+        const orders = Array.from(ordersById.values())
 
         if (!orders.length) {
           throw new HttpError(404, 'No orders found for the selected manifest request.')
@@ -11522,7 +11551,12 @@ export const generateManifestService = async (params: {
 
           if (integrationType === 'ekart') {
             const ekart = new EkartService()
-            await ekart.generateManifest(providerManifestIds)
+            for (const providerManifestIdChunk of chunkArray(
+              providerManifestIds,
+              PROVIDER_MANIFEST_REQUEST_CHUNK_SIZE,
+            )) {
+              await ekart.generateManifest(providerManifestIdChunk)
+            }
           } else if (integrationType === 'xpressbees') {
             const forceProviderManifestRetry = isTruthyEnvValue(
               process.env.XPRESSBEES_FORCE_PROVIDER_MANIFEST_ON_LOCAL_MANIFEST,
@@ -11555,21 +11589,26 @@ export const generateManifestService = async (params: {
                 }
               }
 
-              const providerManifestResponse =
-                await xpressbees.generateManifest(providerManifestOrders)
-              assertXpressbeesManifestAccepted(
-                providerManifestResponse,
-                'provider manifest request',
-              )
-
-              const normalizedResponses =
-                normalizeXpressbeesManifestResponses(providerManifestResponse)
-              providerManifestOrders.forEach((order, index) => {
-                providerManifestResponsesByOrderId.set(
-                  String(order.id),
-                  normalizedResponses[index] || providerManifestResponse,
+              for (const providerManifestOrderChunk of chunkArray(
+                providerManifestOrders,
+                PROVIDER_MANIFEST_REQUEST_CHUNK_SIZE,
+              )) {
+                const providerManifestResponse =
+                  await xpressbees.generateManifest(providerManifestOrderChunk)
+                assertXpressbeesManifestAccepted(
+                  providerManifestResponse,
+                  'provider manifest request',
                 )
-              })
+
+                const normalizedResponses =
+                  normalizeXpressbeesManifestResponses(providerManifestResponse)
+                providerManifestOrderChunk.forEach((order, index) => {
+                  providerManifestResponsesByOrderId.set(
+                    String(order.id),
+                    normalizedResponses[index] || providerManifestResponse,
+                  )
+                })
+              }
             } else {
               console.log(
                 '[Xpressbees] Skipping duplicate provider manifest call; provider manifestation is already accepted.',

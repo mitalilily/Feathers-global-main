@@ -40,6 +40,7 @@ const isOperationalTimeoutError = (error: any) => {
 }
 
 const BULK_LABEL_DOWNLOAD_TIMEOUT_MS = 30000
+const BULK_LABEL_ORDER_FETCH_CHUNK_SIZE = 500
 
 const sanitizeBulkPdfFileName = (value: string) =>
   value
@@ -80,6 +81,15 @@ const fetchPdfBuffer = async (source: string) => {
     timeout: BULK_LABEL_DOWNLOAD_TIMEOUT_MS,
   })
   return Buffer.from(response.data)
+}
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = []
+  const chunkSize = Math.max(1, size)
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+  return chunks
 }
 
 export const createB2CShipmentController = async (req: any, res: Response) => {
@@ -619,16 +629,13 @@ export const downloadBulkB2CLabelsController = async (req: any, res: Response) =
       return res.status(400).json({ success: false, message: 'Select at least one order.' })
     }
 
-    const rows = await db
-      .select()
-      .from(b2c_orders)
-      .where(and(eq(b2c_orders.user_id, userId), inArray(b2c_orders.id, orderIds)))
-
-    if (rows.length !== orderIds.length) {
-      return res.status(404).json({
-        success: false,
-        message: 'One or more selected orders were not found.',
-      })
+    const rows: any[] = []
+    for (const orderIdChunk of chunkArray(orderIds, BULK_LABEL_ORDER_FETCH_CHUNK_SIZE)) {
+      const chunkRows = await db
+        .select()
+        .from(b2c_orders)
+        .where(and(eq(b2c_orders.user_id, userId), inArray(b2c_orders.id, orderIdChunk)))
+      rows.push(...chunkRows)
     }
 
     const rowsById = new Map(rows.map((order) => [String(order.id), order]))
@@ -636,24 +643,49 @@ export const downloadBulkB2CLabelsController = async (req: any, res: Response) =
     const mergedPdf = await PDFDocument.create()
     const generatedLabels: string[] = []
     const failedLabels: string[] = []
+    const missingOrderIds = orderIds.filter((orderId) => !rowsById.has(orderId))
+
+    missingOrderIds.forEach((orderId) => {
+      failedLabels.push(`${orderId}: order not found`)
+    })
+
+    const generateAndStoreLabel = async (order: any) => {
+      if (!String(order.awb_number || '').trim()) {
+        throw new Error('AWB missing')
+      }
+
+      const generatedLabelKey = await generateLabelForOrder(order, userId, db)
+      if (!generatedLabelKey) {
+        throw new Error('label generation failed')
+      }
+
+      generatedLabels.push(String(order.order_number || order.id))
+      await db
+        .update(b2c_orders)
+        .set({ label: generatedLabelKey, updated_at: new Date() })
+        .where(and(eq(b2c_orders.id, order.id), eq(b2c_orders.user_id, userId)))
+      order.label = generatedLabelKey
+      return generatedLabelKey
+    }
+
+    const appendLabelToMergedPdf = async (labelReference: string) => {
+      const downloadUrl = await resolveLabelDownloadUrl(labelReference)
+      if (!downloadUrl) {
+        throw new Error('label file unavailable')
+      }
+
+      const labelBuffer = await fetchPdfBuffer(downloadUrl)
+      const sourcePdf = await PDFDocument.load(labelBuffer, { ignoreEncryption: true })
+      const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices())
+      pages.forEach((page) => mergedPdf.addPage(page))
+    }
 
     for (const order of orderedRows) {
       let labelReference = getOrderLabelReference(order)
 
       if (!labelReference) {
-        if (!String(order.awb_number || '').trim()) {
-          failedLabels.push(`${order.order_number || order.id}: AWB missing`)
-          continue
-        }
-
         try {
-          const generatedLabelKey = await generateLabelForOrder(order, userId, db)
-          labelReference = generatedLabelKey
-          generatedLabels.push(String(order.order_number || order.id))
-          await db
-            .update(b2c_orders)
-            .set({ label: generatedLabelKey, updated_at: new Date() })
-            .where(and(eq(b2c_orders.id, order.id), eq(b2c_orders.user_id, userId)))
+          labelReference = await generateAndStoreLabel(order)
         } catch (error: any) {
           failedLabels.push(
             `${order.order_number || order.id}: ${error?.message || 'label generation failed'}`,
@@ -663,20 +695,18 @@ export const downloadBulkB2CLabelsController = async (req: any, res: Response) =
       }
 
       try {
-        const downloadUrl = await resolveLabelDownloadUrl(labelReference)
-        if (!downloadUrl) {
-          failedLabels.push(`${order.order_number || order.id}: label file unavailable`)
-          continue
-        }
-
-        const labelBuffer = await fetchPdfBuffer(downloadUrl)
-        const sourcePdf = await PDFDocument.load(labelBuffer, { ignoreEncryption: true })
-        const pages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices())
-        pages.forEach((page) => mergedPdf.addPage(page))
+        await appendLabelToMergedPdf(labelReference)
       } catch (error: any) {
-        failedLabels.push(
-          `${order.order_number || order.id}: ${error?.message || 'label merge failed'}`,
-        )
+        try {
+          const regeneratedLabelReference = await generateAndStoreLabel(order)
+          await appendLabelToMergedPdf(regeneratedLabelReference)
+        } catch (retryError: any) {
+          failedLabels.push(
+            `${order.order_number || order.id}: ${
+              retryError?.message || error?.message || 'label merge failed'
+            }`,
+          )
+        }
       }
     }
 
@@ -694,14 +724,14 @@ export const downloadBulkB2CLabelsController = async (req: any, res: Response) =
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
-    res.setHeader('X-Bulk-Label-Total', String(orderedRows.length))
+    res.setHeader('X-Bulk-Label-Total', String(orderIds.length))
     res.setHeader('X-Bulk-Label-Generated', String(generatedLabels.length))
     res.setHeader('X-Bulk-Label-Failed', String(failedLabels.length))
     if (failedLabels.length) {
       res.setHeader('X-Bulk-Label-Warnings', encodeURIComponent(failedLabels.slice(0, 10).join(' | ')))
     }
 
-    return res.status(failedLabels.length ? 207 : 200).send(Buffer.from(pdfBytes))
+    return res.status(200).send(Buffer.from(pdfBytes))
   } catch (error: any) {
     console.error('Bulk B2C label download failed:', {
       userId: req.user?.sub ?? null,
