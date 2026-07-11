@@ -5,10 +5,11 @@ import { users } from '../models/schema/users'
 import { wallets } from '../models/schema/wallet'
 import { getUserWalletTransactions } from '../models/services/wallet.service'
 import { getOrCreateWalletOfUser } from '../models/services/walletTopupService'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 export const getUserWalletBalance = async (req: Request, res: Response): Promise<any> => {
   try {
-    const userId = (req as any).user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) return res.status(401).json({ error: 'Unauthorized' })
 
     const [userRecord] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1)
@@ -19,7 +20,8 @@ export const getUserWalletBalance = async (req: Request, res: Response): Promise
       .limit(1)
 
     console.log('Wallet balance lookup debug:', {
-      tokenSub: userId,
+      tokenSub: (req as any).user?.sub ?? null,
+      merchantUserId: userId,
       userExists: Boolean(userRecord),
       walletExistsForTokenSub: Boolean(walletRecord),
       walletId: walletRecord?.id ?? null,
@@ -41,7 +43,7 @@ export const getUserWalletBalance = async (req: Request, res: Response): Promise
 
 export const getWalletTransactionsController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub // assuming you set user in middleware
+    const userId = getMerchantScopedUserId(req)
     if (!userId) return res.status(401).json({ message: 'Unauthorized' })
 
     const {

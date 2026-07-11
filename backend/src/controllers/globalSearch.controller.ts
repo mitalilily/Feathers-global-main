@@ -1,9 +1,10 @@
 import { Response } from 'express'
 import { globalSearch } from '../models/services/globalSearch.service'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 export const globalSearchController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     const query = (req.query.q as string) || (req.query.query as string) || ''
     const limit = parseInt((req.query.limit as string) || '10', 10)
 
@@ -36,4 +37,3 @@ export const globalSearchController = async (req: any, res: Response) => {
     })
   }
 }
-

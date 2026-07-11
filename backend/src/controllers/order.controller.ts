@@ -24,6 +24,7 @@ import { generateLabelForOrder } from '../models/services/generateCustomLabelSer
 import { presignDownload } from '../models/services/upload.service'
 import { getOrderLabelReference, isExternalLabelReference } from '../utils/orderLabels'
 import { getMerchantSafeOperationalError } from '../utils/merchantErrorMessages'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 const isOperationalTimeoutError = (error: any) => {
   const message = String(error?.message || '')
@@ -83,7 +84,10 @@ const fetchPdfBuffer = async (source: string) => {
 
 export const createB2CShipmentController = async (req: any, res: Response) => {
   try {
-    const id = req.user?.sub
+    const id = getMerchantScopedUserId(req)
+    if (!id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
     // Local order creation (via dashboard), so is_external_api = false
     console.log('[ShipmentCreate] B2C request received', {
       user_id: id || null,
@@ -136,7 +140,7 @@ export const createB2CShipmentController = async (req: any, res: Response) => {
 
 export const bookExistingB2COrderController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -175,7 +179,7 @@ export const bookExistingB2COrderController = async (req: any, res: Response) =>
 
 export const createB2CBulkShipmentController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -284,7 +288,7 @@ export const createB2CBulkShipmentController = async (req: any, res: Response) =
 
 export const createB2BShipmentController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub // Assuming you have auth middleware
+    const userId = getMerchantScopedUserId(req) // merchant owner for delegated employee access
     if (!userId) return res.status(401).json({ message: 'Unauthorized' })
 
     const params: ShipmentParams = req.body
@@ -312,7 +316,7 @@ export const createB2BShipmentController = async (req: any, res: Response) => {
 
 export const checkOrderNumberAvailabilityController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -341,7 +345,7 @@ export const checkOrderNumberAvailabilityController = async (req: any, res: Resp
 
 export const getAllOrdersController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -373,7 +377,7 @@ export const getAllOrdersController = async (req: any, res: Response) => {
 
 export const getB2COrdersController = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -451,7 +455,7 @@ export const getB2COrdersController = async (req: Request, res: Response) => {
 
 export const getB2BOrdersController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -490,7 +494,7 @@ export const getB2BOrdersController = async (req: any, res: Response) => {
 
 export const generateManifestController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -557,7 +561,7 @@ export const generateManifestController = async (req: any, res: Response) => {
 
 export const retryFailedManifestController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -596,7 +600,7 @@ export const retryFailedManifestController = async (req: any, res: Response) => 
 
 export const downloadBulkB2CLabelsController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }
@@ -714,7 +718,7 @@ export const downloadBulkB2CLabelsController = async (req: any, res: Response) =
 
 export const regenerateOrderDocumentsController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
     }

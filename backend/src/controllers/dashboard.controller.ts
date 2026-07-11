@@ -8,6 +8,7 @@ import {
   getMerchantDashboardStats,
 } from '../models/services/dashboard.service'
 import { getAdminOpsAnalytics } from '../models/services/adminOpsAnalytics.service'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 const parseDashboardDate = (value: unknown) => {
   const normalized = String(value || '').trim()
@@ -24,7 +25,7 @@ const parseDashboardDate = (value: unknown) => {
 
 export const getHomePickups = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub // assume JWT middleware sets this
+    const userId = getMerchantScopedUserId(req)
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
@@ -41,7 +42,7 @@ export const getHomePickups = async (req: any, res: Response) => {
 
 export const getDashboardPendingActions = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
@@ -58,7 +59,7 @@ export const getDashboardPendingActions = async (req: any, res: Response) => {
 
 export const getDashboardInvoiceStatus = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
@@ -75,7 +76,7 @@ export const getDashboardInvoiceStatus = async (req: any, res: Response) => {
 
 export const getDashboardTopDestinations = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     const limit = parseInt((req.query.limit as string) || '10')
 
     if (!userId) {
@@ -93,7 +94,7 @@ export const getDashboardTopDestinations = async (req: any, res: Response) => {
 
 export const getDashboardCourierDistribution = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
@@ -110,7 +111,7 @@ export const getDashboardCourierDistribution = async (req: any, res: Response) =
 
 export const getMerchantDashboardStatsController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })
@@ -135,7 +136,7 @@ export const getMerchantDashboardStatsController = async (req: any, res: Respons
 
 export const getMerchantOpsAnalyticsController = async (req: any, res: Response) => {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Unauthorized' })

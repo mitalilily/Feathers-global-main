@@ -34,6 +34,7 @@ import {
 } from '../utils/delhiveryCourier'
 import { calculateBookingWalletDebit } from '../utils/bookingWalletDebit'
 import { extractOrderAmountFromBody } from '../utils/orderAmount'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 const parseOptionalBoolean = (value: unknown): boolean | undefined => {
   if (typeof value === 'boolean') return value
@@ -757,7 +758,7 @@ export const fetchAvailableCouriers = async (req: Request, res: Response) => {
       })
     }
 
-    const userId = (req as any).user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     const orderAmountResult = extractOrderAmountFromBody(req.body)
     if (orderAmountResult.invalid) {
@@ -909,7 +910,7 @@ export const fetchAvailableCouriersToUser = async (req: Request, res: Response) 
       })
     }
 
-    const userId = (req as any).user?.sub
+    const userId = getMerchantScopedUserId(req)
 
     const serviceabilityOptions = buildServiceabilityOptions(req.body) // handles pickupId, reverse flags, etc.
     const orderAmountResult = extractOrderAmountFromBody(req.body)

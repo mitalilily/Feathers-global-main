@@ -1,4 +1,7 @@
 import { NextFunction, Request, Response } from "express";
+import { eq } from "drizzle-orm";
+import { db } from "../models/client";
+import { employees } from "../models/schema/employees";
 import { findUserById } from "../models/services/userService";
 import { verifyAccessToken } from "../utils/jwt";
 
@@ -42,13 +45,43 @@ export const requireAuth = async (
       });
     }
 
+    let merchantUserId = user.id;
+    let employeeAdminId: string | null = null;
+
+    if (user.role === "employee") {
+      const [employeeRecord] = await db
+        .select({
+          adminId: employees.adminId,
+          isActive: employees.isActive,
+        })
+        .from(employees)
+        .where(eq(employees.userId, user.id))
+        .limit(1);
+
+      if (employeeRecord?.isActive === false) {
+        return res.status(403).json({
+          error: "Employee account is inactive.",
+          code: "EMPLOYEE_INACTIVE",
+        });
+      }
+
+      if (employeeRecord?.adminId) {
+        employeeAdminId = employeeRecord.adminId;
+        merchantUserId = employeeRecord.adminId;
+      }
+    }
+
     // Attach decoded token to request
     (req as any).user = {
       ...decoded,
       sub: user.id,
+      merchantSub: merchantUserId,
+      employeeAdminId,
     };
     // Also expose userId for controllers that expect req.userId (for consistency with requireApiKey)
     (req as any).userId = user.id;
+    // Merchant-scoped resources such as orders, pickups, and wallet belong to the owner account.
+    (req as any).merchantUserId = merchantUserId;
 
     next();
   } catch (err: any) {

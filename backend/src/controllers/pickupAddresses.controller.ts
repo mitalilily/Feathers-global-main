@@ -7,10 +7,11 @@ import {
   updatePickupAddressService,
 } from '../models/services/pickupAddresses.service'
 import { addresses, pickupAddresses } from '../schema/schema'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 export async function createPickupAddressHandler(req: any, res: Response): Promise<any> {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) return res.status(401).json({ message: 'Unauthorized' })
 
     const newAddress = await createPickupAddressService(req.body, userId)
@@ -58,7 +59,7 @@ export async function createPickupAddressHandler(req: any, res: Response): Promi
  */
 export async function updatePickupAddressHandler(req: any, res: Response): Promise<any> {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     const addressId = req.params.id
 
     if (!userId) {
@@ -87,7 +88,7 @@ export async function updatePickupAddressHandler(req: any, res: Response): Promi
 
 export async function getPickupAddressesHandler(req: any, res: Response): Promise<any> {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) return res.status(401).json({ message: 'Unauthorized' })
 
     const { page = 1, limit = 10, ...filters } = req.query
@@ -107,7 +108,7 @@ export async function getPickupAddressesHandler(req: any, res: Response): Promis
 }
 export async function exportPickupAddressesHandler(req: any, res: Response) {
   try {
-    const userId = req.user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) return res.status(401).json({ message: 'Unauthorized' })
 
     const { data } = await getPickupAddressesService(userId, req.query, 1, 9999)
@@ -136,7 +137,7 @@ export async function exportPickupAddressesHandler(req: any, res: Response) {
 }
 
 export async function importPickupAddressesHandler(req: any, res: Response): Promise<any> {
-  const userId = req.user?.sub
+  const userId = getMerchantScopedUserId(req)
   if (!userId) return res.status(401).json({ message: 'Unauthorized' })
 
   const rows = req.body

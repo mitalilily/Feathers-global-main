@@ -5,6 +5,7 @@ import {
   getWalletTopupStatus,
 } from '../models/services/walletTopupService'
 import { getPaymentOptions } from '../models/services/paymentOptions.service'
+import { getMerchantScopedUserId } from '../utils/merchantScope'
 
 export const createTopup = async (req: Request, res: Response): Promise<any> => {
   const amt = Number(req.body.amount)
@@ -15,7 +16,7 @@ export const createTopup = async (req: Request, res: Response): Promise<any> => 
   }
 
   try {
-    const userId = (req as any).user?.sub
+    const userId = getMerchantScopedUserId(req)
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
@@ -46,10 +47,14 @@ export const createTopup = async (req: Request, res: Response): Promise<any> => 
 
 export const confirmFromClient = async (req: Request, res: Response) => {
   const { orderId, paymentId, signature } = req.body
-  const userId = (req as any).user?.sub
+  const userId = getMerchantScopedUserId(req)
 
   if (!orderId || !paymentId || !signature) {
     return res.status(400).json({ error: 'Missing Razorpay payment confirmation details' })
+  }
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' })
   }
 
   try {
@@ -65,7 +70,7 @@ export const confirmFromClient = async (req: Request, res: Response) => {
 
 export const getTopupStatus = async (req: Request, res: Response) => {
   const orderId = String(req.params.orderId || '').trim()
-  const userId = (req as any).user?.sub
+  const userId = getMerchantScopedUserId(req)
 
   if (!orderId) {
     return res.status(400).json({ error: 'Missing Razorpay order id' })
