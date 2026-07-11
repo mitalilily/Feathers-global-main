@@ -1637,7 +1637,8 @@ const unwrapXpressbeesPayload = (payload: any) => {
 
 const mapXpressbeesStatus = (status: string): string => {
   const s = (status || '').toLowerCase().trim()
-  if (!s) return 'in_transit'
+  if (!s) return ''
+  if (['success', 'successful', 'ok', 'true', 'false'].includes(s)) return ''
   if (s.includes('cancel')) return 'cancelled'
   if (s.includes('ndr') || s.includes('undelivered') || s.includes('attempt')) return 'ndr'
   if (s.includes('rto') && s.includes('deliver')) return 'rto_delivered'
@@ -1653,11 +1654,23 @@ const mapXpressbeesStatus = (status: string): string => {
     s.includes('pickup booked') ||
     s.includes('manifest') ||
     s.includes('picked') ||
+    s.includes('data received') ||
+    s.includes('information received') ||
+    s.includes('shipment created') ||
+    s.includes('shipment booked') ||
     ['drc', 'pnd', 'pck', 'pku', 'pkd', 'pickup', 'manifested'].includes(s)
   ) return 'pickup_initiated'
   if (s.includes('booked') || s.includes('created') || s.includes('order placed')) return 'booked'
-  if (s.includes('transit') || s.includes('dispatched')) return 'in_transit'
-  return 'in_transit'
+  if (
+    s.includes('in transit') ||
+    s.includes('dispatched') ||
+    s.includes('bagged') ||
+    s.includes('reached at') ||
+    s.includes('arrived at') ||
+    s.includes('departed') ||
+    ['it', 'itran', 'rad', 'ship', 'shipped'].includes(s)
+  ) return 'in_transit'
+  return ''
 }
 
 const isXpressbeesPickupProgressStatus = (status: string) =>
@@ -1675,7 +1688,7 @@ const isXpressbeesPickupProgressStatus = (status: string) =>
 const preserveXpressbeesStatusTransition = (currentStatus: unknown, mappedStatus: string) => {
   const current = normalizeComparableText(currentStatus).replace(/\s+/g, '_')
   const mapped = normalizeComparableText(mappedStatus).replace(/\s+/g, '_')
-  if (!mapped) return current || 'in_transit'
+  if (!mapped) return current || 'pickup_initiated'
 
   if (
     ['cancelled', 'delivered', 'rto_delivered'].includes(current) &&

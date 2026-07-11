@@ -14809,7 +14809,7 @@ const mapLiveTrackingStatusToInternal = (
   const current = normalizeInternalTrackingStatus(currentStatus)
   const provider = normalizeLiveTrackingStatusText(providerKey)
 
-  let mapped = current || 'in_transit'
+  let mapped = current || (provider === 'xpressbees' ? 'pickup_initiated' : 'in_transit')
   if (!status) return mapped
 
   const providerCodeStatus = mapProviderTrackingCodeToInternal(rawStatus, providerKey)
@@ -14843,8 +14843,26 @@ const mapLiveTrackingStatusToInternal = (
     mapped = 'out_for_delivery'
   } else if (status.includes('delivered')) mapped = 'delivered'
   else if (
+    provider === 'xpressbees' &&
+    (
+      status.includes('pickup scheduled') ||
+      status.includes('pickup requested') ||
+      status.includes('pickup assigned') ||
+      status.includes('assigned for pickup') ||
+      status.includes('out for pickup') ||
+      status.includes('pickup booked') ||
+      status.includes('manifest') ||
+      status.includes('data received') ||
+      status.includes('information received') ||
+      status.includes('shipment created') ||
+      status.includes('shipment booked') ||
+      status.includes('picked')
+    )
+  ) {
+    mapped = 'pickup_initiated'
+  }
+  else if (
     status.includes('in transit') ||
-    status.includes('pre transit') ||
     status.includes('item manifested') ||
     status.includes('recd') ||
     status.includes('received') ||
