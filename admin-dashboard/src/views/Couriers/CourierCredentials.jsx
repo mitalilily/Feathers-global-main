@@ -18,7 +18,6 @@ import {
   useUpdateEkartCredentials,
   useUpdateShadowfaxCredentials,
   useTestXpressbeesCredentials,
-  useUpdateXpressbeesAwbRange,
   useUpdateXpressbeesCredentials,
 } from 'hooks/useCouriers'
 
@@ -30,7 +29,6 @@ const CourierCredentials = () => {
   const updateShadowfax = useUpdateShadowfaxCredentials()
   const updateXpressbees = useUpdateXpressbeesCredentials()
   const testXpressbees = useTestXpressbeesCredentials()
-  const updateXpressbeesAwbRange = useUpdateXpressbeesAwbRange()
 
   const [form, setForm] = useState({
     apiBase: '',
@@ -45,28 +43,8 @@ const CourierCredentials = () => {
     webhookSecret: '',
   })
   const [xpressbeesForm, setXpressbeesForm] = useState({
-    apiBase: '',
     email: '',
     password: '',
-    businessAccountName: '',
-    pickupVendorCode: '',
-    businessUnit: 'ECOM',
-    businessFlow: 'FORWARD',
-    businessService: '',
-    businessServices: 'SD,SDD,NDD,AIR,SFC,IntraSDD',
-    manifestServiceType: 'SD',
-    manifestPickupType: 'Vendor',
-    pincodeBusinessUnit: 'eComm',
-    pincodeBusinessFlow: 'Forward',
-    pickupBusinessService: 'PickUp',
-    deliveryBusinessService: 'Delivery',
-    serviceabilityVersion: 'v1',
-    trackingVersion: 'v1',
-    webhookSecret: '',
-  })
-  const [xpressbeesAwbForm, setXpressbeesAwbForm] = useState({
-    startAwb: '',
-    endAwb: '',
   })
   const [xpressbeesTestResult, setXpressbeesTestResult] = useState(null)
   const [shadowfaxForm, setShadowfaxForm] = useState({
@@ -94,24 +72,8 @@ const CourierCredentials = () => {
     }
     if (data?.xpressbees) {
       setXpressbeesForm({
-        apiBase: data.xpressbees.apiBase || '',
         email: data.xpressbees.email || data.xpressbees.username || '',
         password: '',
-        businessAccountName: data.xpressbees.businessAccountName || '',
-        pickupVendorCode: data.xpressbees.pickupVendorCode || '',
-        businessUnit: data.xpressbees.businessUnit || 'ECOM',
-        businessFlow: data.xpressbees.businessFlow || 'FORWARD',
-        businessService: data.xpressbees.businessService || '',
-        businessServices: data.xpressbees.businessServices || 'SD,SDD,NDD,AIR,SFC,IntraSDD',
-        manifestServiceType: data.xpressbees.manifestServiceType || 'SD',
-        manifestPickupType: data.xpressbees.manifestPickupType || 'Vendor',
-        pincodeBusinessUnit: data.xpressbees.pincodeBusinessUnit || 'eComm',
-        pincodeBusinessFlow: data.xpressbees.pincodeBusinessFlow || 'Forward',
-        pickupBusinessService: data.xpressbees.pickupBusinessService || 'PickUp',
-        deliveryBusinessService: data.xpressbees.deliveryBusinessService || 'Delivery',
-        serviceabilityVersion: data.xpressbees.serviceabilityVersion || 'v1',
-        trackingVersion: data.xpressbees.trackingVersion || 'v1',
-        webhookSecret: '',
       })
     }
     if (data?.shadowfax) {
@@ -178,26 +140,8 @@ const CourierCredentials = () => {
   const handleSaveXpressbees = () => {
     updateXpressbees.mutate(
       {
-        apiBase: xpressbeesForm.apiBase,
         email: xpressbeesForm.email,
         ...(xpressbeesForm.password ? { password: xpressbeesForm.password } : {}),
-        businessAccountName: xpressbeesForm.businessAccountName,
-        pickupVendorCode: xpressbeesForm.pickupVendorCode,
-        businessUnit: xpressbeesForm.businessUnit,
-        businessFlow: xpressbeesForm.businessFlow,
-        businessService: xpressbeesForm.businessService,
-        businessServices: xpressbeesForm.businessServices,
-        manifestServiceType: xpressbeesForm.manifestServiceType,
-        manifestPickupType: xpressbeesForm.manifestPickupType,
-        pincodeBusinessUnit: xpressbeesForm.pincodeBusinessUnit,
-        pincodeBusinessFlow: xpressbeesForm.pincodeBusinessFlow,
-        pickupBusinessService: xpressbeesForm.pickupBusinessService,
-        deliveryBusinessService: xpressbeesForm.deliveryBusinessService,
-        serviceabilityVersion: xpressbeesForm.serviceabilityVersion,
-        trackingVersion: xpressbeesForm.trackingVersion,
-        ...(xpressbeesForm.webhookSecret
-          ? { webhookSecret: xpressbeesForm.webhookSecret }
-          : {}),
       },
       {
         onSuccess: () => {
@@ -206,7 +150,6 @@ const CourierCredentials = () => {
           setXpressbeesForm((prev) => ({
             ...prev,
             password: '',
-            webhookSecret: '',
           }))
         },
         onError: (err) => {
@@ -223,23 +166,8 @@ const CourierCredentials = () => {
   const handleTestXpressbees = () => {
     testXpressbees.mutate(
       {
-        apiBase: xpressbeesForm.apiBase,
         email: xpressbeesForm.email,
         ...(xpressbeesForm.password ? { password: xpressbeesForm.password } : {}),
-        businessAccountName: xpressbeesForm.businessAccountName,
-        pickupVendorCode: xpressbeesForm.pickupVendorCode,
-        businessUnit: xpressbeesForm.businessUnit,
-        businessFlow: xpressbeesForm.businessFlow,
-        businessService: xpressbeesForm.businessService,
-        businessServices: xpressbeesForm.businessServices,
-        manifestServiceType: xpressbeesForm.manifestServiceType,
-        manifestPickupType: xpressbeesForm.manifestPickupType,
-        pincodeBusinessUnit: xpressbeesForm.pincodeBusinessUnit,
-        pincodeBusinessFlow: xpressbeesForm.pincodeBusinessFlow,
-        pickupBusinessService: xpressbeesForm.pickupBusinessService,
-        deliveryBusinessService: xpressbeesForm.deliveryBusinessService,
-        serviceabilityVersion: xpressbeesForm.serviceabilityVersion,
-        trackingVersion: xpressbeesForm.trackingVersion,
         origin: '122001',
         destination: '400001',
         paymentType: 'cod',
@@ -262,37 +190,6 @@ const CourierCredentials = () => {
         onError: (err) => {
           toast({
             title: 'Failed to test Xpressbees credentials',
-            description: err?.message,
-            status: 'error',
-          })
-        },
-      },
-    )
-  }
-
-  const handleSaveXpressbeesAwbRange = () => {
-    const startAwb = xpressbeesAwbForm.startAwb.trim()
-    const endAwb = xpressbeesAwbForm.endAwb.trim()
-
-    if (!startAwb || !endAwb) {
-      toast({
-        title: 'AWB range required',
-        description: 'Enter both starting and ending AWB numbers.',
-        status: 'warning',
-      })
-      return
-    }
-
-    updateXpressbeesAwbRange.mutate(
-      { startAwb, endAwb },
-      {
-        onSuccess: () => {
-          toast({ title: 'Xpressbees AWB range updated', status: 'success' })
-          setXpressbeesAwbForm({ startAwb: '', endAwb: '' })
-        },
-        onError: (err) => {
-          toast({
-            title: 'Failed to update Xpressbees AWB range',
             description: err?.message,
             status: 'error',
           })
@@ -327,14 +224,6 @@ const CourierCredentials = () => {
 
   if (isLoading) return <Spinner size="md" />
   if (error) return <Text color="red.500">Failed to load courier credentials</Text>
-
-  const xpressbeesManualAwb = data?.xpressbees?.manualAwb || {}
-  const xpressbeesAwbRange = xpressbeesManualAwb?.range || null
-  const xpressbeesAwbStatus = xpressbeesManualAwb?.active
-    ? 'Active'
-    : xpressbeesManualAwb?.configured
-      ? 'Inactive'
-      : 'Not configured'
 
   return (
     <Flex direction="column" pt={{ base: '120px', md: '75px' }} gap={4}>
@@ -596,110 +485,6 @@ const CourierCredentials = () => {
               </Badge>
             </Flex>
 
-            <Box borderTopWidth="1px" pt={4}>
-              <Flex justify="space-between" align="center" gap={3} mb={3}>
-                <Text fontWeight="semibold">Manual AWB Range</Text>
-                <Badge
-                  colorScheme={
-                    xpressbeesManualAwb?.active
-                      ? 'green'
-                      : xpressbeesManualAwb?.configured
-                        ? 'orange'
-                        : 'gray'
-                  }
-                >
-                  {xpressbeesAwbStatus}
-                </Badge>
-              </Flex>
-
-              <Flex gap={3} flexWrap="wrap" mb={4}>
-                <Box minW="140px" flex="1">
-                  <Text fontSize="xs" color="gray.500">
-                    Current AWB
-                  </Text>
-                  <Text fontWeight="semibold" wordBreak="break-all">
-                    {xpressbeesAwbRange?.currentAwb || 'Not configured'}
-                  </Text>
-                </Box>
-                <Box minW="140px" flex="1">
-                  <Text fontSize="xs" color="gray.500">
-                    Range
-                  </Text>
-                  <Text fontWeight="semibold" wordBreak="break-all">
-                    {xpressbeesAwbRange
-                      ? `${xpressbeesAwbRange.startAwb} - ${xpressbeesAwbRange.endAwb}`
-                      : 'Not configured'}
-                  </Text>
-                </Box>
-                <Box minW="110px">
-                  <Text fontSize="xs" color="gray.500">
-                    Remaining
-                  </Text>
-                  <Text fontWeight="semibold">{xpressbeesAwbRange?.remainingCount ?? 0}</Text>
-                </Box>
-                <Box minW="110px">
-                  <Text fontSize="xs" color="gray.500">
-                    Used
-                  </Text>
-                  <Text fontWeight="semibold">{xpressbeesAwbRange?.usedCount ?? 0}</Text>
-                </Box>
-                <Box minW="110px">
-                  <Text fontSize="xs" color="gray.500">
-                    Failed
-                  </Text>
-                  <Text fontWeight="semibold">{xpressbeesAwbRange?.failedCount ?? 0}</Text>
-                </Box>
-              </Flex>
-
-              <Flex gap={3} direction={{ base: 'column', md: 'row' }}>
-                <FormControl>
-                  <FormLabel>AWB Starting Number</FormLabel>
-                  <Input
-                    value={xpressbeesAwbForm.startAwb}
-                    onChange={(e) =>
-                      setXpressbeesAwbForm((prev) => ({ ...prev, startAwb: e.target.value }))
-                    }
-                    inputMode="numeric"
-                    placeholder="Starting AWB"
-                  />
-                </FormControl>
-
-                <FormControl>
-                  <FormLabel>AWB Ending Number</FormLabel>
-                  <Input
-                    value={xpressbeesAwbForm.endAwb}
-                    onChange={(e) =>
-                      setXpressbeesAwbForm((prev) => ({ ...prev, endAwb: e.target.value }))
-                    }
-                    inputMode="numeric"
-                    placeholder="Ending AWB"
-                  />
-                </FormControl>
-              </Flex>
-
-              <Button
-                colorScheme="blue"
-                variant="outline"
-                onClick={handleSaveXpressbeesAwbRange}
-                isLoading={updateXpressbeesAwbRange.isPending}
-                mt={3}
-                alignSelf="flex-start"
-              >
-                Save Manual AWB Range
-              </Button>
-            </Box>
-
-            <FormControl>
-              <FormLabel>API Base URL</FormLabel>
-              <Input
-                value={xpressbeesForm.apiBase}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, apiBase: e.target.value }))
-                }
-                placeholder="https://shipment.xpressbees.com"
-              />
-            </FormControl>
-
             <FormControl>
               <FormLabel>Email</FormLabel>
               <Input
@@ -723,193 +508,9 @@ const CourierCredentials = () => {
               />
             </FormControl>
 
-            <FormControl>
-              <FormLabel>Business Account Name</FormLabel>
-              <Input
-                value={xpressbeesForm.businessAccountName}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    businessAccountName: e.target.value,
-                  }))
-                }
-                placeholder="Required for pre-ship manifest"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Pickup Vendor Code</FormLabel>
-              <Input
-                value={xpressbeesForm.pickupVendorCode}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, pickupVendorCode: e.target.value }))
-                }
-                placeholder="Default pickup vendor code"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Business Unit</FormLabel>
-              <Input
-                value={xpressbeesForm.businessUnit}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, businessUnit: e.target.value }))
-                }
-                placeholder="ECOM"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Business Flow</FormLabel>
-              <Input
-                value={xpressbeesForm.businessFlow}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, businessFlow: e.target.value }))
-                }
-                placeholder="FORWARD"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Business Services</FormLabel>
-              <Input
-                value={xpressbeesForm.businessServices}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, businessServices: e.target.value }))
-                }
-                placeholder="SD,SDD,NDD,AIR,SFC,IntraSDD"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Manifest Service Type</FormLabel>
-              <Input
-                value={xpressbeesForm.manifestServiceType}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    manifestServiceType: e.target.value,
-                  }))
-                }
-                placeholder="SD, SFC, AIR, SDD, NDD"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Manifest Pickup Type</FormLabel>
-              <Input
-                value={xpressbeesForm.manifestPickupType}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    manifestPickupType: e.target.value,
-                  }))
-                }
-                placeholder="Vendor"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Pincode Business Unit</FormLabel>
-              <Input
-                value={xpressbeesForm.pincodeBusinessUnit}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    pincodeBusinessUnit: e.target.value,
-                  }))
-                }
-                placeholder="eComm"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Pincode Business Flow</FormLabel>
-              <Input
-                value={xpressbeesForm.pincodeBusinessFlow}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    pincodeBusinessFlow: e.target.value,
-                  }))
-                }
-                placeholder="Forward"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Pickup Business Service</FormLabel>
-              <Input
-                value={xpressbeesForm.pickupBusinessService}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    pickupBusinessService: e.target.value,
-                  }))
-                }
-                placeholder="PickUp"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Delivery Business Service</FormLabel>
-              <Input
-                value={xpressbeesForm.deliveryBusinessService}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    deliveryBusinessService: e.target.value,
-                  }))
-                }
-                placeholder="Delivery"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Serviceability Version</FormLabel>
-              <Input
-                value={xpressbeesForm.serviceabilityVersion}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({
-                    ...prev,
-                    serviceabilityVersion: e.target.value,
-                  }))
-                }
-                placeholder="v1"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Tracking Version</FormLabel>
-              <Input
-                value={xpressbeesForm.trackingVersion}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, trackingVersion: e.target.value }))
-                }
-                placeholder="v1"
-              />
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>Webhook Secret</FormLabel>
-              <Input
-                type="password"
-                value={xpressbeesForm.webhookSecret}
-                onChange={(e) =>
-                  setXpressbeesForm((prev) => ({ ...prev, webhookSecret: e.target.value }))
-                }
-                placeholder="Leave blank to keep existing webhook secret"
-              />
-              {data?.xpressbees?.hasWebhookSecret && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  Webhook secret already configured on Xpressbees.
-                </Text>
-              )}
-            </FormControl>
-
             <Text fontSize="xs" color="gray.500">
-              Xpressbees now authenticates with email and password. Leave password or webhook
-              secret blank to keep the saved value.
+              Xpressbees authenticates with email and password only. Leave password blank to keep
+              the saved password.
             </Text>
 
             <Text fontSize="xs" color="gray.500">

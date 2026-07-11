@@ -1199,12 +1199,9 @@ export class XpressbeesService {
         ? `None of the attempted login endpoints were found (${providerMessage}).`
         : providerMessage
     const uniqueAttemptedUrls = Array.from(new Set(attemptedUrls))
-    const secretKeyHint = this.secretKey
-      ? ''
-      : ' If your account uses https://userauthapis.xbees.in/api/auth/generateToken, save the Xpressbees Secret Key in courier credentials.'
     const failureMessage = `Failed to generate Xpressbees API token. Tried ${uniqueAttemptedUrls.join(
       ', ',
-    )}. ${reason}${secretKeyHint} Set XPRESSBEES_TOKEN_ENDPOINTS if your account uses a custom login path.`
+    )}. ${reason} Set XPRESSBEES_TOKEN_ENDPOINTS if your account uses a custom login path.`
 
     if (this.shouldCacheAuthFailure(failure, failureMessage)) {
       this.cacheAuthFailure(failureMessage)
@@ -1887,7 +1884,7 @@ export class XpressbeesService {
     if (key === 'auth') {
       if (normalizedMessage.includes('secretkey')) {
         message =
-          'Auth failed: this Xpressbees account needs a Secret Key for token generation.'
+          'Auth failed: Xpressbees rejected the email/password login payload for this account.'
       } else if (normalizedMessage.includes('invalid email or password')) {
         message =
           'Auth failed: the shipment login rejected the provided email/password, and no alternate login endpoint accepted them.'
@@ -1915,6 +1912,7 @@ export class XpressbeesService {
     paymentType?: 'cod' | 'prepaid' | string
     orderAmount?: string | number
     weight?: string | number
+    forceFreshAuth?: boolean
   } = {}): Promise<XpressbeesConnectionTestResult> {
     await this.ensureConfigLoaded()
 
@@ -1932,7 +1930,7 @@ export class XpressbeesService {
     let authPassed = false
 
     try {
-      const token = await this.getApiToken()
+      const token = await this.getApiToken(Boolean(input.forceFreshAuth))
       checks.push({
         key: 'auth',
         ok: true,

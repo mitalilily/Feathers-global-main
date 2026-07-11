@@ -30,7 +30,6 @@ import {
 } from '../../config/xpressbeesWebhook'
 import {
   createXpressbeesManualAwbRange,
-  getXpressbeesManualAwbSummary,
 } from '../../models/services/xpressbeesAwbRange.service'
 import {
   AMAZON_CREDENTIALS_PROVIDER,
@@ -497,16 +496,6 @@ const buildXpressbeesWebhookConfig = () => ({
 
 export const getCourierCredentialsController = async (req: Request, res: Response) => {
   try {
-    const xpressbeesManualAwb = await getXpressbeesManualAwbSummary().catch((err: any) => {
-      console.warn('Failed to load Xpressbees manual AWB summary:', err?.message || err)
-      return {
-        configured: false,
-        active: false,
-        range: null,
-        recentAllocations: [],
-      }
-    })
-
     const rows = await db
       .select({
         provider: courier_credentials.provider,
@@ -550,31 +539,9 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
       },
       xpressbees: {
         provider: 'xpressbees',
-        apiBase: 'https://shipment.xpressbees.com',
         email: '',
         username: '',
-        hasApiKey: false,
-        apiKeyMasked: '',
         hasPassword: false,
-        hasAuthBearer: false,
-        hasSecretKey: false,
-        hasXbKey: false,
-        hasXbAccessKey: false,
-        businessAccountName: '',
-        pickupVendorCode: '',
-        businessUnit: 'ECOM',
-        businessFlow: 'FORWARD',
-        businessService: '',
-        businessServices: 'SD,SDD,NDD,AIR,SFC,IntraSDD',
-        hasWebhookSecret: false,
-        pincodeBusinessUnit: 'eComm',
-        pincodeBusinessFlow: 'Forward',
-        pickupBusinessService: 'PickUp',
-        deliveryBusinessService: 'Delivery',
-        serviceabilityVersion: 'v1',
-        trackingVersion: 'v1',
-        manualAwb: xpressbeesManualAwb,
-        webhookConfig: buildXpressbeesWebhookConfig(),
       },
       shadowfax: {
         provider: 'shadowfax',
@@ -615,55 +582,12 @@ export const getCourierCredentialsController = async (req: Request, res: Respons
           webhookConfig: buildEkartWebhookConfig(),
         }
       } else if (provider === 'xpressbees') {
-        const apiKey = row.apiKey || ''
         const hasPassword = Boolean((row.password || '').trim())
-        const hasWebhookSecret = Boolean((row.webhookSecret || '').trim())
-        const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-        const businessAccountName = String(
-          metadata.businessAccountName || metadata.business_account_name || '',
-        ).trim()
-        const pickupVendorCode = String(
-          metadata.pickupVendorCode || metadata.pickup_vendor_code || '',
-        ).trim()
         acc.xpressbees = {
           provider: 'xpressbees',
-          apiBase: row.apiBase || 'https://shipment.xpressbees.com',
           email: row.username || '',
           username: row.username || '',
-          hasApiKey: Boolean(apiKey.trim()),
-          apiKeyMasked: apiKey
-            ? `${apiKey.slice(0, 4)}${'*'.repeat(Math.max(apiKey.length - 8, 0))}${apiKey.slice(-4)}`
-            : '',
           hasPassword,
-          hasAuthBearer: Boolean(
-            String(
-              metadata.authBearer || metadata.auth_bearer || metadata.authorizationBearer || '',
-            ).trim(),
-          ),
-          hasSecretKey: Boolean(String(metadata.secretKey || metadata.secret_key || '').trim()),
-          hasXbKey: Boolean(String(metadata.xbKey || metadata.xb_key || '').trim()),
-          hasXbAccessKey: Boolean(
-            String(metadata.xbAccessKey || metadata.xb_access_key || '').trim(),
-          ),
-          businessAccountName,
-          pickupVendorCode,
-          hasBusinessAccountName: Boolean(businessAccountName),
-          hasPickupVendorCode: Boolean(pickupVendorCode),
-          businessUnit: metadata.businessUnit || 'ECOM',
-          businessFlow: metadata.businessFlow || 'FORWARD',
-          businessService: metadata.businessService || '',
-          businessServices: metadata.businessServices || 'SD,SDD,NDD,AIR,SFC,IntraSDD',
-          manifestServiceType: metadata.manifestServiceType || 'SD',
-          manifestPickupType: metadata.manifestPickupType || 'Vendor',
-          hasWebhookSecret,
-          pincodeBusinessUnit: metadata.pincodeBusinessUnit || 'eComm',
-          pincodeBusinessFlow: metadata.pincodeBusinessFlow || 'Forward',
-          pickupBusinessService: metadata.pickupBusinessService || 'PickUp',
-          deliveryBusinessService: metadata.deliveryBusinessService || 'Delivery',
-          serviceabilityVersion: metadata.serviceabilityVersion || 'v1',
-          trackingVersion: metadata.trackingVersion || 'v1',
-          manualAwb: xpressbeesManualAwb,
-          webhookConfig: buildXpressbeesWebhookConfig(),
         }
       } else if (provider === 'shadowfax') {
         const apiKey = row.apiKey || ''
@@ -879,78 +803,14 @@ export const updateEkartCredentialsController = async (req: Request, res: Respon
 }
 
 export const updateXpressbeesCredentialsController = async (req: Request, res: Response) => {
-  const {
-    apiBase,
-    email,
-    username,
-    password,
-    apiKey,
-    webhookSecret,
-    authBearer,
-    secretKey,
-    xbKey,
-    xbAccessKey,
-    businessUnit,
-    businessFlow,
-    businessService,
-    businessServices,
-    businessAccountName,
-    pickupVendorCode,
-    manifestServiceType,
-    manifestPickupType,
-    pincodeBusinessUnit,
-    pincodeBusinessFlow,
-    pickupBusinessService,
-    deliveryBusinessService,
-    serviceabilityVersion,
-    trackingVersion,
-  } = req.body || {}
+  const { email, username, password } = req.body || {}
 
   try {
-    const nextApiBase = typeof apiBase === 'string' ? apiBase.trim() : undefined
     const nextEmail = typeof email === 'string' ? email.trim() : undefined
     const nextUsername =
       nextEmail !== undefined ? nextEmail : typeof username === 'string' ? username.trim() : undefined
     const nextPassword = typeof password === 'string' ? password.trim() : undefined
-    const nextApiKey = typeof apiKey === 'string' ? apiKey.trim() : undefined
-    const nextWebhookSecret =
-      typeof webhookSecret === 'string' ? webhookSecret.trim() : undefined
     const hasPassword = typeof nextPassword === 'string' && nextPassword.length > 0
-    const hasApiKey = typeof nextApiKey === 'string' && nextApiKey.length > 0
-    const hasWebhookSecret =
-      typeof nextWebhookSecret === 'string' && nextWebhookSecret.length > 0
-    const metadataInputs: Record<string, any> = {
-      authBearer,
-      secretKey,
-      xbKey,
-      xbAccessKey,
-      businessUnit,
-      businessFlow,
-      businessService,
-      businessServices,
-      businessAccountName,
-      pickupVendorCode,
-      manifestServiceType,
-      manifestPickupType,
-      pincodeBusinessUnit,
-      pincodeBusinessFlow,
-      pickupBusinessService,
-      deliveryBusinessService,
-      serviceabilityVersion,
-      trackingVersion,
-    }
-    const metadataUpdates = Object.entries(metadataInputs).reduce<Record<string, string>>(
-      (acc, [key, value]) => {
-        if (typeof value !== 'string') return acc
-        const normalized = value.trim()
-        if (!normalized && ['authBearer', 'secretKey', 'xbKey', 'xbAccessKey'].includes(key)) {
-          return acc
-        }
-        acc[key] = normalized
-        return acc
-      },
-      {},
-    )
 
     const [existing] = await db
       .select({ id: courier_credentials.id, metadata: courier_credentials.metadata })
@@ -959,31 +819,33 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
       .limit(1)
 
     if (existing) {
+      const existingMetadata =
+        existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}
+      const metadataWithoutAlternateAuth = { ...(existingMetadata as Record<string, any>) }
+      const alternateAuthMetadataKeys = [
+        'authBearer',
+        'auth_bearer',
+        'authorizationBearer',
+        'secretKey',
+        'secret_key',
+        'xbKey',
+        'xb_key',
+        'xbAccessKey',
+        'xb_access_key',
+      ]
+      alternateAuthMetadataKeys.forEach((key) => {
+        delete metadataWithoutAlternateAuth[key]
+      })
       const updatePayload: Record<string, any> = {
+        apiKey: '',
+        metadata: metadataWithoutAlternateAuth,
         updatedAt: new Date(),
-      }
-      if (nextApiBase !== undefined) {
-        updatePayload.apiBase = nextApiBase || 'https://shipment.xpressbees.com'
       }
       if (nextUsername !== undefined) {
         updatePayload.username = nextUsername
       }
       if (hasPassword) {
         updatePayload.password = nextPassword
-      }
-      if (hasApiKey) {
-        updatePayload.apiKey = nextApiKey
-      }
-      if (hasWebhookSecret) {
-        updatePayload.webhookSecret = nextWebhookSecret
-      }
-      if (Object.keys(metadataUpdates).length) {
-        const existingMetadata =
-          existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}
-        updatePayload.metadata = {
-          ...existingMetadata,
-          ...metadataUpdates,
-        }
       }
 
       await db
@@ -993,13 +855,13 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
     } else {
       await db.insert(courier_credentials).values({
         provider: 'xpressbees',
-        apiBase: nextApiBase || 'https://shipment.xpressbees.com',
+        apiBase: 'https://shipment.xpressbees.com',
         clientName: '',
-        apiKey: hasApiKey ? nextApiKey : '',
+        apiKey: '',
         clientId: '',
         username: nextUsername || '',
         password: hasPassword ? nextPassword : '',
-        webhookSecret: hasWebhookSecret ? nextWebhookSecret : '',
+        webhookSecret: '',
         metadata: {
           pincodeBusinessUnit: 'eComm',
           pincodeBusinessFlow: 'Forward',
@@ -1007,19 +869,14 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
           deliveryBusinessService: 'Delivery',
           serviceabilityVersion: 'v1',
           trackingVersion: 'v1',
-          ...metadataUpdates,
         },
       })
     }
 
     const [saved] = await db
       .select({
-        apiBase: courier_credentials.apiBase,
         username: courier_credentials.username,
         password: courier_credentials.password,
-        apiKey: courier_credentials.apiKey,
-        webhookSecret: courier_credentials.webhookSecret,
-        metadata: courier_credentials.metadata,
       })
       .from(courier_credentials)
       .where(eq(courier_credentials.provider, 'xpressbees'))
@@ -1032,73 +889,9 @@ export const updateXpressbeesCredentialsController = async (req: Request, res: R
       message: 'Xpressbees credentials updated successfully',
       data: {
         provider: 'xpressbees',
-        apiBase: saved?.apiBase || 'https://shipment.xpressbees.com',
         email: saved?.username || '',
         username: saved?.username || '',
         hasPassword: Boolean((saved?.password || '').trim()),
-        hasApiKey: Boolean((saved?.apiKey || '').trim()),
-        hasAuthBearer: Boolean(
-          String(
-            (saved?.metadata as any)?.authBearer ||
-              (saved?.metadata as any)?.auth_bearer ||
-              (saved?.metadata as any)?.authorizationBearer ||
-              '',
-          ).trim(),
-        ),
-        hasSecretKey: Boolean(
-          String(
-            (saved?.metadata as any)?.secretKey || (saved?.metadata as any)?.secret_key || '',
-          ).trim(),
-        ),
-        hasXbKey: Boolean(
-          String((saved?.metadata as any)?.xbKey || (saved?.metadata as any)?.xb_key || '').trim(),
-        ),
-        hasXbAccessKey: Boolean(
-          String(
-            (saved?.metadata as any)?.xbAccessKey ||
-              (saved?.metadata as any)?.xb_access_key ||
-              '',
-          ).trim(),
-        ),
-        businessAccountName: String(
-          (saved?.metadata as any)?.businessAccountName ||
-            (saved?.metadata as any)?.business_account_name ||
-            '',
-        ).trim(),
-        pickupVendorCode: String(
-          (saved?.metadata as any)?.pickupVendorCode ||
-            (saved?.metadata as any)?.pickup_vendor_code ||
-            '',
-        ).trim(),
-        hasBusinessAccountName: Boolean(
-          String(
-            (saved?.metadata as any)?.businessAccountName ||
-              (saved?.metadata as any)?.business_account_name ||
-              '',
-          ).trim(),
-        ),
-        hasPickupVendorCode: Boolean(
-          String(
-            (saved?.metadata as any)?.pickupVendorCode ||
-              (saved?.metadata as any)?.pickup_vendor_code ||
-            '',
-          ).trim(),
-        ),
-        businessUnit: (saved?.metadata as any)?.businessUnit || 'ECOM',
-        businessFlow: (saved?.metadata as any)?.businessFlow || 'FORWARD',
-        businessService: (saved?.metadata as any)?.businessService || '',
-        businessServices:
-          (saved?.metadata as any)?.businessServices || 'SD,SDD,NDD,AIR,SFC,IntraSDD',
-        manifestServiceType: (saved?.metadata as any)?.manifestServiceType || 'SD',
-        manifestPickupType: (saved?.metadata as any)?.manifestPickupType || 'Vendor',
-        hasWebhookSecret: Boolean((saved?.webhookSecret || '').trim()),
-        pincodeBusinessUnit: (saved?.metadata as any)?.pincodeBusinessUnit || 'eComm',
-        pincodeBusinessFlow: (saved?.metadata as any)?.pincodeBusinessFlow || 'Forward',
-        pickupBusinessService: (saved?.metadata as any)?.pickupBusinessService || 'PickUp',
-        deliveryBusinessService: (saved?.metadata as any)?.deliveryBusinessService || 'Delivery',
-        serviceabilityVersion: (saved?.metadata as any)?.serviceabilityVersion || 'v1',
-        trackingVersion: (saved?.metadata as any)?.trackingVersion || 'v1',
-        webhookConfig: buildXpressbeesWebhookConfig(),
       },
     })
   } catch (err) {
@@ -1117,30 +910,9 @@ export const testXpressbeesCredentialsController = async (req: Request, res: Res
 
     const xpressbees = new XpressbeesService({
       configOverrides: {
-        apiBase: optionalCredentialString(body.apiBase),
         email:
           optionalCredentialString(body.username) || optionalCredentialString(body.email) || '',
         password: optionalCredentialString(body.password),
-        apiToken:
-          optionalCredentialString(body.apiKey) || optionalCredentialString(body.apiToken) || '',
-        authBearer: optionalCredentialString(body.authBearer),
-        secretKey: optionalCredentialString(body.secretKey),
-        xbKey: optionalCredentialString(body.xbKey),
-        xbAccessKey: optionalCredentialString(body.xbAccessKey),
-        businessUnit: optionalCredentialString(body.businessUnit),
-        businessFlow: optionalCredentialString(body.businessFlow),
-        businessService: optionalCredentialString(body.businessService),
-        businessServices: optionalCredentialString(body.businessServices),
-        businessAccountName: optionalCredentialString(body.businessAccountName),
-        pickupVendorCode: optionalCredentialString(body.pickupVendorCode),
-        manifestServiceType: optionalCredentialString(body.manifestServiceType),
-        manifestPickupType: optionalCredentialString(body.manifestPickupType),
-        pincodeBusinessUnit: optionalCredentialString(body.pincodeBusinessUnit),
-        pincodeBusinessFlow: optionalCredentialString(body.pincodeBusinessFlow),
-        pickupBusinessService: optionalCredentialString(body.pickupBusinessService),
-        deliveryBusinessService: optionalCredentialString(body.deliveryBusinessService),
-        serviceabilityVersion: optionalCredentialString(body.serviceabilityVersion),
-        trackingVersion: optionalCredentialString(body.trackingVersion),
       },
       skipTokenPersist: true,
     })
@@ -1154,6 +926,7 @@ export const testXpressbeesCredentialsController = async (req: Request, res: Res
       orderAmount:
         optionalCredentialString(body.orderAmount) || optionalCredentialString(body.order_amount),
       weight: optionalCredentialString(body.weight),
+      forceFreshAuth: true,
     })
 
     res.json({
