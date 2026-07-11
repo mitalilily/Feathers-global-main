@@ -1477,6 +1477,19 @@ export class XpressbeesService {
 
         const pickupSuccess = this.isProviderSuccess(pickupRaw)
         const deliverySuccess = this.isProviderSuccess(deliveryRaw)
+        if (!pickupSuccess || !deliverySuccess) {
+          const failureMessage = [
+            !pickupSuccess
+              ? this.extractErrorMessage(pickupRaw, 'pickup pincode master failed')
+              : '',
+            !deliverySuccess
+              ? this.extractErrorMessage(deliveryRaw, 'delivery pincode master failed')
+              : '',
+          ]
+            .filter(Boolean)
+            .join('; ')
+          throw new Error(failureMessage || 'Xpressbees pincode master serviceability failed')
+        }
         const originAvailable = pickupSuccess && this.responseContainsPincode(pickupRaw, origin)
         const destinationAvailable =
           deliverySuccess && this.responseContainsPincode(deliveryRaw, destination)
