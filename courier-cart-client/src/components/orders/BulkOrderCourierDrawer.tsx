@@ -66,6 +66,47 @@ const getCourierKey = (courier: Record<string, any>) =>
       `${courier.id ?? courier.courier_id}__${courier.integration_type ?? courier.serviceProvider ?? ""}__${courier.max_slab_weight ?? "base"}`,
   );
 
+const normalizeKeyPart = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+const getBulkCompatibleCourierKey = (courier: Record<string, any>) => {
+  const provider = normalizeKeyPart(
+    courier.integration_type ??
+      courier.serviceProvider ??
+      courier.service_provider,
+  );
+  const courierId = normalizeKeyPart(courier.id ?? courier.courier_id);
+  const name = normalizeKeyPart(
+    courier.name ?? courier.displayName ?? courier.courier_name,
+  );
+  const shadowfaxMode = normalizeKeyPart(
+    courier.provider_serviceability?.mode ??
+      courier.provider_serviceability?.shipping_mode ??
+      courier.mode ??
+      courier.shipping_mode,
+  );
+  const serviceMode = normalizeKeyPart(
+    courier.provider_serviceability?.service_mode ??
+      courier.service_mode ??
+      courier.transport_speed,
+  );
+  const amazonServiceId = normalizeKeyPart(
+    courier.amazon_service_id ?? courier.service_id,
+  );
+  const amazonCarrierId = normalizeKeyPart(courier.amazon_carrier_id);
+
+  return [
+    provider,
+    courierId || name,
+    shadowfaxMode,
+    serviceMode,
+    amazonServiceId,
+    amazonCarrierId,
+  ].join("__");
+};
+
 const getForwardRate = (courier: Record<string, any>) =>
   Number(
     courier.localRates?.forward?.rate ??
@@ -262,31 +303,41 @@ export default function BulkOrderCourierDrawer({
 
         if (cancelled) return;
         const firstOptions = perOrderCouriers[0] || [];
-        const intersection = firstOptions.flatMap((courier) => {
-          const key = getCourierKey(courier);
+        const intersectionByKey = new Map<string, CommonCourierOption>();
+        firstOptions.forEach((courier) => {
+          const key = getBulkCompatibleCourierKey(courier);
+          if (!key.replace(/_/g, "")) return;
           const matches = [courier];
           for (let index = 1; index < perOrderCouriers.length; index += 1) {
-            const match = perOrderCouriers[index].find(
+            const matchingCandidates = perOrderCouriers[index].filter(
               (candidate: Record<string, any>) =>
-                getCourierKey(candidate) === key,
+                getBulkCompatibleCourierKey(candidate) === key,
             );
-            if (!match) return [];
+            if (!matchingCandidates.length) return;
+            const match = matchingCandidates.sort(
+              (left: Record<string, any>, right: Record<string, any>) =>
+                getTaxInclusiveRate(left, orders[index]) -
+                getTaxInclusiveRate(right, orders[index]),
+            )[0];
             matches.push(match);
           }
-          return [
-            {
-              key,
-              representative: courier,
-              perOrder: matches,
-              total: matches.reduce(
-                (sum, entry, index) =>
-                  sum + getTaxInclusiveRate(entry, orders[index]),
-                0,
-              ),
-            },
-          ];
+          const option = {
+            key,
+            representative: courier,
+            perOrder: matches,
+            total: matches.reduce(
+              (sum, entry, index) =>
+                sum + getTaxInclusiveRate(entry, orders[index]),
+              0,
+            ),
+          };
+          const existing = intersectionByKey.get(key);
+          if (!existing || option.total < existing.total) {
+            intersectionByKey.set(key, option);
+          }
         });
 
+        const intersection = Array.from(intersectionByKey.values());
         const sortedIntersection = intersection.sort((a, b) => a.total - b.total);
         const nextError = !sortedIntersection.length
           ? "No single courier is currently serviceable for every selected order."
