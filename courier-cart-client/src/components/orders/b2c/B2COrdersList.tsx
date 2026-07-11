@@ -53,12 +53,7 @@ import { toast } from '../../UI/Toast'
 
 import { TextField } from '@mui/material'
 import Papa from 'papaparse'
-import {
-  FiDownload,
-  FiFileText,
-  FiPlusCircle,
-  FiUploadCloud,
-} from 'react-icons/fi'
+import { FiDownload, FiFileText, FiPlusCircle, FiUploadCloud } from 'react-icons/fi'
 import {
   MdAssignment,
   MdCancel,
@@ -99,6 +94,7 @@ import {
 import ManifestPickupScheduleDialog from '../ManifestPickupScheduleDialog'
 import { OrderExpandedRow } from '../OrderExpandedRow'
 import ReverseModal from '../reverse/ReverseModal'
+import BulkOrderCourierDrawer from '../BulkOrderCourierDrawer'
 import SourceOrderCourierDrawer from '../SourceOrderCourierDrawer'
 import B2COrderFormSteps from './B2COrderForm'
 import BulkB2CUpload from './BulkB2CUpload'
@@ -165,8 +161,12 @@ const getManifestGroupKey = (order: B2COrder) => {
 const getProviderFromManifestGroupKey = (groupKey: string) => groupKey.split(':')[0] || groupKey
 
 const isMarketplaceSourceOrder = (order: B2COrder) => {
-  const integrationType = String(order.integration_type || '').trim().toLowerCase()
-  const localOrderId = String(order.order_id || '').trim().toLowerCase()
+  const integrationType = String(order.integration_type || '')
+    .trim()
+    .toLowerCase()
+  const localOrderId = String(order.order_id || '')
+    .trim()
+    .toLowerCase()
   return (
     ['shopify', 'woocommerce'].includes(integrationType) ||
     localOrderId.startsWith('shopify_') ||
@@ -302,6 +302,7 @@ const B2COrdersList = () => {
   const [pickupDialogPackageCount, setPickupDialogPackageCount] = useState(1)
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false)
   const [courierSelectionOrder, setCourierSelectionOrder] = useState<B2COrder | null>(null)
+  const [bulkCourierSelectionOpen, setBulkCourierSelectionOpen] = useState(false)
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null)
   const [downloadingByWarehouse, setDownloadingByWarehouse] = useState(false)
   const [warehousePopoverAnchor, setWarehousePopoverAnchor] = useState<HTMLElement | null>(null)
@@ -348,17 +349,14 @@ const B2COrdersList = () => {
     selectedOrders.length === 0
       ? 'Select orders to start a bulk action.'
       : selectedOrders.some((order) => !isB2CManifestEligible(order))
-          ? 'Some selected orders are not ready for manifest yet.'
-          : ''
+        ? 'Some selected orders are not ready for manifest yet.'
+        : ''
 
   const clearSelection = () => {
     setSelectedOrderIds([])
   }
 
-  const handleActionMenuOpen = (
-    event: MouseEvent<HTMLElement>,
-    orderId: B2COrder['id'],
-  ) => {
+  const handleActionMenuOpen = (event: MouseEvent<HTMLElement>, orderId: B2COrder['id']) => {
     event.stopPropagation()
     setActionMenuAnchor(event.currentTarget)
     setActiveActionOrderId(orderId)
@@ -385,7 +383,10 @@ const B2COrdersList = () => {
   const handleTrackShipment = (order: B2COrder) => {
     const awb = String(order.awb_number || '').trim()
     if (!awb) {
-      toast.open({ message: 'AWB number is not available for this order.', severity: 'info' })
+      toast.open({
+        message: 'AWB number is not available for this order.',
+        severity: 'info',
+      })
       return
     }
     navigate(getClientAwbTrackingPath(awb))
@@ -422,7 +423,10 @@ const B2COrdersList = () => {
 
   const handleSyncLiveTracking = async (order: B2COrder) => {
     if (!order.awb_number) {
-      toast.open({ message: 'AWB is required to sync live status.', severity: 'error' })
+      toast.open({
+        message: 'AWB is required to sync live status.',
+        severity: 'error',
+      })
       return
     }
 
@@ -543,7 +547,10 @@ const B2COrdersList = () => {
   const handleGenerateOrderDocument = async (order: B2COrder, type: 'label' | 'invoice') => {
     const orderId = String(order.id || '').trim()
     if (!orderId) {
-      toast.open({ message: 'Order identifier is not available.', severity: 'error' })
+      toast.open({
+        message: 'Order identifier is not available.',
+        severity: 'error',
+      })
       return
     }
 
@@ -624,34 +631,36 @@ const B2COrdersList = () => {
       setExportingCsv(false)
     }
     if (Date.now() < 0) {
+      if (!orders.length) {
+        toast.open({ message: 'No orders to export', severity: 'warning' })
+        return
+      }
 
-    if (!orders.length) {
-      toast.open({ message: 'No orders to export', severity: 'warning' })
-      return
-    }
+      const csvData = orders.map((order) => ({
+        'Order #': order.order_number || order.id,
+        Type: order.order_type || 'B2C',
+        'Buyer Name': order.buyer_name || '—',
+        City: order.city || '—',
+        State: order.state || '—',
+        Amount: `₹${Number(order.order_amount ?? 0).toFixed(2)}`,
+        Status: order.order_status || '—',
+        'Created At': moment(order.created_at).format('DD MMM YYYY, hh:mm A'),
+      }))
 
-    const csvData = orders.map((order) => ({
-      'Order #': order.order_number || order.id,
-      Type: order.order_type || 'B2C',
-      'Buyer Name': order.buyer_name || '—',
-      City: order.city || '—',
-      State: order.state || '—',
-      Amount: `₹${Number(order.order_amount ?? 0).toFixed(2)}`,
-      Status: order.order_status || '—',
-      'Created At': moment(order.created_at).format('DD MMM YYYY, hh:mm A'),
-    }))
-
-    const csv = Papa.unparse(csvData)
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `b2c-orders-${new Date().toISOString().split('T')[0]}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
-    toast.open({ message: 'Orders exported successfully', severity: 'success' })
+      const csv = Papa.unparse(csvData)
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `b2c-orders-${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      toast.open({
+        message: 'Orders exported successfully',
+        severity: 'success',
+      })
     }
   }
 
@@ -764,10 +773,7 @@ const B2COrdersList = () => {
           console.error('Bulk manifest provider batch failed:', error)
           failedOrders.push(...providerOrders)
           failureReasons.push(
-            `${providerKey}: ${getActionableErrorMessage(
-              error,
-              'Manifest could not be completed for this batch.',
-            )}`,
+            `${providerKey}: ${getActionableErrorMessage(error, 'Manifest could not be completed for this batch.')}`,
           )
         }
       }
@@ -874,7 +880,10 @@ const B2COrdersList = () => {
           title: result.failed > 0 ? 'Labels downloaded with warnings' : 'Labels downloaded',
           message: summaryMessage,
         })
-        toast.open({ message: summaryMessage, severity: result.failed > 0 ? 'info' : 'success' })
+        toast.open({
+          message: summaryMessage,
+          severity: result.failed > 0 ? 'info' : 'success',
+        })
         return
       }
 
@@ -916,7 +925,9 @@ const B2COrdersList = () => {
         (entry): entry is DocumentEntry & { url: string } => !entry.key && Boolean(entry.url),
       )
       const presignedUrls = keyEntries.length
-        ? await presignDownloads({ keys: keyEntries.map((entry) => String(entry.key)) })
+        ? await presignDownloads({
+            keys: keyEntries.map((entry) => String(entry.key)),
+          })
         : []
 
       let downloadedCount = 0
@@ -981,7 +992,10 @@ const B2COrdersList = () => {
             : `${type[0].toUpperCase()}${type.slice(1)} download completed`,
         message: summaryMessage,
       })
-      toast.open({ message: summaryMessage, severity: skippedCount > 0 ? 'info' : 'success' })
+      toast.open({
+        message: summaryMessage,
+        severity: skippedCount > 0 ? 'info' : 'success',
+      })
     } catch (error) {
       console.error(`Bulk ${type} download failed:`, error)
       const message = getActionableErrorMessage(
@@ -1060,7 +1074,11 @@ const B2COrdersList = () => {
             orderLabel: getOrderDocumentLabel(order),
           }
         })
-        .filter((v) => v !== null) as Array<{ key: string; fileName: string; orderLabel: string }>
+        .filter((v) => v !== null) as Array<{
+        key: string
+        fileName: string
+        orderLabel: string
+      }>
 
       if (!entries.length) {
         toast.open({
@@ -1090,7 +1108,10 @@ const B2COrdersList = () => {
       }
 
       const message = `Downloaded ${downloadedCount} label file(s) for ${allOrders.length} order(s)`
-      toast.open({ message, severity: downloadedCount > 0 ? 'success' : 'warning' })
+      toast.open({
+        message,
+        severity: downloadedCount > 0 ? 'success' : 'warning',
+      })
     } catch (error) {
       console.error('Warehouse label download failed:', error)
       toast.open({ message: 'Failed to download labels', severity: 'error' })
@@ -1220,7 +1241,10 @@ const B2COrdersList = () => {
   }
 
   const isDocumentGenerationReady = (row: B2COrder) => {
-    const normalizedStatus = String(row.order_status || '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+    const normalizedStatus = String(row.order_status || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_')
     return (
       Boolean(String(row.manifest || row.awb_number || '').trim()) ||
       documentGenerationStatuses.has(normalizedStatus)
@@ -1231,17 +1255,28 @@ const B2COrdersList = () => {
     const status = (row.order_status || '').toLowerCase()
     const terminalStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
     const provider = getProviderKey(row)
-    const providerSupports = ['delhivery', 'ekart', 'shadowfax', 'xpressbees', 'amazon'].includes(provider)
+    const providerSupports = ['delhivery', 'ekart', 'shadowfax', 'xpressbees', 'amazon'].includes(
+      provider,
+    )
 
     return providerSupports && !terminalStatuses.has(status)
   }
 
   const canSelectCourierForOrder = (row: B2COrder) => {
-    const status = String(row.order_status || '').trim().toLowerCase()
+    const status = String(row.order_status || '')
+      .trim()
+      .toLowerCase()
     const terminalStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
 
-    return isMarketplaceSourceOrder(row) && !String(row.awb_number || '').trim() && !terminalStatuses.has(status)
+    return (
+      isMarketplaceSourceOrder(row) &&
+      !String(row.awb_number || '').trim() &&
+      !terminalStatuses.has(status)
+    )
   }
+
+  const canBulkBookSelectedOrders =
+    selectedOrders.length > 0 && selectedOrders.every(canSelectCourierForOrder)
 
   const columns: Column<B2COrder>[] = [
     {
@@ -1391,7 +1426,10 @@ const B2COrdersList = () => {
             hasPickupFailure)
         const canTrackShipment = Boolean(String(row.awb_number || '').trim())
         const canSyncTracking = canTrackShipment
-        const isCancelled = String(row.order_status || '').trim().toLowerCase() === 'cancelled'
+        const isCancelled =
+          String(row.order_status || '')
+            .trim()
+            .toLowerCase() === 'cancelled'
         const isDocumentReady = isDocumentGenerationReady(row)
         const isLabelGenerating = documentGenerationRef === `${row.id}-label`
         const isInvoiceGenerating = documentGenerationRef === `${row.id}-invoice`
@@ -1547,9 +1585,10 @@ const B2COrdersList = () => {
                   Boolean(documentGenerationRef),
                 loading: isInvoiceGenerating,
               })}
-              {canExportOrders && (hasDocument(row, 'label') || hasDocument(row, 'invoice') || hasDocument(row, 'manifest')) && (
-                <Divider sx={{ my: 0.35 }} />
-              )}
+              {canExportOrders &&
+                (hasDocument(row, 'label') ||
+                  hasDocument(row, 'invoice') ||
+                  hasDocument(row, 'manifest')) && <Divider sx={{ my: 0.35 }} />}
               {canExportOrders &&
                 hasDocument(row, 'label') &&
                 renderActionItem({
@@ -1584,12 +1623,11 @@ const B2COrdersList = () => {
                 renderActionItem({
                   key: 'retry-manifest',
                   icon: <MdReplay />,
-                  label:
-                    hasPickupFailure
-                      ? `Retry Pickup (${retriesRemaining} left)`
-                      : hasManifestWarning && providerKey !== 'delhivery'
-                        ? `Retry Invoice (${retriesRemaining} left)`
-                        : `Retry Manifest (${retriesRemaining} left)`,
+                  label: hasPickupFailure
+                    ? `Retry Pickup (${retriesRemaining} left)`
+                    : hasManifestWarning && providerKey !== 'delhivery'
+                      ? `Retry Invoice (${retriesRemaining} left)`
+                      : `Retry Manifest (${retriesRemaining} left)`,
                   onClick: () => handleRetryManifest(row),
                   disabled: isRetryingRow || isManifestingRow || isCancellingRow,
                   loading: isRetryingRow,
@@ -1954,7 +1992,11 @@ const B2COrdersList = () => {
             value={filters.sortOrder || 'desc'}
             onSelect={(value) => {
               const sortOrder = (value as 'asc' | 'desc') || 'desc'
-              setFilters((prev) => ({ ...prev, sortBy: 'created_at', sortOrder }))
+              setFilters((prev) => ({
+                ...prev,
+                sortBy: 'created_at',
+                sortOrder,
+              }))
               setPage(1)
               clearSelection()
               setBulkFeedback(null)
@@ -2056,7 +2098,8 @@ const B2COrdersList = () => {
           >
             <Box sx={{ flex: 0, whiteSpace: 'nowrap' }}>
               <Typography sx={{ fontWeight: 700, color: '#047b85', fontSize: '15px' }}>
-                {selectedOrders.length} order{selectedOrders.length > 1 ? 's' : ''} selected
+                {selectedOrders.length} order
+                {selectedOrders.length > 1 ? 's' : ''} selected
               </Typography>
               {manifestValidationMessage && (
                 <Typography sx={{ color: '#C0392B', fontSize: '11px', mt: 0.25 }}>
@@ -2071,6 +2114,22 @@ const B2COrdersList = () => {
               flexWrap="nowrap"
               sx={{ alignItems: 'center', overflow: 'auto' }}
             >
+              <Button
+                variant="contained"
+                onClick={() => setBulkCourierSelectionOpen(true)}
+                disabled={!canBulkBookSelectedOrders}
+                startIcon={<MdLocalShipping size={14} />}
+                sx={{
+                  textTransform: 'none',
+                  minHeight: 28,
+                  py: 0.75,
+                  px: 1.5,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                }}
+              >
+                Bulk Book
+              </Button>
               <Button
                 variant="contained"
                 onClick={handleBulkManifest}
@@ -2273,6 +2332,16 @@ const B2COrdersList = () => {
         open={Boolean(courierSelectionOrder)}
         order={courierSelectionOrder}
         onClose={() => setCourierSelectionOrder(null)}
+      />
+
+      <BulkOrderCourierDrawer
+        open={bulkCourierSelectionOpen}
+        orders={selectedOrders}
+        onClose={() => setBulkCourierSelectionOpen(false)}
+        onComplete={() => {
+          clearSelection()
+          setBulkFeedback(null)
+        }}
       />
 
       <CustomDrawer

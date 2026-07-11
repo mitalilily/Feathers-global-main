@@ -69,10 +69,7 @@ import DataTable, { type Column } from '../UI/table/DataTable'
 import TableSkeleton from '../UI/table/TableSkeleton'
 import { toast } from '../UI/Toast'
 import { statusColorMap } from './b2c/B2COrdersList'
-import {
-  CLIENT_ORDER_ADDED_HEADERS,
-  downloadClientOrdersCsv,
-} from '../../utils/orderCsvExport'
+import { CLIENT_ORDER_ADDED_HEADERS, downloadClientOrdersCsv } from '../../utils/orderCsvExport'
 import {
   downloadFile,
   getActionableErrorMessage,
@@ -91,6 +88,7 @@ import {
 import ManifestPickupScheduleDialog from './ManifestPickupScheduleDialog'
 import { OrderExpandedRow } from './OrderExpandedRow'
 import ReverseModal from './reverse/ReverseModal'
+import BulkOrderCourierDrawer from './BulkOrderCourierDrawer'
 import SourceOrderCourierDrawer from './SourceOrderCourierDrawer'
 
 interface Order {
@@ -123,7 +121,10 @@ type PickupSchedulePayload = {
   expected_package_count: number
 }
 
-const getOrderTypeKey = (order: Order) => String(order.type || '').trim().toLowerCase()
+const getOrderTypeKey = (order: Order) =>
+  String(order.type || '')
+    .trim()
+    .toLowerCase()
 
 const getOrderStatusKey = (order: Order) =>
   String(order.order_status || '')
@@ -134,8 +135,12 @@ const getOrderStatusKey = (order: Order) =>
 const isB2COrder = (order: Order) => getOrderTypeKey(order) === 'b2c'
 
 const isMarketplaceSourceOrder = (order: Order) => {
-  const integrationType = String(order.integration_type || '').trim().toLowerCase()
-  const localOrderId = String(order.order_id || '').trim().toLowerCase()
+  const integrationType = String(order.integration_type || '')
+    .trim()
+    .toLowerCase()
+  const localOrderId = String(order.order_id || '')
+    .trim()
+    .toLowerCase()
   return (
     ['shopify', 'woocommerce'].includes(integrationType) ||
     localOrderId.startsWith('shopify_') ||
@@ -265,6 +270,7 @@ const AllOrders = () => {
   const [selectedTab, setSelectedTab] = useState<string>('')
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false)
   const [courierSelectionOrder, setCourierSelectionOrder] = useState<Order | null>(null)
+  const [bulkCourierSelectionOpen, setBulkCourierSelectionOpen] = useState(false)
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null)
   const [downloadingByWarehouse, setDownloadingByWarehouse] = useState(false)
   const [warehousePopoverAnchor, setWarehousePopoverAnchor] = useState<HTMLElement | null>(null)
@@ -339,7 +345,10 @@ const AllOrders = () => {
   const handleTrackShipment = (order: Order) => {
     const awb = String(order.awb_number || '').trim()
     if (!awb) {
-      toast.open({ message: 'AWB number is not available for this order.', severity: 'info' })
+      toast.open({
+        message: 'AWB number is not available for this order.',
+        severity: 'info',
+      })
       return
     }
 
@@ -377,7 +386,10 @@ const AllOrders = () => {
 
   const handleSyncLiveTracking = async (order: Order) => {
     if (!order.awb_number) {
-      toast.open({ message: 'AWB is required to sync live status.', severity: 'error' })
+      toast.open({
+        message: 'AWB is required to sync live status.',
+        severity: 'error',
+      })
       return
     }
 
@@ -519,7 +531,10 @@ const AllOrders = () => {
         title: warningSummary ? 'Manifest completed with warnings' : 'Manifest completed',
         message: finalMessage,
       })
-      toast.open({ message: finalMessage, severity: warningSummary ? 'info' : 'success' })
+      toast.open({
+        message: finalMessage,
+        severity: warningSummary ? 'info' : 'success',
+      })
     } catch (error) {
       console.error('Manifest failed for order:', order.order_number || order.id, error)
       const errorMessage = getActionableErrorMessage(
@@ -552,13 +567,19 @@ const AllOrders = () => {
 
   const handleGenerateOrderDocument = async (order: Order, type: 'label' | 'invoice') => {
     if (!isB2COrder(order)) {
-      toast.open({ message: 'Document generation is available for B2C shipments only.', severity: 'info' })
+      toast.open({
+        message: 'Document generation is available for B2C shipments only.',
+        severity: 'info',
+      })
       return
     }
 
     const orderId = String(order.id || '').trim()
     if (!orderId) {
-      toast.open({ message: 'Order identifier is not available.', severity: 'error' })
+      toast.open({
+        message: 'Order identifier is not available.',
+        severity: 'error',
+      })
       return
     }
 
@@ -658,12 +679,14 @@ const AllOrders = () => {
   const orders: Order[] = data?.orders ?? []
   const totalCount = data?.totalCount ?? 0
   const selectedOrders: Order[] = orders.filter((order) => selectedOrderIds.includes(order.id))
+  const canBulkBookSelectedOrders =
+    selectedOrders.length > 0 && selectedOrders.every(canSelectCourierForOrder)
   const manifestValidationMessage =
     selectedOrders.length === 0
       ? 'Select orders to start a bulk action.'
       : selectedOrders.some((order) => !canManifestOrder(order))
-          ? 'Some selected orders are not ready for manifest yet.'
-          : ''
+        ? 'Some selected orders are not ready for manifest yet.'
+        : ''
 
   const handleBulkManifest = async () => {
     if (!selectedOrders.length) {
@@ -748,10 +771,7 @@ const AllOrders = () => {
           console.error('Bulk manifest provider batch failed:', error)
           failedOrders.push(...providerOrders)
           failureReasons.push(
-            `${providerKey}: ${getActionableErrorMessage(
-              error,
-              'Manifest could not be completed for this batch.',
-            )}`,
+            `${providerKey}: ${getActionableErrorMessage(error, 'Manifest could not be completed for this batch.')}`,
           )
         }
       }
@@ -836,7 +856,8 @@ const AllOrders = () => {
       if (type === 'label') {
         const nonB2COrders = selectedOrders.filter((order) => order.type && order.type !== 'b2c')
         if (nonB2COrders.length) {
-          const message = 'Bulk label PDF currently supports B2C orders only. Please select B2C orders.'
+          const message =
+            'Bulk label PDF currently supports B2C orders only. Please select B2C orders.'
           setBulkFeedback({
             severity: 'error',
             title: 'Unsupported order type',
@@ -859,7 +880,10 @@ const AllOrders = () => {
           title: result.failed > 0 ? 'Labels downloaded with warnings' : 'Labels downloaded',
           message: summaryMessage,
         })
-        toast.open({ message: summaryMessage, severity: result.failed > 0 ? 'info' : 'success' })
+        toast.open({
+          message: summaryMessage,
+          severity: result.failed > 0 ? 'info' : 'success',
+        })
         return
       }
 
@@ -901,7 +925,9 @@ const AllOrders = () => {
         (entry): entry is DocumentEntry & { url: string } => !entry.key && Boolean(entry.url),
       )
       const presignedUrls = keyEntries.length
-        ? await presignDownloads({ keys: keyEntries.map((entry) => String(entry.key)) })
+        ? await presignDownloads({
+            keys: keyEntries.map((entry) => String(entry.key)),
+          })
         : []
 
       let downloadedCount = 0
@@ -966,7 +992,10 @@ const AllOrders = () => {
             : `${type[0].toUpperCase()}${type.slice(1)} download completed`,
         message: summaryMessage,
       })
-      toast.open({ message: summaryMessage, severity: skippedCount > 0 ? 'info' : 'success' })
+      toast.open({
+        message: summaryMessage,
+        severity: skippedCount > 0 ? 'info' : 'success',
+      })
     } catch (error) {
       console.error(`Bulk ${type} download failed:`, error)
       const message = getActionableErrorMessage(
@@ -1045,7 +1074,11 @@ const AllOrders = () => {
             orderLabel: getOrderDocumentLabel(order),
           }
         })
-        .filter((v) => v !== null) as Array<{ key: string; fileName: string; orderLabel: string }>
+        .filter((v) => v !== null) as Array<{
+        key: string
+        fileName: string
+        orderLabel: string
+      }>
 
       if (!entries.length) {
         toast.open({
@@ -1075,7 +1108,10 @@ const AllOrders = () => {
       }
 
       const message = `Downloaded ${downloadedCount} label file(s) for ${allOrders.length} order(s)`
-      toast.open({ message, severity: downloadedCount > 0 ? 'success' : 'warning' })
+      toast.open({
+        message,
+        severity: downloadedCount > 0 ? 'success' : 'warning',
+      })
     } catch (error) {
       console.error('Warehouse label download failed:', error)
       toast.open({ message: 'Failed to download labels', severity: 'error' })
@@ -1174,10 +1210,7 @@ const AllOrders = () => {
         <ListItemIcon sx={danger ? { ...actionMenuIconSx, color: 'error.main' } : actionMenuIconSx}>
           {loading ? <CircularProgress size={16} /> : icon}
         </ListItemIcon>
-        <ListItemText
-          primary={label}
-          primaryTypographyProps={{ fontSize: 13, fontWeight: 700 }}
-        />
+        <ListItemText primary={label} primaryTypographyProps={{ fontSize: 13, fontWeight: 700 }} />
       </MenuItem>
     )
 
@@ -1327,9 +1360,9 @@ const AllOrders = () => {
               disabled: isManifestingRow || isRetryingRow || isCancellingRow,
             })}
 
-          {(canRetryRowManifest || getOrderStatusKey(row) === 'delivered' || isCancellable(row)) && (
-            <Divider sx={{ my: 0.35 }} />
-          )}
+          {(canRetryRowManifest ||
+            getOrderStatusKey(row) === 'delivered' ||
+            isCancellable(row)) && <Divider sx={{ my: 0.35 }} />}
           {canRetryRowManifest &&
             renderActionItem({
               key: 'retry-manifest',
@@ -1520,7 +1553,10 @@ const AllOrders = () => {
   const filterChips = [
     filters.status && { label: `Status: ${filters.status}`, key: 'status' },
     filters.search && { label: `Search: ${filters.search}`, key: 'search' },
-    filters.productQuery && { label: `Product: ${filters.productQuery}`, key: 'productQuery' },
+    filters.productQuery && {
+      label: `Product: ${filters.productQuery}`,
+      key: 'productQuery',
+    },
     filters.fromDate && { label: `From: ${filters.fromDate}`, key: 'fromDate' },
     filters.toDate && { label: `To: ${filters.toDate}`, key: 'toDate' },
   ].filter(Boolean) as Array<{ label: string; key: keyof OrdersFilters }>
@@ -1558,26 +1594,29 @@ const AllOrders = () => {
     }
 
     if (Date.now() < 0) {
-    const csvData = orders.map((order) => ({
-      'Order #': order.order_number,
-      Type: order.type?.toUpperCase() || 'N/A',
-      'Buyer Name': order.buyer_name,
-      City: order.city,
-      State: order.state,
-      Amount: order.order_amount,
-      Status: order.order_status,
-      'Created At': order.created_at || '',
-    }))
+      const csvData = orders.map((order) => ({
+        'Order #': order.order_number,
+        Type: order.type?.toUpperCase() || 'N/A',
+        'Buyer Name': order.buyer_name,
+        City: order.city,
+        State: order.state,
+        Amount: order.order_amount,
+        Status: order.order_status,
+        'Created At': order.created_at || '',
+      }))
 
-    const csv = Papa.unparse(csvData)
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.setAttribute('download', `orders_${new Date().toISOString().split('T')[0]}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    toast.open({ message: 'Orders exported successfully', severity: 'success' })
+      const csv = Papa.unparse(csvData)
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.setAttribute('download', `orders_${new Date().toISOString().split('T')[0]}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast.open({
+        message: 'Orders exported successfully',
+        severity: 'success',
+      })
     }
   }
 
@@ -1894,7 +1933,11 @@ const AllOrders = () => {
             value={filters.sortOrder || 'desc'}
             onSelect={(value) => {
               const sortOrder = (value as 'asc' | 'desc') || 'desc'
-              setFilters((prev) => ({ ...prev, sortBy: 'created_at', sortOrder }))
+              setFilters((prev) => ({
+                ...prev,
+                sortBy: 'created_at',
+                sortOrder,
+              }))
               setPage(1)
               clearSelection()
               setBulkFeedback(null)
@@ -2151,23 +2194,35 @@ const AllOrders = () => {
                   fontSize: '0.85rem',
                 }}
               >
-                {selectedOrders.length} order{selectedOrders.length > 1 ? 's' : ''} selected
+                {selectedOrders.length} order
+                {selectedOrders.length > 1 ? 's' : ''} selected
               </Typography>
               {manifestValidationMessage && (
-                <Typography
-                  sx={{ color: '#C0392B', fontSize: '0.75rem', mt: 0.2 }}
-                >
+                <Typography sx={{ color: '#C0392B', fontSize: '0.75rem', mt: 0.2 }}>
                   {manifestValidationMessage}
                 </Typography>
               )}
             </Box>
 
             {/* Action Buttons */}
-            <Stack
-              direction="row"
-              gap={0.6}
-              sx={{ flexWrap: 'nowrap', overflow: 'auto' }}
-            >
+            <Stack direction="row" gap={0.6} sx={{ flexWrap: 'nowrap', overflow: 'auto' }}>
+              <Button
+                variant="contained"
+                onClick={() => setBulkCourierSelectionOpen(true)}
+                disabled={!canBulkBookSelectedOrders}
+                startIcon={<MdLocalShipping size={14} />}
+                sx={{
+                  textTransform: 'none',
+                  minHeight: 28,
+                  py: 0.75,
+                  px: 1.5,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Bulk Book
+              </Button>
               <Button
                 variant="contained"
                 onClick={handleBulkManifest}
@@ -2227,9 +2282,18 @@ const AllOrders = () => {
                     >
                       <Stack sx={{ minWidth: 180 }}>
                         {[
-                          { type: 'label' as DocumentType, label: 'Download Labels' },
-                          { type: 'invoice' as DocumentType, label: 'Download Invoices' },
-                          { type: 'manifest' as DocumentType, label: 'Download Manifests' },
+                          {
+                            type: 'label' as DocumentType,
+                            label: 'Download Labels',
+                          },
+                          {
+                            type: 'invoice' as DocumentType,
+                            label: 'Download Invoices',
+                          },
+                          {
+                            type: 'manifest' as DocumentType,
+                            label: 'Download Manifests',
+                          },
                         ].map((item, index) => (
                           <Box
                             key={item.type}
@@ -2249,7 +2313,10 @@ const AllOrders = () => {
                               borderBottom: index < 2 ? `1px solid ${alpha('#000', 0.06)}` : 'none',
                               animation: `slideUp 200ms cubic-bezier(0.34, 1.56, 0.64, 1) ${index * 40}ms backwards`,
                               '@keyframes slideUp': {
-                                from: { opacity: 0, transform: 'translateY(8px)' },
+                                from: {
+                                  opacity: 0,
+                                  transform: 'translateY(8px)',
+                                },
                                 to: { opacity: 1, transform: 'translateY(0)' },
                               },
                             }}
@@ -2372,6 +2439,16 @@ const AllOrders = () => {
         open={Boolean(courierSelectionOrder)}
         order={courierSelectionOrder}
         onClose={() => setCourierSelectionOrder(null)}
+      />
+
+      <BulkOrderCourierDrawer
+        open={bulkCourierSelectionOpen}
+        orders={selectedOrders}
+        onClose={() => setBulkCourierSelectionOpen(false)}
+        onComplete={() => {
+          clearSelection()
+          setBulkFeedback(null)
+        }}
       />
 
       <CustomDrawer
