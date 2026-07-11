@@ -1,4 +1,4 @@
-import { and, eq, gte, ilike, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { userProfiles } from '../schema/userProfile'
@@ -18,19 +18,32 @@ export async function recordNdrEvent(params: {
 }) {
   const { orderId, userId, awbNumber, status, reason, remarks, attemptNo, payload } = params
 
-  const [inserted] = await db
-    .insert(ndr_events)
-    .values({
-      order_id: orderId,
-      user_id: userId,
-      awb_number: awbNumber || null,
-      status,
-      reason: reason || null,
-      remarks: remarks || null,
-      attempt_no: attemptNo || null,
-      payload: payload || null,
-    })
-    .returning()
+  const values = {
+    order_id: orderId,
+    user_id: userId,
+    awb_number: awbNumber || null,
+    status,
+    reason: reason || null,
+    remarks: remarks || null,
+    attempt_no: attemptNo || null,
+    payload: payload || null,
+    updated_at: new Date(),
+  }
+
+  const existingWhere = awbNumber
+    ? and(eq(ndr_events.user_id, userId), eq(ndr_events.awb_number, awbNumber))
+    : and(eq(ndr_events.user_id, userId), eq(ndr_events.order_id, orderId))
+
+  const [existing] = await db
+    .select({ id: ndr_events.id })
+    .from(ndr_events)
+    .where(existingWhere)
+    .orderBy(desc(ndr_events.updated_at), desc(ndr_events.created_at))
+    .limit(1)
+
+  const [inserted] = existing?.id
+    ? await db.update(ndr_events).set(values).where(eq(ndr_events.id, existing.id)).returning()
+    : await db.insert(ndr_events).values(values).returning()
 
   // 🔔 Send webhook event for NDR
   sendWebhookEvent(userId, 'order.ndr', {

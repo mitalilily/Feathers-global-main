@@ -30,19 +30,32 @@ export async function recordRtoEvent(params: {
 }) {
   const { orderId, userId, awbNumber, status, reason, remarks, rtoCharges, payload } = params
 
-  const [inserted] = await db
-    .insert(rto_events)
-    .values({
-      order_id: orderId,
-      user_id: userId,
-      awb_number: awbNumber || null,
-      status,
-      reason: reason || null,
-      remarks: remarks || null,
-      rto_charges: rtoCharges || null,
-      payload: payload || null,
-    })
-    .returning()
+  const values = {
+    order_id: orderId,
+    user_id: userId,
+    awb_number: awbNumber || null,
+    status,
+    reason: reason || null,
+    remarks: remarks || null,
+    rto_charges: rtoCharges || null,
+    payload: payload || null,
+    updated_at: new Date(),
+  }
+
+  const existingWhere = awbNumber
+    ? and(eq(rto_events.user_id, userId), eq(rto_events.awb_number, awbNumber))
+    : and(eq(rto_events.user_id, userId), eq(rto_events.order_id, orderId))
+
+  const [existing] = await db
+    .select({ id: rto_events.id })
+    .from(rto_events)
+    .where(existingWhere)
+    .orderBy(desc(rto_events.updated_at), desc(rto_events.created_at))
+    .limit(1)
+
+  const [inserted] = existing?.id
+    ? await db.update(rto_events).set(values).where(eq(rto_events.id, existing.id)).returning()
+    : await db.insert(rto_events).values(values).returning()
 
   // 🔔 Send webhook event for RTO
   sendWebhookEvent(userId, 'order.rto', {
