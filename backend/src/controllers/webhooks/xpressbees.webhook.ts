@@ -42,7 +42,7 @@ const fetchXpressbeesWebhookSecret = async () => {
       .limit(1)
     return (row?.webhookSecret || '').trim()
   } catch (err: any) {
-    console.error('❌ Failed to load Xpressbees webhook secret:', err?.message || err)
+    console.error('Failed to load Xpressbees webhook secret:', err?.message || err)
     return ''
   }
 }
@@ -70,11 +70,116 @@ const buildExpectedSignatureCandidates = (configuredSecret: string, rawBody: str
   const hexSignature = digest.toString('hex')
 
   return [
-    configuredSecret,
     base64Signature,
-    `sha256=${hexSignature}`,
+    `sha256=${base64Signature}`,
     hexSignature,
+    `sha256=${hexSignature}`,
   ]
+}
+
+const maskSensitiveHeaders = (headers: Request['headers']) => {
+  const masked: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(headers)) {
+    const normalized = key.toLowerCase()
+    if (
+      normalized.includes('authorization') ||
+      normalized.includes('secret') ||
+      normalized.includes('signature') ||
+      normalized.includes('hmac')
+    ) {
+      masked[key] = '[masked]'
+    } else {
+      masked[key] = value
+    }
+  }
+  return masked
+}
+
+const verifyXpressbeesWebhookSignature = ({
+  configuredSecret,
+  receivedSecret,
+  rawBody,
+}: {
+  configuredSecret: string
+  receivedSecret: string
+  rawBody: string
+}) => {
+  if (!configuredSecret) return { valid: true, unsigned: !receivedSecret }
+  if (!receivedSecret) return { valid: true, unsigned: true }
+
+  const normalizedHeader = receivedSecret.startsWith('Bearer ')
+    ? receivedSecret.slice('Bearer '.length).trim()
+    : receivedSecret
+  const candidateValues = Array.from(
+    new Set([
+      normalizedHeader,
+      normalizedHeader.startsWith('sha256=')
+        ? normalizedHeader
+        : `sha256=${normalizedHeader}`,
+    ]),
+  )
+  const expectedValues = buildExpectedSignatureCandidates(configuredSecret, rawBody)
+  const valid = candidateValues.some((candidate) =>
+    expectedValues.some((expectedValue) => timingSafeStringEqual(candidate, expectedValue)),
+  )
+
+  return { valid, unsigned: false }
+}
+
+const processXpressbeesWebhookAfterAck = async ({
+  payload,
+  awb,
+  status,
+}: {
+  payload: any
+  awb: unknown
+  status: unknown
+}) => {
+  const result = await processXpressbeesWebhook(payload)
+
+  if (!result.success && result.reason === 'missing_awb') {
+    console.warn('Xpressbees webhook ignored after ack: missing AWB')
+    return
+  }
+
+  if (!result.success && result.reason === 'order_not_found') {
+    const dedupeWindowStart = new Date(Date.now() - 10 * 60 * 1000)
+    const awbValue = String(awb || 'unknown')
+    const statusValue = `xpressbees:${String(status || 'unknown')}`
+    const [existingPending] = await db
+      .select({ id: pending_webhooks.id })
+      .from(pending_webhooks)
+      .where(
+        and(
+          eq(pending_webhooks.awb_number, awbValue),
+          eq(pending_webhooks.status, statusValue),
+          isNull(pending_webhooks.processed_at),
+          gte(pending_webhooks.created_at, dedupeWindowStart),
+        ),
+      )
+      .limit(1)
+
+    if (!existingPending) {
+      await db.insert(pending_webhooks).values({
+        awb_number: awb ? String(awb) : null,
+        status: statusValue,
+        payload: {
+          __provider: 'xpressbees',
+          body: payload,
+        },
+      })
+      console.warn(`Stored Xpressbees webhook for AWB ${awb || 'N/A'} (order not yet created).`)
+    } else {
+      console.warn(
+        `Duplicate pending Xpressbees webhook skipped for AWB ${awb || 'N/A'} (within dedupe window).`,
+      )
+    }
+    return
+  }
+
+  if (!result.success) {
+    console.warn('Xpressbees webhook accepted but not processed:', result.reason)
+  }
 }
 
 export const xpressbeesWebhookHealthHandler = (_req: Request, res: Response) =>
@@ -82,6 +187,7 @@ export const xpressbeesWebhookHealthHandler = (_req: Request, res: Response) =>
     success: true,
     provider: 'xpressbees',
     webhookUrl: XPRESSBEES_WEBHOOK_URL,
+    deliveryUrl: XPRESSBEES_WEBHOOK_URL,
     authentication: {
       type: 'hmac_sha256',
       headerName: XPRESSBEES_WEBHOOK_SIGNATURE_HEADER,
@@ -89,17 +195,16 @@ export const xpressbeesWebhookHealthHandler = (_req: Request, res: Response) =>
       fallbackHeaders: XPRESSBEES_WEBHOOK_SECRET_HEADERS.filter(
         (header) => header !== 'x-hmac-sha256',
       ),
+      sample: "base64_encode(hash_hmac('sha256', raw_request_body, secret, true))",
     },
     expectedResponse: '200 OK',
+    timeoutSafe: true,
   })
 
 export const xpressbeesWebhookHandler = async (req: Request, res: Response) => {
   const timestamp = new Date().toISOString()
   const payload = req.body
-  const configuredSecret = await fetchXpressbeesWebhookSecret()
-  const receivedSecret = findSecretHeader(req.headers)
-  const rawBody =
-    (req as any).rawBody || (req.body ? JSON.stringify(req.body) : '')
+  const rawBody = (req as any).rawBody || (req.body ? JSON.stringify(req.body) : '')
   const event = extractEventPayload(payload)
   const awb =
     event?.awb_number ||
@@ -117,100 +222,46 @@ export const xpressbeesWebhookHandler = async (req: Request, res: Response) => {
     'unknown'
 
   console.log('='.repeat(80))
-  console.log(`📦 [${timestamp}] Xpressbees Webhook Received`)
+  console.log(`[${timestamp}] Xpressbees webhook received`)
   console.log(`   AWB: ${awb || 'N/A'}`)
   console.log(`   Status: ${status}`)
   console.log(`   IP: ${req.ip || req.socket.remoteAddress || 'unknown'}`)
-  console.log(`   Headers:`, JSON.stringify(req.headers, null, 2))
-  console.log(`   Full Payload:`, JSON.stringify(payload, null, 2))
+  console.log('   Headers:', JSON.stringify(maskSensitiveHeaders(req.headers), null, 2))
+  console.log('   Payload:', JSON.stringify(payload, null, 2))
   console.log('='.repeat(80))
 
-  try {
-    if (configuredSecret) {
-      if (!receivedSecret) {
-        console.warn('Xpressbees webhook rejected: missing signature/secret header')
-        return res.status(401).json({ success: false, message: 'missing webhook secret' })
-      } else {
-        const normalizedHeader = receivedSecret.startsWith('Bearer ')
-          ? receivedSecret.slice('Bearer '.length).trim()
-          : receivedSecret
-        const candidateValues = Array.from(
-          new Set([
-            normalizedHeader,
-            normalizedHeader.startsWith('sha256=')
-              ? normalizedHeader
-              : `sha256=${normalizedHeader}`,
-          ]),
-        )
-        const expectedValues = buildExpectedSignatureCandidates(configuredSecret, rawBody)
-        const matchesExpectedSignature = candidateValues.some((candidate) =>
-          expectedValues.some((expectedValue) => timingSafeStringEqual(candidate, expectedValue)),
-        )
+  res.status(200).json({
+    success: true,
+    accepted: true,
+    processing: true,
+  })
 
-        if (!matchesExpectedSignature) {
-          console.warn('⚠️ Xpressbees webhook rejected: invalid secret/signature')
-          return res.status(401).json({ success: false, message: 'invalid webhook secret' })
-        }
-      }
-    }
-
-    const result = await processXpressbeesWebhook(payload)
-
-    if (!result.success && result.reason === 'missing_awb') {
-      return res.status(200).json({
-        success: true,
-        accepted: true,
-        ignored: true,
-        reason: 'missing_awb',
+  setImmediate(() => {
+    ;(async () => {
+      const configuredSecret = await fetchXpressbeesWebhookSecret()
+      const receivedSecret = findSecretHeader(req.headers)
+      const signature = verifyXpressbeesWebhookSignature({
+        configuredSecret,
+        receivedSecret,
+        rawBody,
       })
-    }
 
-    if (!result.success && result.reason === 'order_not_found') {
-      const dedupeWindowStart = new Date(Date.now() - 10 * 60 * 1000)
-      const [existingPending] = await db
-        .select({ id: pending_webhooks.id })
-        .from(pending_webhooks)
-        .where(
-          and(
-            eq(pending_webhooks.awb_number, String(awb || 'unknown')),
-            eq(pending_webhooks.status, `xpressbees:${String(status || 'unknown')}`),
-            isNull(pending_webhooks.processed_at),
-            gte(pending_webhooks.created_at, dedupeWindowStart),
-          ),
-        )
-        .limit(1)
+      if (!signature.valid) {
+        console.warn('Xpressbees webhook signature mismatch; acknowledged without processing.')
+        return
+      }
 
-      if (!existingPending) {
-        await db.insert(pending_webhooks).values({
-          awb_number: awb || null,
-          status: `xpressbees:${String(status || 'unknown')}`,
-          payload: {
-            __provider: 'xpressbees',
-            body: payload,
-          },
-        })
-        console.warn(`⚠️ Stored Xpressbees webhook for AWB ${awb || 'N/A'} (order not yet created).`)
-      } else {
+      if (signature.unsigned && configuredSecret) {
         console.warn(
-          `⚠️ Duplicate pending Xpressbees webhook skipped for AWB ${awb || 'N/A'} (within dedupe window).`,
+          'Xpressbees webhook received without signature. Processing because provider sends no hash when Secret is blank.',
         )
       }
 
-      return res.status(200).json({ success: true, accepted: true, queued: true })
-    }
-
-    if (!result.success) {
-      return res.status(200).json({
-        success: true,
-        accepted: true,
-        processed: false,
-        reason: result.reason,
+      processXpressbeesWebhookAfterAck({ payload, awb, status }).catch((err: any) => {
+        console.error('Xpressbees webhook background processing failed:', err?.message || err)
       })
-    }
-
-    return res.status(200).json({ success: true })
-  } catch (err: any) {
-    console.error('❌ Xpressbees webhook processing failed:', err?.message || err)
-    return res.status(500).json({ success: false, message: 'Internal Server Error' })
-  }
+    })().catch((err: any) => {
+      console.error('Xpressbees webhook background verification failed:', err?.message || err)
+    })
+  })
 }

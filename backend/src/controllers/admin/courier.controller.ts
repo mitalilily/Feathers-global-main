@@ -482,7 +482,8 @@ const buildXpressbeesWebhookConfig = () => ({
     type: 'hmac_sha256',
     headerName: XPRESSBEES_WEBHOOK_SIGNATURE_HEADER,
     encoding: 'base64',
-    secretRequired: true,
+    secretRequired: false,
+    secretRecommended: true,
   },
   samplePayloadFields: [
     'awb_number',
