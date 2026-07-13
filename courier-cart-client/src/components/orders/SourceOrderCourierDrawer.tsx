@@ -46,6 +46,9 @@ const normalizeProducts = (value: unknown): Product[] => {
 }
 
 const getProductsSubtotal = (products: Product[], fallback: unknown) => {
+  const storedAmount = Number(fallback)
+  if (Number.isFinite(storedAmount) && storedAmount > 0) return storedAmount
+
   const subtotal = products.reduce(
     (sum, product) =>
       sum +

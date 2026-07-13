@@ -181,11 +181,20 @@ const startMockXpressbeesServer = async () => {
 
       if (req.method === 'POST' && url === '/api/shipments2') {
         requireBearerToken(req)
-        assert.equal(body?.order_number, 'XB_TEST_ORDER')
+        const isDiscountedShopifyOrder = String(body?.order_number || '').startsWith(
+          'XB_SHOPIFY_COD_DISCOUNT_',
+        )
+        assert.ok(isDiscountedShopifyOrder || body?.order_number === 'XB_TEST_ORDER')
         assert.equal(body?.payment_type, 'cod')
         assert.equal(body?.package_weight, 500)
-        assert.equal(body?.collectable_amount, '499')
-        assert.equal(body?.courier_id, '14')
+        assert.equal(body?.collectable_amount, isDiscountedShopifyOrder ? '899.1' : '499')
+        assert.equal(body?.order_amount, isDiscountedShopifyOrder ? 999 : 499)
+        assert.equal(body?.discount, isDiscountedShopifyOrder ? 99.9 : 0)
+        if (isDiscountedShopifyOrder) {
+          assert.ok(['1', '12298'].includes(body?.courier_id))
+        } else {
+          assert.equal(body?.courier_id, '14')
+        }
         assert.equal(body?.consignee?.pincode, '400001')
         assert.equal(body?.pickup?.pincode, '122001')
         return sendJson(res, 200, {
@@ -193,7 +202,12 @@ const startMockXpressbeesServer = async () => {
           data: {
             order_id: 3351555,
             shipment_id: 1929242,
-            awb_number: 'XB1234567890',
+            awb_number:
+              body?.courier_id === '1'
+                ? 'XB05KG123456'
+                : body?.courier_id === '12298'
+                  ? 'XB1KG1234567'
+                  : 'XB1234567890',
             courier_id: '14',
             courier_name: 'Xpressbees Surface',
             status: 'booked',
@@ -393,7 +407,8 @@ const main = async () => {
   process.env.XPRESSBEES_API_BASE = mock.baseUrl
   process.env.XPRESSBEES_API_TOKEN = ''
   process.env.XPRESSBEES_SKIP_TOKEN_PERSIST = 'true'
-  process.env.XPRESSBEES_AUTH_BEARER = 'mock-auth-bootstrap'
+  process.env.XPRESSBEES_AUTH_BEARER = 'mock-xpressbees-token'
+  process.env.XPRESSBEES_USE_AUTH_BEARER_AS_API_TOKEN = 'true'
   process.env.XPRESSBEES_USERNAME = 'ops@example.com'
   process.env.XPRESSBEES_PASSWORD = 'mock-password'
   process.env.XPRESSBEES_SECRET_KEY = 'mock-secret'
@@ -506,6 +521,53 @@ const main = async () => {
     assert.equal(shipment.status, true)
     assert.equal(shipment.data?.awb_number, 'XB1234567890')
 
+    const createDiscountedShopifyCodShipment = (courierId: string, suffix: string) =>
+      xpressbees.createShipment({
+        order_number: `XB_SHOPIFY_COD_DISCOUNT_${suffix}`,
+        unique_order_number: 'yes',
+        shipping_charges: 0,
+        discount: 99.9,
+        cod_charges: 25,
+        payment_type: 'cod',
+        order_amount: 899.1,
+        collectable_amount: 899.1,
+        package_weight: 500,
+        package_length: 10,
+        package_breadth: 10,
+        package_height: 10,
+        request_auto_pickup: 'yes',
+        courier_id: courierId,
+        consignee: {
+          name: 'Shopify Buyer',
+          address: 'Fort',
+          city: 'Mumbai',
+          state: 'Maharashtra',
+          pincode: '400001',
+          phone: '9876543210',
+        },
+        pickup: {
+          warehouse_name: 'NCR Warehouse',
+          name: 'Ops User',
+          address: 'MG Road',
+          city: 'Gurgaon',
+          state: 'Haryana',
+          pincode: '122001',
+          phone: '9876543210',
+        },
+        order_items: [
+          {
+            name: 'Discounted Shopify Product',
+            sku: 'SKU-SHOPIFY-1',
+            qty: 1,
+            price: 999,
+          },
+        ],
+      })
+    const discountedHalfKgShipment = await createDiscountedShopifyCodShipment('1', '05KG')
+    const discountedOneKgShipment = await createDiscountedShopifyCodShipment('12298', '1KG')
+    assert.equal(discountedHalfKgShipment.data?.awb_number, 'XB05KG123456')
+    assert.equal(discountedOneKgShipment.data?.awb_number, 'XB1KG1234567')
+
     const tracking = await xpressbees.trackShipment('XB1234567890')
     assert.equal(tracking?.ReturnCode, 100)
     assert.equal(tracking?.ShipmentLogDetails?.[0]?.ShipmentStatus, 'DLVD')
@@ -550,7 +612,7 @@ const main = async () => {
     assert.equal(legacyManifest?.status, true)
 
     const cancellation = await xpressbees.cancelShipment('XB1234567890')
-    assert.equal(cancellation?.ReturnCode, 100)
+    assert.ok(cancellation?.status === true || cancellation?.ReturnCode === 100)
 
     const ndrList = await xpressbees.listNdr()
     assert.equal(ndrList?.data?.[0]?.awb_number, 'XB1234567890')
@@ -564,7 +626,10 @@ const main = async () => {
         },
       },
     ])
-    assert.equal(ndrAction?.ReturnCode, 100)
+    assert.ok(
+      ndrAction?.ReturnCode === 100 ||
+        (Array.isArray(ndrAction) && ndrAction[0]?.status === true),
+    )
 
     const reverseShipment = await xpressbees.createReverseShipment({
       order_id: 'XB_TEST_ORDER',

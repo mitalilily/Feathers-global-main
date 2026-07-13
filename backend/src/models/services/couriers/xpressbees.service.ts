@@ -2091,6 +2091,19 @@ export class XpressbeesService {
   }
 
   async createShipment(payload: any): Promise<XpressbeesShipmentResponse> {
+    const requestedOrderAmount = Number(payload.order_amount ?? 0)
+    const grossItemsAmount = Array.isArray(payload?.order_items)
+      ? payload.order_items.reduce(
+          (sum: number, item: any) =>
+            sum + Number(item?.price ?? 0) * Math.max(1, Number(item?.qty ?? item?.quantity ?? 1)),
+          0,
+        )
+      : 0
+    // Xpressbees expects the pre-discount merchandise value in order_amount and
+    // the actual COD payable value in collectable_amount. Marketplace imports
+    // frequently carry discounts only at order level, not on every line item.
+    const providerOrderAmount = Math.max(requestedOrderAmount, grossItemsAmount)
+    const collectableAmount = Number(payload?.collectable_amount ?? requestedOrderAmount)
     const body: Record<string, any> = {
       order_number: payload.order_number,
       unique_order_number: payload.unique_order_number || 'no',
@@ -2098,7 +2111,7 @@ export class XpressbeesService {
       discount: Number(payload.discount ?? 0),
       cod_charges: Number(payload.cod_charges ?? 0),
       payment_type: payload.payment_type,
-      order_amount: Number(payload.order_amount ?? 0),
+      order_amount: providerOrderAmount,
       package_weight: Number(payload.package_weight ?? 0),
       package_length: Number(payload.package_length ?? 0),
       package_breadth: Number(payload.package_breadth ?? 0),
@@ -2155,7 +2168,7 @@ export class XpressbeesService {
         : [],
       collectable_amount:
         payload?.payment_type === 'cod'
-          ? String(payload?.collectable_amount ?? payload?.order_amount ?? 0)
+          ? String(Number.isFinite(collectableAmount) ? collectableAmount : 0)
           : '0',
     }
 

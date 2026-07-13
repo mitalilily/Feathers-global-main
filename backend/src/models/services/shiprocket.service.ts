@@ -5697,6 +5697,7 @@ export interface ShipmentParams {
   cod_charges?: number
   discount?: number
   order_amount?: number
+  collectable_amount?: number
   // Additional optional fields used across flows
   pickup_details?: any
   pickup_location_id?: string
@@ -9180,12 +9181,20 @@ const normalizeB2COrderItemsForBooking = (value: unknown) => {
   }))
 }
 
-const resolveB2COrderItemsAmount = (items: Array<{ qty: number; price: number; discount: number }>, fallback: unknown) => {
+const resolveB2COrderItemsAmount = (
+  items: Array<{ qty: number; price: number; discount: number }>,
+  ...preferredAmounts: unknown[]
+) => {
+  for (const value of preferredAmounts) {
+    const amount = Number(value)
+    if (Number.isFinite(amount) && amount > 0) return amount
+  }
+
   const amount = items.reduce(
     (sum, item) => sum + Number(item.price ?? 0) * Number(item.qty ?? 1) - Number(item.discount ?? 0),
     0,
   )
-  return amount > 0 ? amount : Number(fallback ?? 0)
+  return amount > 0 ? amount : 0
 }
 
 export const bookExistingB2COrderWithCourierService = async (
@@ -9223,7 +9232,15 @@ export const bookExistingB2COrderWithCourierService = async (
       ? payload.order_items
       : existingOrder.products,
   )
-  const orderAmount = resolveB2COrderItemsAmount(orderItems, existingOrder.order_amount)
+  // A synced marketplace order's stored total is the canonical amount payable by
+  // the customer. Rebuilding it from line items loses Shopify order-level
+  // discounts and can make the carrier COD amount larger than the actual order.
+  const orderAmount = resolveB2COrderItemsAmount(
+    orderItems,
+    existingOrder.order_amount,
+    payload.order_amount,
+    existingOrder.invoice_amount,
+  )
   const paymentType = String(existingOrder.order_type || 'prepaid').toLowerCase() === 'cod' ? 'cod' : 'prepaid'
   const pickup = payload.pickup || ({} as ShipmentParams['pickup'])
   const consignee = payload.consignee || ({} as ShipmentParams['consignee'])
@@ -9233,6 +9250,7 @@ export const bookExistingB2COrderWithCourierService = async (
     order_number: existingOrder.order_number,
     payment_type: paymentType,
     order_amount: orderAmount,
+    collectable_amount: paymentType === 'cod' ? orderAmount : 0,
     order_date: existingOrder.order_date ? new Date(existingOrder.order_date) : new Date(),
     package_weight: Number(payload.package_weight ?? existingOrder.weight ?? 0),
     package_length: Number(payload.package_length ?? existingOrder.length ?? 0),
