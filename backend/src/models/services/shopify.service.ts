@@ -107,6 +107,7 @@ type ShopifyAccessTokenResponse = {
 }
 
 const shopifyTokenRefreshLocks = new Map<string, Promise<string>>()
+const shopifyFulfillmentEventPermissionBlockedStores = new Set<string>()
 
 const toNumber = (value: unknown, fallback = 0): number => {
   const n = Number(value)
@@ -133,6 +134,7 @@ const REQUIRED_SHOPIFY_OAUTH_SCOPES = [
   'read_products',
   'read_webhooks',
   'write_webhooks',
+  'write_fulfillments',
   'read_merchant_managed_fulfillment_orders',
   'write_merchant_managed_fulfillment_orders',
 ] as const
@@ -2461,6 +2463,9 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
       fulfillments: Array<{
         id: string
         status?: string
+        events?: {
+          nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
+        }
         trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
       }>
     } | null
@@ -2484,6 +2489,13 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
           fulfillments(first: 20) {
             id
             status
+            events(first: 10) {
+              nodes {
+                id
+                status
+                happenedAt
+              }
+            }
             trackingInfo(first: 10) {
               company
               number
@@ -2531,7 +2543,10 @@ const createShopifyFulfillment = async ({
   }
 
   const data = await shopifyStoreGraphqlRequest<{
-    fulfillmentCreate: { userErrors: Array<{ field?: string[]; message: string }> }
+    fulfillmentCreate: {
+      fulfillment?: { id: string; status?: string | null } | null
+      userErrors: Array<{ field?: string[]; message: string }>
+    }
   }>({
     store,
     query: `
@@ -2615,6 +2630,119 @@ const updateShopifyFulfillmentTracking = async ({
   )
   return data?.fulfillmentTrackingInfoUpdate
 }
+
+const normalizeShipmentStatus = (status: unknown) =>
+  String(status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+
+const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null => {
+  const status = normalizeShipmentStatus(orderStatus)
+  if (!status) return null
+
+  if (
+    [
+      'booked',
+      'shipment_created',
+      'manifested',
+      'manifest_generated',
+      'label_printed',
+      'label_purchased',
+    ].includes(status)
+  ) {
+    return 'CONFIRMED'
+  }
+
+  if (
+    [
+      'pickup_initiated',
+      'pickup_scheduled',
+      'pickup_requested',
+      'pickup_completed',
+      'picked',
+      'picked_up',
+      'carrier_picked_up',
+    ].includes(status)
+  ) {
+    return 'CARRIER_PICKED_UP'
+  }
+
+  if (['in_transit', 'rto', 'rto_in_transit'].includes(status)) return 'IN_TRANSIT'
+  if (status === 'out_for_delivery') return 'OUT_FOR_DELIVERY'
+  if (['ndr', 'undelivered', 'delivery_attempted', 'attempted_delivery'].includes(status)) {
+    return 'ATTEMPTED_DELIVERY'
+  }
+  if (['delayed', 'lost'].includes(status)) return 'FAILURE'
+  if (['delivered', 'rto_delivered'].includes(status)) return 'DELIVERED'
+  if (['cancelled', 'canceled', 'cancellation_requested'].includes(status)) return 'FAILURE'
+
+  return null
+}
+
+const fulfillmentHasEventStatus = (fulfillment: any, status: string) => {
+  const events = Array.isArray(fulfillment?.events?.nodes) ? fulfillment.events.nodes : []
+  return events.some((event: any) => String(event?.status || '').toUpperCase() === status)
+}
+
+const createShopifyFulfillmentEvent = async ({
+  store,
+  fulfillmentId,
+  status,
+  message,
+}: {
+  store: ShopifyStore
+  fulfillmentId: string
+  status: string
+  message?: string
+}) => {
+  const fulfillmentEvent: any = {
+    fulfillmentId,
+    status,
+    happenedAt: new Date().toISOString(),
+  }
+
+  if (message) {
+    fulfillmentEvent.message = String(message).slice(0, 255)
+  }
+
+  const data = await shopifyStoreGraphqlRequest<{
+    fulfillmentEventCreate: {
+      fulfillmentEvent?: { id: string; status?: string | null } | null
+      userErrors: Array<{ field?: string[]; message: string }>
+    }
+  }>({
+    store,
+    query: `
+      mutation ShiplifiFulfillmentEventCreate($fulfillmentEvent: FulfillmentEventInput!) {
+        fulfillmentEventCreate(fulfillmentEvent: $fulfillmentEvent) {
+          fulfillmentEvent { id status }
+          userErrors { field message }
+        }
+      }
+    `,
+    variables: { fulfillmentEvent },
+  })
+
+  assertNoUserErrors(
+    'Shopify fulfillmentEventCreate failed',
+    data?.fulfillmentEventCreate?.userErrors,
+  )
+  return data?.fulfillmentEventCreate
+}
+
+const isShopifyFulfillmentEventPermissionError = (error: any) => {
+  const message = String(error?.response?.data?.errors?.[0]?.message || error?.message || error || '')
+  return (
+    message.includes('fulfillmentEventCreate') &&
+    (message.includes('write_fulfillments') || message.includes('fulfill_and_ship_orders'))
+  )
+}
+
+const buildShopifyFulfillmentEventPermissionError = () =>
+  new Error(
+    'Shopify fulfillment events are blocked for this store. Reconnect the Shopify app after approving write_fulfillments and install it with a Shopify user that has fulfill_and_ship_orders permission.',
+  )
 
 const updateShopifyOrderTags = async (store: ShopifyStore, shopifyOrderId: string, tags: string[]) => {
   const data = await shopifyStoreGraphqlRequest<{
@@ -2740,6 +2868,8 @@ export const syncShopifyStatusForLocalOrder = async (
   const orderStatus = String(order?.order_status || '').toLowerCase()
   const trackingNumber = String(order?.awb_number || '').trim()
   const actions: string[] = []
+  let targetFulfillmentForEvent: any = null
+  const fulfillmentEventStatus = mapShopifyFulfillmentEventStatus(orderStatus)
 
   try {
     const remoteOrder = await getShopifyOrderForStatusSync(store, shopifyOrderId)
@@ -2764,15 +2894,15 @@ export const syncShopifyStatusForLocalOrder = async (
         const reqStatus = String(fo?.requestStatus || '').toUpperCase()
         return ['OPEN', 'SCHEDULED'].includes(foStatus) && (!reqStatus || reqStatus === 'UNSUBMITTED')
       })
-
       if (!isAlreadyFulfilled && openFulfillmentOrders.length) {
-        await createShopifyFulfillment({
+        const fulfillmentResult = await createShopifyFulfillment({
           store,
           fulfillmentOrderIds: openFulfillmentOrders.map((fo: any) => fo.id),
           trackingNumber,
           courierPartner: order?.courier_partner,
           notifyCustomer: shouldNotifyCustomerOnFulfill(settings),
         })
+        targetFulfillmentForEvent = fulfillmentResult?.fulfillment || null
         actions.push('fulfillment_created')
       } else if (trackingNumber) {
         const fulfillments = Array.isArray(remoteOrder.fulfillments) ? remoteOrder.fulfillments : []
@@ -2789,6 +2919,7 @@ export const syncShopifyStatusForLocalOrder = async (
           fulfillments[0]
 
         if (fulfillmentWithCurrentTracking) {
+          targetFulfillmentForEvent = fulfillmentWithCurrentTracking
           actions.push('tracking_already_current')
         } else if (targetFulfillment?.id) {
           await updateShopifyFulfillmentTracking({
@@ -2798,11 +2929,19 @@ export const syncShopifyStatusForLocalOrder = async (
             courierPartner: order?.courier_partner,
             notifyCustomer: shouldNotifyCustomerOnFulfill(settings),
           })
+          targetFulfillmentForEvent = targetFulfillment
           actions.push('tracking_updated')
         } else {
           actions.push(isAlreadyFulfilled ? 'already_fulfilled_no_tracking_target' : 'no_open_fulfillment_orders')
         }
       } else {
+        const fulfillments = Array.isArray(remoteOrder.fulfillments) ? remoteOrder.fulfillments : []
+        targetFulfillmentForEvent =
+          fulfillments.find((fulfillment: any) =>
+            ['SUCCESS', 'OPEN', 'PENDING'].includes(String(fulfillment?.status || '').toUpperCase()),
+          ) ||
+          fulfillments[0] ||
+          null
         actions.push(isAlreadyFulfilled ? 'already_fulfilled' : 'no_tracking_number')
       }
     } else {
@@ -2834,6 +2973,46 @@ export const syncShopifyStatusForLocalOrder = async (
     ) {
       await markShopifyOrderAsPaid(store, shopifyOrderId)
       actions.push('cod_marked_paid')
+    }
+
+    if (targetFulfillmentForEvent?.id && fulfillmentEventStatus) {
+      if (fulfillmentHasEventStatus(targetFulfillmentForEvent, fulfillmentEventStatus)) {
+        actions.push('fulfillment_event_already_current')
+      } else {
+        const fulfillmentEventStoreKey = String((store as any)?.id || (store as any)?.domain || '')
+        if (
+          fulfillmentEventStoreKey &&
+          shopifyFulfillmentEventPermissionBlockedStores.has(fulfillmentEventStoreKey)
+        ) {
+          actions.push('fulfillment_event_blocked_by_shopify_permission')
+          throw buildShopifyFulfillmentEventPermissionError()
+        }
+
+        try {
+          await createShopifyFulfillmentEvent({
+            store,
+            fulfillmentId: targetFulfillmentForEvent.id,
+            status: fulfillmentEventStatus,
+            message:
+              String(order?.delivery_message || order?.provider_last_status || orderStatus || '').trim() ||
+              undefined,
+          })
+          actions.push(`fulfillment_event_${fulfillmentEventStatus.toLowerCase()}`)
+        } catch (eventError: any) {
+          if (isShopifyFulfillmentEventPermissionError(eventError)) {
+            if (fulfillmentEventStoreKey) {
+              shopifyFulfillmentEventPermissionBlockedStores.add(fulfillmentEventStoreKey)
+            }
+            actions.push('fulfillment_event_blocked_by_shopify_permission')
+            throw buildShopifyFulfillmentEventPermissionError()
+          }
+          throw eventError
+        }
+      }
+    } else if (fulfillmentEventStatus) {
+      actions.push('fulfillment_event_skipped_no_fulfillment')
+    } else {
+      actions.push('fulfillment_event_skipped_unmapped_status')
     }
 
     await recordSalesChannelSyncOutcome(

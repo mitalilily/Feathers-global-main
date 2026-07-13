@@ -41,7 +41,7 @@ const applyMockEnv = () => {
   process.env.SHOPIFY_CLIENT_ID = 'mock_shopify_client_id'
   process.env.SHOPIFY_CLIENT_SECRET = 'mock_shopify_client_secret'
   process.env.SHOPIFY_SCOPES =
-    'read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders'
+    'read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders'
   process.env.SHOPIFY_API_VERSION = '2026-07'
   process.env.SHOPIFY_OAUTH_SUCCESS_URL = 'https://client.fgship.in/channels/connected'
   process.env.SHOPIFY_USE_EXPIRING_OFFLINE_TOKENS = 'true'

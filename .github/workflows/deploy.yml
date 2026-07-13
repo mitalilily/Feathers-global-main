@@ -255,7 +255,7 @@ jobs:
 
           client_id = os.environ["SHOPIFY_CLIENT_ID"]
           client_secret = os.environ["SHOPIFY_CLIENT_SECRET"]
-          scopes = os.environ.get("SHOPIFY_SCOPES", "").strip() or "read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+          scopes = os.environ.get("SHOPIFY_SCOPES", "").strip() or "read_orders,write_orders,read_customers,read_products,read_webhooks,write_webhooks,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
           api_origin = os.environ["DEPLOY_PUBLIC_API_URL"].strip().rstrip("/")
           if api_origin.endswith("/api"):
               api_origin = api_origin[:-4]

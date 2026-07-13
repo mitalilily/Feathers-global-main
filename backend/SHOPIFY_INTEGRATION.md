@@ -61,7 +61,7 @@ https://your-ngrok-domain.ngrok-free.app/api/integrations/shopify/oauth/callback
 API_URL=https://api.fgship.in
 SHOPIFY_CLIENT_ID=your_shopify_client_id
 SHOPIFY_CLIENT_SECRET=your_shopify_client_secret
-SHOPIFY_SCOPES=read_orders,write_orders,read_customers,read_webhooks,write_webhooks,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders
+SHOPIFY_SCOPES=read_orders,write_orders,read_customers,read_webhooks,write_webhooks,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders
 SHOPIFY_API_VERSION=2026-07
 SHOPIFY_OAUTH_SUCCESS_URL=https://client.fgship.in/channels/connected
 SHOPIFY_SEND_OAUTH_SCOPE=false
@@ -96,6 +96,7 @@ Use the least privileges possible for the features enabled:
 - `read_customers` when customer data is needed for shipping.
 - `read_webhooks` and `write_webhooks` to list and auto-register webhook subscriptions.
 - `read_merchant_managed_fulfillment_orders` and `write_merchant_managed_fulfillment_orders` when reading fulfillment orders and creating Shopify fulfillments.
+- `write_fulfillments` when creating Shopify fulfillment events for carrier pickup, in transit, out for delivery, and delivered shipment milestones.
 - `read_all_orders` only if older-than-60-days order import is required and approved by Shopify.
 
 Protected customer data must also be approved/configured in Shopify for buyer name, email, phone, shipping address, and billing address. Without that access, Shopify can hide address details in Admin API responses.
