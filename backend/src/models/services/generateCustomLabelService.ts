@@ -7,7 +7,6 @@ import PdfPrinter from 'pdfmake'
 import { db } from '../client'
 import { labelPreferences } from '../schema/labelPreferences'
 import { userProfiles } from '../schema/userProfile'
-import { getAdminInvoicePreferences } from './invoicePreferences.service'
 import { presignDownload, uploadBufferToStorage } from './upload.service'
 
 const LABEL_ASSET_TIMEOUT_MS = 10000
@@ -201,32 +200,6 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     }
   }
 
-  const adminPrefs = await getAdminInvoicePreferences()
-  const platformLogoKey =
-    adminPrefs?.includeLogo !== false && adminPrefs?.logoFile ? adminPrefs.logoFile : null
-  // Always show Shiplifi platform logo (Powered by ...) when configured in admin billing prefs
-  let platformLogoBase64: string | null = null
-  if (platformLogoKey) {
-    try {
-      const logoUrl = await presignDownload(platformLogoKey)
-      const finalUrl = Array.isArray(logoUrl) ? logoUrl[0] : logoUrl
-      if (finalUrl) {
-        const logoResp = await axios.get(finalUrl, {
-          responseType: 'arraybuffer',
-          timeout: LABEL_ASSET_TIMEOUT_MS,
-        })
-        const buffer = Buffer.from(logoResp.data)
-        const dataUrl = await bufferToDataUrl(buffer)
-        if (dataUrl && isValidDataUrl(dataUrl)) {
-          platformLogoBase64 = dataUrl
-        }
-      }
-    } catch (err) {
-      console.warn('⚠️ Failed to fetch platform logo from admin billing preferences:', err)
-    }
-  } else {
-    console.log('ℹ️ No admin billing-preferences logo configured for custom label')
-  }
 
   // Normalize fields
   const consignee = {
@@ -236,11 +209,10 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     state: order.state ?? '',
     pincode: order.pincode ?? '',
     phone: order.buyer_phone ?? order.phone ?? '',
+    country: order.country ?? 'India',
   }
 
   const pickup = safeParseObject(order.pickup_details)
-
-  const rto = safeParseObject(order.rto_details)
 
   const products = safeParseArray(order.products)
   const paymentType = (order.payment_type ?? order.order_type ?? order.type ?? '')
@@ -248,41 +220,92 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     .toLowerCase()
 
   const pages: any[] = []
-  const primaryColor = '#1a237e'
-  const accentColor = '#eef3ff'
-  const darkTextColor = '#0f172a'
-  const mutedTextColor = '#334155'
-  const lightBorderColor = '#cbd5e1'
-  const strongBorderColor = '#111827'
+  const darkTextColor = '#111111'
+  const strongBorderColor = '#111111'
   const isEnabled = (value: unknown) => (value === undefined ? true : value === true)
   const awbEnabled = isEnabled(settings.order_info?.awb)
-  const showOrderId = isEnabled(settings.order_info?.orderId)
-  const showInvoiceNumber = isEnabled(settings.order_info?.invoiceNumber)
-  const showOrderDate = isEnabled(settings.order_info?.orderDate)
-  const showInvoiceDate = isEnabled(settings.order_info?.invoiceDate)
-  const showOrderBarcode = isEnabled(settings.order_info?.orderBarcode)
-  const showInvoiceBarcode = isEnabled(settings.order_info?.invoiceBarcode)
-  const showRtoRoutingCode = isEnabled(settings.order_info?.rtoRoutingCode)
-  const showDeclaredValue = isEnabled(settings.order_info?.declaredValue)
-  const showCodBanner = isEnabled(settings.order_info?.cod)
-  const showTerms = isEnabled(settings.order_info?.terms)
-  const showCustomerPhone = isEnabled(settings.order_info?.customerPhone)
-  const showBrandName = isEnabled(settings.shipper_info?.sellerBrandName)
-  const showShipperAddress = isEnabled(settings.shipper_info?.shipperAddress)
-  const showShipperPhone = isEnabled(settings.shipper_info?.shipperPhone)
-  const showShipperGst = isEnabled(settings.shipper_info?.gstin)
-  const showRto = isEnabled(settings.shipper_info?.rtoAddress)
   const showBrandLogo = isEnabled(settings.shipper_info?.brandLogo)
-  const includeProductName = isEnabled(settings.product_info?.itemName)
-  const includeCost = isEnabled(settings.product_info?.productCost)
-  const includeQty = isEnabled(settings.product_info?.productQuantity)
-  const includeSku = true
-  const includeDimension = isEnabled(settings.product_info?.dimension)
-  const includeDeadWeight = isEnabled(settings.product_info?.deadWeight)
-  const showOrderValueSection = includeCost && isEnabled(settings.product_info?.otherCharges)
-  const showPlatformBranding = Boolean(settings.powered_by?.toString().trim())
+  const showCustomerPhone = isEnabled(settings.order_info?.customerPhone)
   const charLimit = Math.max(10, Number(settings.char_limit ?? 25))
   const maxItems = Math.max(1, Number(settings.max_items ?? 3))
+  const companyInfo = safeParseObject(profileOfUser?.companyInfo)
+
+  const toAmount = (value: unknown) => {
+    const n = Number(value ?? 0)
+    return Number.isFinite(n) ? n : 0
+  }
+  const formatCurrency = (value: number | string | null | undefined) =>
+    `₹${toAmount(value).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`
+
+  const trimText = (value: any, max = charLimit) => {
+    const text = String(value ?? '').trim()
+    if (!text) return '-'
+    return text.length > max ? `${text.slice(0, max)}...` : text
+  }
+
+  const safeLine = (value: unknown, max = 90) => {
+    const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+    if (!text) return ''
+    return max > 0 && text.length > max ? `${text.slice(0, max)}...` : text
+  }
+
+  const formatLabelDateTime = (value: unknown) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return '-'
+    const parsed = new Date(raw)
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })
+    }
+    return raw
+  }
+
+  const formatWeightKg = (value: unknown) => {
+    const amount = Number(value ?? 0)
+    if (!Number.isFinite(amount) || amount <= 0) return '-'
+    const weightKg = amount > 20 ? amount / 1000 : amount
+    return `${weightKg.toFixed(3)} kg`
+  }
+
+  const compactAddressLines = (...parts: Array<unknown>) =>
+    parts
+      .map((part) => String(part ?? '').trim())
+      .filter(Boolean)
+
+  const sectionLayout = {
+    hLineWidth: () => 1,
+    vLineWidth: () => 1,
+    hLineColor: () => strongBorderColor,
+    vLineColor: () => strongBorderColor,
+    paddingLeft: () => 7,
+    paddingRight: () => 7,
+    paddingTop: () => 7,
+    paddingBottom: () => 7,
+  }
+
+  const detailLabel = (text: string) => ({
+    text,
+    bold: true,
+    fontSize: 7,
+    color: darkTextColor,
+    margin: [0, 0, 0, 3],
+  })
+
+  const detailValue = (text: string) => ({
+    text: safeLine(text || '-', 40),
+    fontSize: 7,
+    color: darkTextColor,
+    margin: [0, 0, 0, 8],
+  })
 
   // Prefer a locally generated AWB barcode so labels do not repeat the AWB text below the bars.
   // Courier barcode images are still used as a fallback when an AWB number is unavailable.
@@ -336,57 +359,18 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     }
   }
 
-  const orderBarcode =
-    showOrderBarcode && order.order_number ? await generateBarcodeBase64(order.order_number) : null
-  const invoiceBarcode =
-    showInvoiceBarcode && order.invoice_number
-      ? await generateBarcodeBase64(order.invoice_number)
-      : null
-
-  const toAmount = (value: unknown) => {
-    const n = Number(value ?? 0)
-    return Number.isFinite(n) ? n : 0
-  }
-  const formatCurrency = (value: number | string | null | undefined) =>
-    `Rs. ${toAmount(value).toFixed(2)}`
-
-  const buildAddress = (addr: Record<string, any>) => {
-    const lines = [
-      addr.address,
-      [addr.city, addr.state].filter(Boolean).join(', '),
-      addr.pincode,
-    ].filter((line) => typeof line === 'string' && line.trim().length > 0)
-
-    return lines.join('\n')
-  }
-
   // Register images in pdfmake's images dictionary FIRST
   // Only add images that are valid data URLs
   const images: Record<string, string> = {}
   if (showBrandLogo && logoBase64 && isValidDataUrl(logoBase64)) {
     images.logo = logoBase64
   }
-  if (showPlatformBranding && platformLogoBase64 && isValidDataUrl(platformLogoBase64)) {
-    images.platformLogo = platformLogoBase64
-  }
   if (awbEnabled && awbBarcode && isValidDataUrl(awbBarcode)) {
     images.awbBarcode = awbBarcode
-  }
-  if (orderBarcode && isValidDataUrl(orderBarcode)) {
-    images.orderBarcode = orderBarcode
-  }
-  if (invoiceBarcode && isValidDataUrl(invoiceBarcode)) {
-    images.invoiceBarcode = invoiceBarcode
   }
 
   const chunk = products.slice(0, maxItems)
   const pageContent: any[] = []
-
-  const trimText = (value: any, max = charLimit) => {
-    const text = String(value ?? '').trim()
-    if (!text) return '-'
-    return text.length > max ? `${text.slice(0, max)}...` : text
-  }
 
   const rawProductSubtotal = products.reduce((sum: number, p: any) => {
     const qty = Math.max(1, toAmount(p?.qty ?? p?.quantity ?? 1))
@@ -428,501 +412,269 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     return originalUnitPrice
   }
 
-  const sellerBrandName =
-    profileOfUser?.companyInfo?.companyName ||
+  const sellerName =
+    companyInfo.brandName ||
+    companyInfo.businessName ||
+    companyInfo.companyName ||
+    pickup.warehouse_name ||
     profileOfUser?.companyInfo?.displayName ||
-    pickup?.warehouse_name ||
     ''
-  const normalizedSortCode = String(order?.sort_code ?? '').trim()
+  const sellerAddressLines = compactAddressLines(
+    pickup.address || companyInfo.companyAddress,
+    [pickup.city || companyInfo.city, pickup.state || companyInfo.state]
+      .filter(Boolean)
+      .join(', '),
+    pickup.pincode || companyInfo.pincode,
+    order.country || 'India',
+  )
+  const courierName = String(order.courier_partner || order.integration_type || '-').trim() || '-'
+  const serviceType =
+    String(
+      order.service_type ||
+        order.provider_service ||
+        order.shipping_mode ||
+        order.integration_type ||
+        order.courier_partner ||
+        '-',
+    )
+      .replace(/_/g, ' ')
+      .toUpperCase() || '-'
+  const chargeableWeight = formatWeightKg(
+    order.charged_weight ?? order.actual_weight ?? order.weight ?? 0,
+  )
+  const packageCount = Math.max(
+    1,
+    Number(
+      order.piece_count ??
+        order.pieces ??
+        order.package_count ??
+        order.packet_count ??
+        safeParseArray(order.packages).length ??
+        1,
+    ) || 1,
+  )
+  const paymentModeLabel = paymentType === 'cod' ? 'COD' : 'PREPAID'
+  const shipToLines = compactAddressLines(
+    consignee.name,
+    consignee.address,
+    [consignee.city, consignee.state]
+      .filter(Boolean)
+      .join(', '),
+    consignee.pincode,
+    consignee.country || order.country || 'India',
+    showCustomerPhone && consignee.phone ? `Phone: ${consignee.phone}` : '',
+  )
+  const sellerWebsite = safeLine(companyInfo.website, 40)
+  const bottomMessage = sellerWebsite
+    ? ['THANK YOU FOR SHIPPING WITH US!', sellerWebsite]
+    : ['THANK YOU FOR SHIPPING WITH US!']
+  const productRows = (chunk.length ? chunk : [{}]).map((product: any) => {
+    const itemName = product.name ?? product.productName ?? product.box_name ?? '-'
+    const qty = Math.max(1, Number(product.qty ?? product.quantity ?? 1) || 1)
+    const price = getDisplayedUnitPrice(product)
+    const sku = product.sku ?? product.skuCode ?? '-'
 
-  const headerLeftStack: any[] = []
-  if (showBrandLogo && images.logo) {
-    headerLeftStack.push({ image: 'logo', width: 44, margin: [0, 0, 0, 2] })
-  }
-  if (showBrandName && sellerBrandName) {
-    headerLeftStack.push({
-      text: trimText(sellerBrandName, 40),
-      bold: true,
-      fontSize: 9,
-      color: primaryColor,
-      margin: [0, 0, 0, 2],
-    })
-  }
-  headerLeftStack.push({
-    text: (order.courier_partner || 'Courier').toUpperCase(),
-    fontSize: 8,
-    color: '#334155',
-    bold: true,
+    return [
+      { text: trimText(itemName, 28), fontSize: 7, alignment: 'left' },
+      { text: String(qty), fontSize: 7, alignment: 'center' },
+      { text: formatCurrency(price), fontSize: 7, alignment: 'center' },
+      { text: trimText(sku, 18), fontSize: 7, alignment: 'center' },
+    ]
   })
 
-  const dimensionLabel =
-    order.length && order.breadth && order.height
-      ? `${order.length} x ${order.breadth} x ${order.height} cm`
-      : ''
-  const weightLines: string[] = []
-  if (includeDeadWeight) {
-    const deadWeightKg = Number(order.weight ?? order.actual_weight ?? 0) / 1000
-    const volumetricWeightKg = Number(order.volumetric_weight ?? 0) / 1000
-    const chargeableWeightKg = Number(order.charged_weight ?? order.weight ?? 0) / 1000
-    const slabWeightKg =
-      order.charged_slabs && chargeableWeightKg
-        ? chargeableWeightKg / Number(order.charged_slabs)
-        : null
-    const slabsApplied = order.charged_slabs ?? null
-    const walletDebitValue = Number(order.wallet_debit_amount ?? 0)
-    const freightValue =
-      Number.isFinite(walletDebitValue) && walletDebitValue > 0
-        ? walletDebitValue
-        : Number(order.freight_charges ?? 0) + Number(order.gst_amount ?? 0)
-
-    weightLines.push(`Dead Weight: ${deadWeightKg ? deadWeightKg.toFixed(3) + ' kg' : '-'}`)
-    weightLines.push(
-      `Volumetric Weight: ${volumetricWeightKg ? volumetricWeightKg.toFixed(3) + ' kg' : 'calculated'}`,
-    )
-    weightLines.push(
-      `Chargeable Weight: ${chargeableWeightKg ? chargeableWeightKg.toFixed(3) + ' kg' : '-'}`,
-    )
-    weightLines.push(`Slab: ${slabWeightKg ? (slabWeightKg * 1000).toFixed(0) + ' g' : 'from rate card'}`)
-    weightLines.push(`Slabs Applied: ${slabsApplied ?? '-'}`)
-    weightLines.push(`Courier rate + taxes: ${formatCurrency(freightValue)}`)
-  }
-  const shipmentMetricLines: string[] = []
-  if (includeDimension && dimensionLabel) {
-    shipmentMetricLines.push(`Dimensions: ${dimensionLabel}`)
-  }
-  if (weightLines.length > 0) {
-    shipmentMetricLines.push(...weightLines)
-  }
-
-  const headerRightStack: any[] = []
-  if (awbEnabled && order.awb_number) {
-    headerRightStack.push({
-      text: 'AWB',
-      color: primaryColor,
-      bold: true,
-      alignment: 'center',
-    })
-    headerRightStack.push({
-      text: order.awb_number,
-      fontSize: 12,
-      bold: true,
-      alignment: 'center',
-      color: darkTextColor,
-      margin: [0, 3, 0, 2],
-    })
-  }
-  if (awbEnabled && awbBarcode && isValidDataUrl(awbBarcode)) {
-    headerRightStack.push({
-      image: awbBarcode,
-      width: 158,
-      alignment: 'center',
-      margin: [0, 4, 0, 5],
-    })
-  } else if (awbEnabled && images.awbBarcode) {
-    headerRightStack.push({
-      image: 'awbBarcode',
-      width: 158,
-      alignment: 'center',
-      margin: [0, 4, 0, 5],
-    })
-  }
-  if (showRtoRoutingCode && normalizedSortCode) {
-    headerRightStack.push({
-      text: `Sort Code: ${normalizedSortCode}`,
-      fontSize: 8,
-      bold: true,
-      alignment: 'center',
-      color: primaryColor,
-      margin: [0, 0, 0, 1],
-    })
-  }
-  if (showCodBanner) {
-    headerRightStack.push({
-      table: {
-        widths: ['*'],
-        body: [
-          [
-            {
-              text: paymentType === 'cod' ? 'COD' : 'PREPAID',
-              fontSize: 10,
-              bold: true,
-              alignment: 'center',
-              color: '#000000',
-              fillColor: paymentType === 'cod' ? '#fef3c7' : '#dcfce7',
-              margin: [0, 2, 0, 2],
-            },
-          ],
-        ],
-      },
-      layout: {
-        hLineWidth: () => 0.8,
-        vLineWidth: () => 0.8,
-        hLineColor: () => strongBorderColor,
-        vLineColor: () => strongBorderColor,
-        paddingLeft: () => 0,
-        paddingRight: () => 0,
-        paddingTop: () => 0,
-        paddingBottom: () => 0,
-      },
-      margin: [32, 2, 32, 0],
-    })
-  }
   pageContent.push({
     table: {
-      widths: ['*', 166],
-      body: [[{ stack: headerLeftStack }, { stack: headerRightStack }]],
-    },
-    layout: 'noBorders',
-    margin: [0, 0, 0, 6],
-  })
-
-  const shipToStack: any[] = [
-    { text: 'SHIP TO', bold: true, fontSize: 8, color: primaryColor, margin: [0, 0, 0, 2] },
-    { text: trimText(consignee.name, 36), fontSize: 8, bold: true },
-    {
-      text: trimText(
+      widths: ['58%', '42%'],
+      body: [
         [
-          consignee.address,
-          [consignee.city, consignee.state].filter(Boolean).join(', '),
-          consignee.pincode,
-        ]
-          .filter(Boolean)
-          .join(' | '),
-        90,
-      ),
-      fontSize: 7,
-      color: darkTextColor,
-      margin: [0, 1, 0, 0],
+          {
+            stack: images.logo
+              ? [{ image: 'logo', fit: [120, 52], alignment: 'left', margin: [0, 8, 0, 6] }]
+              : [{ text: trimText(sellerName, 26), fontSize: 20, bold: true, margin: [0, 12, 0, 0] }],
+            minHeight: 72,
+          },
+          {
+            stack: [
+              {
+                text: courierName.toUpperCase(),
+                fontSize: 15,
+                bold: true,
+                alignment: 'center',
+                margin: [0, 16, 0, 0],
+              },
+            ],
+            minHeight: 72,
+          },
+        ],
+      ],
     },
-  ]
-  if (showCustomerPhone && consignee.phone) {
-    shipToStack.push({
-      text: `Ph: ${trimText(consignee.phone, 20)}`,
-      fontSize: 7,
-      bold: true,
-      color: darkTextColor,
-      margin: [0, 1, 0, 0],
-    })
-  }
-
-  const fromLine = [
-    pickup.warehouse_name,
-    pickup.address,
-    [pickup.city, pickup.state].filter(Boolean).join(', '),
-    pickup.pincode,
-  ]
-    .filter(Boolean)
-    .join(' | ')
-
-  const shipFromStack: any[] = [
-    { text: 'SHIP FROM', bold: true, fontSize: 8, color: primaryColor, margin: [0, 0, 0, 2] },
-  ]
-  if (showShipperAddress) {
-    shipFromStack.push({
-      text: trimText(fromLine, 90),
-      fontSize: 7,
-      color: darkTextColor,
-    })
-  }
-  if (showShipperPhone && pickup.phone) {
-    shipFromStack.push({
-      text: `Ph: ${trimText(pickup.phone, 20)}`,
-      fontSize: 7,
-      bold: true,
-      color: darkTextColor,
-      margin: [0, 1, 0, 0],
-    })
-  }
-  if (showShipperGst && pickup.gst_number) {
-    shipFromStack.push({
-      text: `GSTIN: ${trimText(pickup.gst_number, 25)}`,
-      fontSize: 7,
-      margin: [0, 1, 0, 0],
-    })
-  }
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
+  })
 
   pageContent.push({
     table: {
-      widths: ['*', '*'],
-      body: [[{ stack: shipToStack }, { stack: shipFromStack }]],
+      widths: ['58%', '42%'],
+      body: [
+        [
+          {
+            stack: [
+              { text: 'SHIP TO:', bold: true, fontSize: 9, margin: [0, 0, 0, 6] },
+              ...shipToLines.map((line) => ({
+                text: safeLine(line, 55),
+                fontSize: 7,
+                margin: [0, 0, 0, 4],
+              })),
+            ],
+            minHeight: 120,
+          },
+          {
+            stack: [
+              { text: 'AWB', fontSize: 20, bold: true, alignment: 'center', margin: [0, 22, 0, 10] },
+              {
+                text: safeLine(order.awb_number || '-', 28),
+                fontSize: 15,
+                bold: true,
+                alignment: 'center',
+              },
+            ],
+            minHeight: 120,
+          },
+        ],
+      ],
     },
-    layout: {
-      hLineColor: () => lightBorderColor,
-      vLineColor: () => lightBorderColor,
-      paddingLeft: () => 6,
-      paddingRight: () => 6,
-      paddingTop: () => 5,
-      paddingBottom: () => 5,
-      fillColor: () => accentColor,
-    },
-    margin: [0, 0, 0, 5],
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
   })
 
-  if (shipmentMetricLines.length > 0) {
-    pageContent.push({
-      table: {
-        widths: ['*'],
-        body: [
-          [{ text: 'Shipment Metrics', bold: true, fontSize: 7, color: primaryColor }],
-          [{ text: shipmentMetricLines.join('\n'), fontSize: 7, margin: [0, 1, 0, 0] }],
-        ],
-      },
-      layout: {
-        hLineColor: () => '#dbeafe',
-        vLineColor: () => '#dbeafe',
-        paddingLeft: () => 6,
-        paddingRight: () => 6,
-        paddingTop: () => 4,
-        paddingBottom: () => 4,
-        fillColor: () => accentColor,
-      },
-      margin: [0, 0, 0, 5],
-    })
-  }
-
-  const infoLineParts: string[] = []
-  if (showOrderId && order.order_number) infoLineParts.push(`Order: ${order.order_number}`)
-  if (showInvoiceNumber && order.invoice_number)
-    infoLineParts.push(`Invoice: ${order.invoice_number}`)
-  if (showOrderDate && order.order_date) infoLineParts.push(`Order Dt: ${order.order_date}`)
-  if (showInvoiceDate && order.invoice_date) infoLineParts.push(`Inv Dt: ${order.invoice_date}`)
-  if (showDeclaredValue) infoLineParts.push(`Declared: ${formatCurrency(order.order_amount)}`)
-
-  if (infoLineParts.length > 0) {
-    pageContent.push({
-      text: infoLineParts.join(' | '),
-      fontSize: 7,
-      margin: [0, 0, 0, 4],
-      color: '#334155',
-      bold: true,
-    })
-  }
-
-  if (includeProductName && chunk.length > 0) {
-    const productHeaders: any[] = []
-    const productWidths: any[] = []
-    if (includeProductName) {
-      productHeaders.push({ text: 'Item', bold: true, fontSize: 7 })
-      productWidths.push('*')
-    }
-    if (includeQty) {
-      productHeaders.push({ text: 'Qty', bold: true, fontSize: 7, alignment: 'right' })
-      productWidths.push(28)
-    }
-    if (includeCost) {
-      productHeaders.push({ text: 'Price', bold: true, fontSize: 7, alignment: 'right' })
-      productWidths.push(42)
-    }
-    if (includeSku) {
-      productHeaders.push({ text: 'SKU', bold: true, fontSize: 7 })
-      productWidths.push(46)
-    }
-    if (includeDimension) {
-      productHeaders.push({ text: 'Dim', bold: true, fontSize: 7 })
-      productWidths.push(46)
-    }
-    if (includeDeadWeight) {
-      productHeaders.push({ text: 'Weight', bold: true, fontSize: 7, alignment: 'right' })
-      productWidths.push(40)
-    }
-
-    const productRows = chunk.map((p: any) => {
-      const rowCells: any[] = []
-      const itemName = p.name ?? p.productName ?? p.box_name ?? '-'
-      const qty = Number(p.qty ?? p.quantity ?? 1)
-      const price = getDisplayedUnitPrice(p)
-      const sku = p.sku ?? p.skuCode ?? '-'
-      const dim =
-        p.length && p.breadth && p.height
-          ? `${p.length}x${p.breadth}x${p.height}`
-          : order.length && order.breadth && order.height
-          ? `${order.length}x${order.breadth}x${order.height}`
-          : '-'
-      const deadWeight = order.weight ? `${order.weight}g` : '-'
-
-      if (includeProductName) {
-        rowCells.push({
-          stack: [
-            { text: String(itemName || '-').trim() || '-', fontSize: 7, bold: true, color: darkTextColor },
-            ...(includeSku && String(sku || '').trim() && String(sku || '').trim() !== '-'
-              ? [{ text: `SKU: ${String(sku).trim()}`, fontSize: 6, color: mutedTextColor, margin: [0, 1, 0, 0] }]
-              : []),
-          ],
-        })
-      }
-      if (includeQty) rowCells.push({ text: String(qty), alignment: 'right', fontSize: 7 })
-      if (includeCost)
-        rowCells.push({ text: formatCurrency(price), alignment: 'right', fontSize: 7 })
-      if (includeSku) rowCells.push({ text: String(sku || '-').trim() || '-', fontSize: 6, noWrap: false })
-      if (includeDimension) rowCells.push({ text: trimText(dim, 18), fontSize: 7 })
-      if (includeDeadWeight) rowCells.push({ text: deadWeight, alignment: 'right', fontSize: 7 })
-
-      return rowCells
-    })
-
-    const summaryLabelColSpan = Math.max(1, productWidths.length - (includeCost ? 1 : 0))
-    const showProductValueRows = includeCost || showOrderValueSection
-
-    pageContent.push({
-      table: {
-        headerRows: 1,
-        widths: productWidths,
-        body: [
-          productHeaders,
-          ...productRows,
-          ...(showOrderValueSection && order.otherCharges
-            ? [
-                [
-                  {
-                    text: 'Other Charges',
-                    colSpan: summaryLabelColSpan,
-                    fontSize: 11,
-                    bold: true,
-                  },
-                  ...Array.from({ length: summaryLabelColSpan - 1 }, () => ({})),
-                  ...(includeCost
-                    ? [{ text: formatCurrency(order.otherCharges), alignment: 'right', fontSize: 11 }]
-                    : []),
-                ],
-              ]
-            : []),
-          ...(showProductValueRows
-            ? [
-                [
-                  {
-                    text: 'Total',
-                    colSpan: summaryLabelColSpan,
-                    fontSize: 11,
-                    fontWeight: '700' as any,
-                  },
-                  ...Array.from({ length: summaryLabelColSpan - 1 }, () => ({})),
-                  ...(includeCost
-                    ? [{ text: formatCurrency(order.order_amount), alignment: 'right', fontSize: 11, fontWeight: '700' as any }]
-                    : []),
-                ],
-              ]
-            : []),
-        ],
-      },
-      layout: {
-        hLineColor: () => '#e2e8f0',
-        vLineColor: () => '#e2e8f0',
-        paddingLeft: () => 5,
-        paddingRight: () => 5,
-        paddingTop: () => 3,
-        paddingBottom: () => 3,
-      },
-      margin: [0, 0, 0, 5],
-    })
-  }
-
-  if (showOrderValueSection) {
-    const productValue = products.reduce((sum: number, p: any) => {
-      const qty = Math.max(1, toAmount(p?.qty ?? p?.quantity ?? 1))
-      return sum + Math.max(0, getDisplayedUnitPrice(p) * qty)
-    }, 0)
-    const normalizedOrderValue = toAmount(order.order_amount)
-    const orderValue = normalizedOrderValue > 0 ? normalizedOrderValue : productValue
-    const codCollectibleRaw = toAmount(order.cod_amount ?? order.order_amount)
-    const codCollectible =
-      paymentType === 'cod'
-        ? codCollectibleRaw > 0
-          ? codCollectibleRaw
-          : orderValue
-        : 0
-
-    const summaryParts = [`Order Value: ${formatCurrency(orderValue)}`]
-    summaryParts.push(
-      paymentType === 'cod'
-        ? `Collect on Delivery: ${formatCurrency(codCollectible)}`
-        : 'Payment: PREPAID',
-    )
-
-    pageContent.push({
-      text: summaryParts.join(' | '),
-      fontSize: 8,
-      bold: true,
-      margin: [0, 0, 0, 4],
-      color: darkTextColor,
-    })
-  }
-
-  if (showRto && rto.address) {
-    pageContent.push({
-      table: {
-        widths: ['*'],
-        body: [[{ text: `RTO: ${trimText(buildAddress(rto), 120)}`, fontSize: 7, bold: true }]],
-      },
-      layout: {
-        hLineColor: () => '#dbeafe',
-        vLineColor: () => '#dbeafe',
-        paddingLeft: () => 6,
-        paddingRight: () => 6,
-        paddingTop: () => 4,
-        paddingBottom: () => 4,
-        fillColor: () => '#f8fafc',
-      },
-      margin: [0, 0, 0, 4],
-    })
-  }
-
-  const additionalBarcodes: any[] = []
-  if (showOrderBarcode && images.orderBarcode) {
-    additionalBarcodes.push({
-      stack: [
-        { text: 'Order Barcode', fontSize: 6, alignment: 'center', color: '#64748b' },
-        { image: 'orderBarcode', width: 98, alignment: 'center', margin: [0, 1, 0, 0] },
-      ],
-    })
-  }
-  if (showInvoiceBarcode && images.invoiceBarcode) {
-    additionalBarcodes.push({
-      stack: [
-        { text: 'Invoice Barcode', fontSize: 6, alignment: 'center', color: '#64748b' },
-        { image: 'invoiceBarcode', width: 98, alignment: 'center', margin: [0, 1, 0, 0] },
-      ],
-    })
-  }
-  if (additionalBarcodes.length > 0) {
-    pageContent.push({
-      stack: [
-        { text: 'Reference Barcodes', fontSize: 7, color: primaryColor, bold: true, margin: [0, 0, 0, 2] },
-        {
-          table: {
-            widths: additionalBarcodes.map(() => '*'),
-            body: [additionalBarcodes],
+  pageContent.push({
+    table: {
+      widths: ['50%', '50%'],
+      body: [
+        [
+          {
+            stack: [
+              detailLabel('ORDER ID:'),
+              detailValue(String(order.order_number || '-')),
+              detailLabel('DATE & TIME:'),
+              detailValue(formatLabelDateTime(order.order_date || order.created_at)),
+              detailLabel('PAYMENT MODE:'),
+              detailValue(paymentModeLabel),
+            ],
+            minHeight: 118,
           },
-          layout: 'noBorders',
-        },
+          {
+            stack: [
+              detailLabel('COURIER:'),
+              detailValue(courierName.toUpperCase()),
+              detailLabel('AWB NO.:'),
+              detailValue(String(order.awb_number || '-')),
+              detailLabel('SERVICE TYPE:'),
+              detailValue(serviceType),
+              detailLabel('WEIGHT:'),
+              detailValue(chargeableWeight),
+              detailLabel('PIECES:'),
+              { text: `${packageCount} / ${packageCount}`, fontSize: 7, color: darkTextColor },
+            ],
+            minHeight: 118,
+          },
+        ],
       ],
-      margin: [0, 1, 0, 5],
-    })
-  }
+    },
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
+  })
 
-  if (showTerms) {
-    pageContent.push({
-      text: 'T&C: Inspect shipment before accepting. Report issues immediately to support.',
-      fontSize: 6,
-      color: '#64748b',
-      italics: true,
-      margin: [0, 1, 0, 2],
-    })
-  }
+  pageContent.push({
+    table: {
+      widths: ['*'],
+      body: [
+        [
+          awbEnabled && images.awbBarcode
+            ? {
+                image: 'awbBarcode',
+                fit: [235, 62],
+                alignment: 'center',
+                margin: [0, 8, 0, 6],
+              }
+            : {
+                text: safeLine(order.awb_number || '-', 28),
+                alignment: 'center',
+                fontSize: 18,
+                bold: true,
+                margin: [0, 24, 0, 24],
+              },
+        ],
+      ],
+    },
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
+  })
 
-  if (showPlatformBranding) {
-    const footerStack: any[] = []
-    if (images.platformLogo) {
-      footerStack.push({ image: 'platformLogo', width: 40, alignment: 'center', margin: [0, 0, 0, 1] })
-    }
-    footerStack.push({
-      text: `Powered by ${settings.powered_by}`,
-      fontSize: 6,
-      alignment: 'center',
-      color: '#94a3b8',
-      italics: true,
-    })
-    pageContent.push({ stack: footerStack, margin: [0, 1, 0, 0] })
-  }
+  pageContent.push({
+    table: {
+      headerRows: 1,
+      widths: ['*', 42, 68, 68],
+      body: [
+        [
+          { text: 'ITEM NAME', bold: true, fontSize: 7, alignment: 'center' },
+          { text: 'QTY', bold: true, fontSize: 7, alignment: 'center' },
+          { text: 'PRICE', bold: true, fontSize: 7, alignment: 'center' },
+          { text: 'SKU', bold: true, fontSize: 7, alignment: 'center' },
+        ],
+        ...productRows,
+      ],
+    },
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
+  })
+
+  pageContent.push({
+    table: {
+      widths: ['*'],
+      body: [
+        [
+          {
+            stack: [
+              { text: 'SELLER NAME:', bold: true, fontSize: 9, margin: [0, 0, 0, 6] },
+              { text: safeLine(sellerName || '-', 60), fontSize: 7, margin: [0, 0, 0, 12] },
+              { text: 'SELLER ADDRESS:', bold: true, fontSize: 9, margin: [0, 0, 0, 6] },
+              ...sellerAddressLines.map((line) => ({
+                text: safeLine(line, 70),
+                fontSize: 7,
+                margin: [0, 0, 0, 4],
+              })),
+            ],
+            minHeight: 78,
+          },
+        ],
+      ],
+    },
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
+  })
+
+  pageContent.push({
+    table: {
+      widths: ['*'],
+      body: [
+        [
+          {
+            stack: bottomMessage.map((line, index) => ({
+              text: line,
+              alignment: 'right',
+              fontSize: index === 0 ? 8 : 7,
+              bold: index === 0,
+              margin: [0, 0, 0, index === 0 ? 3 : 0],
+            })),
+            minHeight: 26,
+          },
+        ],
+      ],
+    },
+    layout: sectionLayout,
+    margin: [0, 0, 0, 0],
+  })
 
   // Push pageContent to pages array - CRITICAL: Without this, label will be empty!
   if (pageContent.length === 0) {
