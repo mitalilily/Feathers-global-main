@@ -1,32 +1,48 @@
 import { Box } from '@mui/material'
 import Checkbox, { type CheckboxProps } from '@mui/material/Checkbox'
 
-// Improved tick SVG with animation - extends outside box
+const CHECKBOX_BLUE = '#0052B8'
+
 const CustomTick = ({ checked }: { checked?: boolean }) => (
   <svg
-    width="28"
-    height="28"
-    viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
     fill="none"
-    stroke="#3DD598" // Green accent color
-    strokeWidth="3"
+    stroke="#FFFFFF"
+    strokeWidth="2.4"
     strokeLinecap="round"
     strokeLinejoin="round"
     style={{
       position: 'absolute',
       top: '50%',
       left: '50%',
-      transform: checked ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.8)',
+      transform: checked ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.85)',
       pointerEvents: 'none',
       opacity: checked ? 1 : 0,
-      transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+      transition: 'opacity 0.12s ease, transform 0.12s ease',
     }}
   >
-    <polyline points="4 12 9 17 20 6" />
+    <polyline points="3 8.4 6.6 12 13 4.4" />
   </svg>
 )
 
 export default function CustomCheckbox(props: CheckboxProps) {
+  const checkboxSx: CheckboxProps['sx'] = {
+    padding: '8px',
+    '&:hover': {
+      backgroundColor: 'rgba(0, 82, 184, 0.06)',
+    },
+    '&.Mui-focusVisible': {
+      outline: `2px solid ${CHECKBOX_BLUE}`,
+      outlineOffset: '2px',
+      borderRadius: '4px',
+    },
+    '& .MuiTouchRipple-root': {
+      color: 'rgba(0, 82, 184, 0.22)',
+    },
+  }
+
   return (
     <Checkbox
       {...props}
@@ -35,10 +51,10 @@ export default function CustomCheckbox(props: CheckboxProps) {
       icon={
         <Box
           sx={{
-            width: 20,
-            height: 20,
-            borderRadius: '6px',
-            border: '2px solid #E0E6ED',
+            width: 16,
+            height: 16,
+            borderRadius: '2px',
+            border: '1.5px solid #8EA3BC',
             boxSizing: 'border-box',
             display: 'inline-flex',
             alignItems: 'center',
@@ -47,8 +63,8 @@ export default function CustomCheckbox(props: CheckboxProps) {
             backgroundColor: '#FFFFFF',
             transition: 'all 0.2s ease',
             '&:hover': {
-              borderColor: '#047b85',
-              boxShadow: '0 0 0 3px rgba(51, 51, 105, 0.08)',
+              borderColor: CHECKBOX_BLUE,
+              boxShadow: '0 0 0 3px rgba(0, 82, 184, 0.12)',
             },
           }}
         />
@@ -56,45 +72,29 @@ export default function CustomCheckbox(props: CheckboxProps) {
       checkedIcon={
         <Box
           sx={{
-            width: 20,
-            height: 20,
-            borderRadius: '6px',
-            border: '2px solid #047b85',
+            width: 16,
+            height: 16,
+            borderRadius: '2px',
+            border: `1.5px solid ${CHECKBOX_BLUE}`,
             boxSizing: 'border-box',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             position: 'relative',
-            backgroundColor: '#FFFFFF', // White background when checked
+            backgroundColor: CHECKBOX_BLUE,
             transition: 'all 0.2s ease',
-            overflow: 'visible', // Allow tick to extend outside
+            overflow: 'hidden',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
             '&:hover': {
-              borderColor: '#2F3B5F',
-              boxShadow: '0 0 0 3px rgba(51, 51, 105, 0.12)',
+              borderColor: CHECKBOX_BLUE,
+              boxShadow: '0 0 0 3px rgba(0, 82, 184, 0.16), inset 0 1px 0 rgba(255,255,255,0.22)',
             },
           }}
         >
           <CustomTick checked />
         </Box>
       }
-      sx={{
-        padding: '8px',
-        overflow: 'visible', // Allow tick to extend outside checkbox area
-        '&:hover': {
-          backgroundColor: 'rgba(51, 51, 105, 0.04)',
-        },
-        '&.Mui-focusVisible': {
-          outline: '2px solid #047b85',
-          outlineOffset: '2px',
-          borderRadius: '4px',
-        },
-        '& .MuiTouchRipple-root': {
-          color: 'rgba(51, 51, 105, 0.3)',
-        },
-        '& svg': {
-          overflow: 'visible', // Ensure SVG tick can extend beyond bounds
-        },
-      }}
+      sx={Array.isArray(props.sx) ? [checkboxSx, ...props.sx] : [checkboxSx, props.sx]}
     />
   )
 }

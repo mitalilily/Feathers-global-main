@@ -66,6 +66,7 @@ const OrdersTable = ({
     remarks: '',
     attemptNo: '1',
   })
+  const [selectedOrderIds, setSelectedOrderIds] = useState([])
   const [syncingTrackingOrderId, setSyncingTrackingOrderId] = useState(null)
   const history = useHistory()
   const toast = useToast()
@@ -551,6 +552,9 @@ const OrdersTable = ({
         perPage={perPage}
         setPerPage={setPerPage}
         perPageOptions={[10, 20, 50, 100]}
+        showCheckboxes
+        selectedRows={selectedOrderIds}
+        onSelectionChange={setSelectedOrderIds}
         columnWidths={{
           order_id: '140px',
           awb_number: '180px',

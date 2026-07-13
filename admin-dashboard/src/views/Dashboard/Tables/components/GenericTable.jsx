@@ -51,6 +51,35 @@ export const GenericTable = ({
   const shellBg = useColorModeValue('rgba(255,255,255,0.9)', 'rgba(14, 23, 43, 0.88)')
   const scrollRef = useRef(null)
   const [isScrolled, setIsScrolled] = useState(false)
+  const orderCheckboxStyles = {
+    '.chakra-checkbox__control': {
+      width: '16px',
+      height: '16px',
+      borderRadius: '2px',
+      borderColor: '#8EA3BC',
+      borderWidth: '1.5px',
+      boxShadow: 'none',
+      transition: 'all 0.15s ease',
+    },
+    '.chakra-checkbox__control[data-checked], .chakra-checkbox__control[data-indeterminate]': {
+      bg: '#0052B8',
+      borderColor: '#0052B8',
+      color: 'white',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
+    },
+    '.chakra-checkbox__control[data-focus]': {
+      boxShadow: '0 0 0 3px rgba(0, 82, 184, 0.16)',
+    },
+    '.chakra-checkbox__control:hover': {
+      borderColor: '#0052B8',
+      boxShadow: '0 0 0 3px rgba(0, 82, 184, 0.12)',
+    },
+    '.chakra-checkbox__control svg': {
+      width: '13px',
+      height: '13px',
+      strokeWidth: 3,
+    },
+  }
 
   useEffect(() => {
     const el = scrollRef.current
@@ -124,6 +153,7 @@ export const GenericTable = ({
                       isChecked={selectedRows.length === data.length && data.length > 0}
                       isIndeterminate={selectedRows.length > 0 && selectedRows.length < data.length}
                       onChange={toggleSelectAll}
+                      sx={orderCheckboxStyles}
                     />
                   </Th>
                 )}
@@ -193,7 +223,11 @@ export const GenericTable = ({
                     checkboxComponent={
                       showCheckboxes ? (
                         <Td ps={8}>
-                          <Checkbox isChecked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
+                          <Checkbox
+                            isChecked={selectedRows.includes(row.id)}
+                            onChange={() => toggleRow(row.id)}
+                            sx={orderCheckboxStyles}
+                          />
                         </Td>
                       ) : null
                     }

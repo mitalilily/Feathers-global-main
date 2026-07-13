@@ -48,6 +48,7 @@ const B2BOrdersList = ({
   )
   const { mutate: triggerManifest, isPending: isGeneratingManifest } = useGenerateManifest()
   const [manifestingAwb, setManifestingAwb] = useState<string | null>(null)
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Array<B2BOrder['id']>>([])
 
   const handleGenerateManifest = (order: B2BOrder) => {
     if (!order.awb_number) return
@@ -175,15 +176,22 @@ const B2BOrdersList = ({
           loadingLabel="Updating B2B orders..."
           emptyMessage="No B2B orders match the current filters."
           pagination
+          selectable
           currentPage={page - 1}
           expandable
           renderExpandedRow={(row) => <OrderExpandedRow type="b2b" row={row} />}
           defaultRowsPerPage={rowsPerPage}
           totalCount={data?.totalCount || 0}
-          onPageChange={(newPage) => setPage(newPage + 1)}
+          selectedRowIds={selectedOrderIds}
+          onSelectRows={(ids) => setSelectedOrderIds(ids)}
+          onPageChange={(newPage) => {
+            setPage(newPage + 1)
+            setSelectedOrderIds([])
+          }}
           onRowsPerPageChange={(newLimit) => {
             setRowsPerPage(newLimit)
             setPage(1)
+            setSelectedOrderIds([])
           }}
         />
       )}
