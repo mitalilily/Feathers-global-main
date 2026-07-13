@@ -9855,6 +9855,7 @@ interface OrderFilters {
   fromDate?: string
   toDate?: string
   search?: string
+  labelGenerated?: 'yes' | 'no' | string
   sortBy?: 'created_at'
   sortOrder?: 'asc' | 'desc'
 }
@@ -9877,6 +9878,12 @@ export const getB2COrdersByUserService = async (
     } else {
       conditions.push(eq(b2c_orders.order_status, filters.status))
     }
+  }
+
+  if (filters.labelGenerated === 'yes') {
+    conditions.push(eq(b2c_orders.label_generated_once, true))
+  } else if (filters.labelGenerated === 'no') {
+    conditions.push(eq(b2c_orders.label_generated_once, false))
   }
 
   // 🔹 Type filter (COD / Prepaid)
@@ -13984,7 +13991,8 @@ export interface PaginationParams {
 }
 
 export interface IOrderFilters {
-  status?: string
+  status?: string | string[]
+  labelGenerated?: 'yes' | 'no' | string
   fromDate?: string
   toDate?: string
   search?: string
@@ -14007,6 +14015,7 @@ export const getAllOrdersService = async (
     filters: {
       userId,
       status: filters.status,
+      labelGenerated: filters.labelGenerated,
       fromDate: filters.fromDate,
       toDate: filters.toDate,
       search: filters.search,

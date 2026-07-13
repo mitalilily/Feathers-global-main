@@ -96,6 +96,7 @@ export const b2c_orders = pgTable(
   provider_meta: jsonb('provider_meta'),
   is_insurance: boolean('is_insurance').default(false),
   label: varchar('label', { length: 100 }),
+  label_generated_once: boolean('label_generated_once').default(false).notNull(),
   // Sort / routing code from courier label (e.g. JBN/JBN/PA)
   sort_code: varchar('sort_code', { length: 100 }),
   invoice_link: varchar('invoice_link', { length: 300 }),

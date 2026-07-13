@@ -9,6 +9,7 @@ import { b2bOrderListSelect, b2cOrderListSelect } from './orderListSelects'
 export interface CombinedOrderFilters {
   userId?: string
   status?: string | string[]
+  labelGenerated?: 'yes' | 'no' | string
   fromDate?: string
   toDate?: string
   search?: string
@@ -138,6 +139,12 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
   const statusCondition = buildStatusCondition(`${alias}.order_status`, filters.status)
   if (statusCondition) {
     conditions.push(statusCondition)
+  }
+
+  if (filters.labelGenerated === 'yes') {
+    conditions.push(sql`COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = true`)
+  } else if (filters.labelGenerated === 'no') {
+    conditions.push(sql`COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = false`)
   }
 
   if (filters.fromDate) {

@@ -23,7 +23,8 @@ export const getAllOrdersControllerAdmin = async (req: any, res: Response) => {
 
     // Filters from query
     const filters = {
-      status: req.query.status as string | undefined,
+      status: String(req.query.status || '').split(',').map((value) => value.trim()).filter(Boolean),
+      labelGenerated: req.query.labelGenerated as string | undefined,
       fromDate: req.query.fromDate as string | undefined,
       toDate: req.query.toDate as string | undefined,
       search: req.query.search as string | undefined,
@@ -50,7 +51,8 @@ export const exportOrdersControllerAdmin = async (req: any, res: Response) => {
   try {
     // Filters from query
     const filters = {
-      status: req.query.status as string | undefined,
+      status: String(req.query.status || '').split(',').map((value) => value.trim()).filter(Boolean),
+      labelGenerated: req.query.labelGenerated as string | undefined,
       fromDate: req.query.fromDate as string | undefined,
       toDate: req.query.toDate as string | undefined,
       search: req.query.search as string | undefined,

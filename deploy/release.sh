@@ -200,6 +200,7 @@ const migrationFiles = [
   'migration_allow_multiple_stores_per_user.sql',
   'migration_normalize_xpressbees_rate_provider.sql',
   'migration_add_xpressbees_manual_awb_ranges.sql',
+  'migration_add_label_generated_once.sql',
 ]
 
 const existingMigrations = migrationFiles

@@ -64,7 +64,6 @@ import { SupportTicketForm } from '../support/SupportTicketForm'
 import StatusChip from '../UI/chip/StatusChip'
 import CustomDrawer from '../UI/drawer/CustomDrawer'
 import CustomSelect from '../UI/inputs/CustomSelect'
-import { SmartTabs } from '../UI/tab/Tabs'
 import DataTable, { type Column } from '../UI/table/DataTable'
 import TableSkeleton from '../UI/table/TableSkeleton'
 import { toast } from '../UI/Toast'
@@ -104,6 +103,7 @@ type OrdersFilters = {
   toDate?: string
   search?: string
   productQuery?: string
+  labelGenerated?: 'yes' | 'no' | ''
   sortBy?: 'created_at'
   sortOrder?: 'asc' | 'desc'
 }
@@ -1532,6 +1532,15 @@ const AllOrders = () => {
       type: 'date',
       placeholder: 'YYYY-MM-DD',
     },
+    {
+      name: 'labelGenerated',
+      label: 'Label Generated',
+      type: 'select',
+      options: [
+        { label: 'Generated', value: 'yes' },
+        { label: 'No', value: 'no' },
+      ],
+    },
   ]
 
   const handleTabChange = (newValue: string) => {
@@ -1541,12 +1550,26 @@ const AllOrders = () => {
     setBulkFeedback(null)
   }
 
-  const statusTabs = [
-    { label: 'All', value: '' },
-    ...Object.keys(statusColorMap).map((status) => ({
-      label: status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' '),
-      value: status,
-    })),
+  const shipmentStageGroups = [
+    { label: 'Shipment Booking', stages: [
+      { label: 'New', value: 'pending,manifest_failed' },
+      { label: 'Courier Assigned', value: 'booked,shipment_created' },
+      { label: 'Pickups & Manifests', value: 'pickup_initiated,manifest_generated' },
+    ] },
+    { label: 'Shipment Journey', stages: [
+      { label: 'In Transit', value: 'in_transit' },
+      { label: 'Out For Delivery', value: 'out_for_delivery' },
+      { label: 'Delivered', value: 'delivered' },
+    ] },
+    { label: 'NDR Exceptions', stages: [
+      { label: 'NDR', value: 'ndr,undelivered' },
+      { label: 'RTO In-Transit', value: 'rto,rto_in_transit' },
+      { label: 'RTO Delivered', value: 'rto_delivered' },
+    ] },
+    { label: '', stages: [
+      { label: 'All', value: '' },
+      { label: 'Archive', value: 'cancelled,cancellation_requested' },
+    ] },
   ]
 
   const hasActiveFilters = Object.values(filters).some((v) => v !== undefined && v !== '')
@@ -1962,12 +1985,23 @@ const AllOrders = () => {
           >
             Status
           </Typography>
-          <SmartTabs
-            showDivider={false}
-            tabs={statusTabs}
-            value={selectedTab}
-            onChange={handleTabChange}
-          />
+          <Box sx={{ overflowX: 'auto' }}>
+            <Stack direction="row" spacing={2} sx={{ minWidth: 'max-content' }}>
+              {shipmentStageGroups.map((group) => (
+                <Box key={group.label || 'all'}>
+                  <Typography sx={{ fontSize: 11, fontWeight: 700, mb: 0.5, color: '#475569' }}>
+                    {group.label || '\u00a0'}
+                  </Typography>
+                  <Stack direction="row" spacing={0}>
+                    {group.stages.map((stage, index) => {
+                      const active = selectedTab === stage.value
+                      return <Button key={stage.label} size="small" onClick={() => handleTabChange(stage.value)} sx={{ minHeight: 42, px: 2, border: '1px solid #D9E2EC', borderLeftWidth: index ? 0 : 1, borderRadius: index === 0 ? '14px 0 0 14px' : index === group.stages.length - 1 ? '0 14px 14px 0' : 0, bgcolor: active ? '#0F87A8' : '#fff', color: active ? '#fff' : '#0F172A', fontWeight: active ? 700 : 600, textTransform: 'none', '&:hover': { bgcolor: active ? '#0D7896' : '#F8FAFC' } }}>{stage.label}</Button>
+                    })}
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
         </Stack>
 
         <Box mt={4}>

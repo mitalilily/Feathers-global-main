@@ -41,6 +41,7 @@ const Orders = () => {
     search: initialSearch,
     fromDate: '',
     toDate: '',
+    labelGenerated: '',
   })
   const [isExporting, setIsExporting] = useState(false)
 
@@ -144,10 +145,54 @@ const Orders = () => {
       placeholder: 'Start Date',
     },
     {
+      key: 'labelGenerated',
+      label: 'Label Generated',
+      type: 'select',
+      placeholder: 'Any label status',
+      options: [
+        { value: 'yes', label: 'Generated' },
+        { value: 'no', label: 'No' },
+      ],
+    },
+    {
       key: 'toDate',
       label: 'To Date',
       type: 'date',
       placeholder: 'End Date',
+    },
+  ]
+
+  const shipmentStageGroups = [
+    {
+      label: 'Shipment Booking',
+      stages: [
+        { label: 'New', value: 'pending,manifest_failed' },
+        { label: 'Courier Assigned', value: 'booked,shipment_created' },
+        { label: 'Pickups & Manifests', value: 'pickup_initiated,manifest_generated' },
+      ],
+    },
+    {
+      label: 'Shipment Journey',
+      stages: [
+        { label: 'In Transit', value: 'in_transit' },
+        { label: 'Out For Delivery', value: 'out_for_delivery' },
+        { label: 'Delivered', value: 'delivered' },
+      ],
+    },
+    {
+      label: 'NDR Exceptions',
+      stages: [
+        { label: 'NDR', value: 'ndr,undelivered' },
+        { label: 'RTO In-Transit', value: 'rto,rto_in_transit' },
+        { label: 'RTO Delivered', value: 'rto_delivered' },
+      ],
+    },
+    {
+      label: '',
+      stages: [
+        { label: 'All', value: '' },
+        { label: 'Archive', value: 'cancelled,cancellation_requested' },
+      ],
     },
   ]
 
@@ -284,6 +329,40 @@ const Orders = () => {
           </Select>
         </HStack>
       </Flex>
+
+      <Box overflowX="auto" mb={4} pb={1}>
+        <HStack spacing={4} align="flex-end" minW="max-content">
+          {shipmentStageGroups.map((group) => (
+            <Box key={group.label || 'all'}>
+              <Text fontSize="xs" fontWeight="700" color="gray.600" mb={1}>
+                {group.label || '\u00a0'}
+              </Text>
+              <HStack spacing={0}>
+                {group.stages.map((stage, index) => {
+                  const active = filters.status === stage.value
+                  return (
+                    <Button
+                      key={stage.label}
+                      size="sm"
+                      h="44px"
+                      px={4}
+                      borderRadius={index === 0 ? '14px 0 0 14px' : index === group.stages.length - 1 ? '0 14px 14px 0' : 0}
+                      borderWidth="1px"
+                      borderLeftWidth={index ? 0 : '1px'}
+                      bg={active ? 'brand.500' : 'white'}
+                      color={active ? 'white' : 'gray.800'}
+                      _hover={{ bg: active ? 'brand.600' : 'gray.50' }}
+                      onClick={() => handleStatusFilter(stage.value)}
+                    >
+                      {stage.label}
+                    </Button>
+                  )
+                })}
+              </HStack>
+            </Box>
+          ))}
+        </HStack>
+      </Box>
 
       <Card mb={4} boxShadow="sm" borderRadius="24px">
         <CardBody p={{ base: 4, md: 5 }}>

@@ -366,7 +366,8 @@ export const getAllOrdersController = async (req: any, res: Response) => {
 
     // Filters from query
     const filters = {
-      status: req.query.status as string | undefined,
+      status: String(req.query.status || '').split(',').map((value) => value.trim()).filter(Boolean),
+      labelGenerated: req.query.labelGenerated as string | undefined,
       fromDate: req.query.fromDate as string | undefined,
       toDate: req.query.toDate as string | undefined,
       search: req.query.search as string | undefined,
@@ -412,7 +413,8 @@ export const getB2COrdersController = async (req: Request, res: Response) => {
 
     // Filters from query
     const filters = {
-      status: normalizedStatus || undefined,
+      status: normalizedStatus ? normalizedStatus.split(',').filter(Boolean) : undefined,
+      labelGenerated: req.query.labelGenerated as string | undefined,
       type: req.query.type as string | undefined,
       courier: req.query.courier as string | undefined,
       warehouse: req.query.warehouse as string | undefined,

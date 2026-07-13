@@ -46,6 +46,7 @@ export const b2b_orders = pgTable(
   country: varchar('country', { length: 100 }).default('India'),
   pincode: varchar('pincode', { length: 20 }).notNull(),
   label: varchar('label', { length: 100 }),
+  label_generated_once: boolean('label_generated_once').default(false).notNull(),
   invoice_link: varchar('invoice_link', { length: 300 }),
   manifest: varchar('manifest', { length: 100 }),
 
