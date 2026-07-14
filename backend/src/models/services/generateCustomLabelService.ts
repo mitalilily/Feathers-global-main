@@ -323,6 +323,24 @@ export async function generateLabelForOrder(
     margin: [0, 0, 0, 4],
   })
 
+  const compactDetailCell = (label: string, value: string, valueMaxLength = 34) => ({
+    stack: [
+      {
+        text: label,
+        bold: true,
+        fontSize: 6,
+        color: darkTextColor,
+        margin: [0, 0, 0, 1],
+      },
+      {
+        text: safeLine(value || '-', valueMaxLength),
+        fontSize: 6.1,
+        bold: true,
+        color: darkTextColor,
+      },
+    ],
+  })
+
   // Prefer a locally generated AWB barcode so labels do not repeat the AWB text below the bars.
   // Courier barcode images are still used as a fallback when an AWB number is unavailable.
   let awbBarcode: string | null = null
@@ -480,10 +498,6 @@ export async function generateLabelForOrder(
     consignee.country || order.country || 'India',
     showCustomerPhone && consignee.phone ? `Phone: ${consignee.phone}` : '',
   )
-  const sellerWebsite = safeLine(companyInfo.website, 40)
-  const bottomMessage = sellerWebsite
-    ? ['THANK YOU FOR SHIPPING WITH US!', sellerWebsite]
-    : ['THANK YOU FOR SHIPPING WITH US!']
   const productRows = (chunk.length ? chunk : [{}]).map((product: any) => {
     const itemName = product.name ?? product.productName ?? product.box_name ?? '-'
     const qty = Math.max(1, Number(product.qty ?? product.quantity ?? 1) || 1)
@@ -491,10 +505,10 @@ export async function generateLabelForOrder(
     const sku = product.sku ?? product.skuCode ?? '-'
 
     return [
-      { text: trimText(itemName, 28), fontSize: 7, alignment: 'left' },
-      { text: String(qty), fontSize: 7, alignment: 'center' },
+      { text: String(itemName || '-').trim() || '-', fontSize: 6.75, bold: true, alignment: 'left' },
+      { text: String(qty), fontSize: 6.75, bold: true, alignment: 'center' },
       { text: formatCurrency(price), fontSize: 7, alignment: 'center' },
-      { text: trimText(sku, 18), fontSize: 7, alignment: 'center' },
+      { text: String(sku || '-').trim() || '-', fontSize: 6.75, bold: true, alignment: 'center' },
     ]
   })
 
@@ -565,35 +579,17 @@ export async function generateLabelForOrder(
 
   pageContent.push({
     table: {
-      widths: ['50%', '50%'],
+      widths: ['33%', '33%', '34%'],
       body: [
         [
-          {
-            stack: [
-              detailLabel('ORDER ID:'),
-              detailValue(String(order.order_number || '-')),
-              detailLabel('DATE & TIME:'),
-              detailValue(formatLabelDateTime(order.order_date || order.created_at)),
-              detailLabel('PAYMENT MODE:'),
-              detailValue(paymentModeLabel),
-            ],
-            minHeight: 84,
-          },
-          {
-            stack: [
-              detailLabel('COURIER:'),
-              detailValue(courierName.toUpperCase()),
-              detailLabel('AWB NO.:'),
-              detailValue(String(order.awb_number || '-')),
-              detailLabel('SERVICE TYPE:'),
-              detailValue(serviceType),
-              detailLabel('WEIGHT:'),
-              detailValue(chargeableWeight),
-              detailLabel('PIECES:'),
-              { text: `${packageCount} / ${packageCount}`, fontSize: 6.5, color: darkTextColor },
-            ],
-            minHeight: 84,
-          },
+          compactDetailCell('ORDER ID', String(order.order_number || '-'), 24),
+          compactDetailCell('COURIER', courierName.toUpperCase(), 24),
+          compactDetailCell('DATE & TIME', formatLabelDateTime(order.order_date || order.created_at), 24),
+        ],
+        [
+          compactDetailCell('PAYMENT MODE', paymentModeLabel, 18),
+          compactDetailCell('SERVICE TYPE', serviceType, 20),
+          compactDetailCell('WEIGHT / PIECES', `${chargeableWeight} | ${packageCount} / ${packageCount}`, 26),
         ],
       ],
     },
@@ -606,20 +602,33 @@ export async function generateLabelForOrder(
       widths: ['*'],
       body: [
         [
-          awbEnabled && images.awbBarcode
-            ? {
-                image: 'awbBarcode',
-                fit: [220, 48],
-                alignment: 'center',
-                margin: [0, 4, 0, 2],
-              }
-            : {
-                text: safeLine(order.awb_number || '-', 28),
-                alignment: 'center',
-                fontSize: 14,
-                bold: true,
-                margin: [0, 16, 0, 16],
-              },
+          {
+            stack: awbEnabled && images.awbBarcode
+              ? [
+                  {
+                    text: safeLine(order.awb_number || '-', 28),
+                    alignment: 'center',
+                    fontSize: 11,
+                    bold: true,
+                    margin: [0, 0, 0, 3],
+                  },
+                  {
+                    image: 'awbBarcode',
+                    fit: [220, 42],
+                    alignment: 'center',
+                    margin: [0, 0, 0, 0],
+                  },
+                ]
+              : [
+                  {
+                    text: safeLine(order.awb_number || '-', 28),
+                    alignment: 'center',
+                    fontSize: 12,
+                    bold: true,
+                    margin: [0, 10, 0, 10],
+                  },
+                ],
+          },
         ],
       ],
     },
@@ -662,28 +671,6 @@ export async function generateLabelForOrder(
               })),
             ],
             minHeight: 52,
-          },
-        ],
-      ],
-    },
-    layout: sectionLayout,
-    margin: [0, 0, 0, 0],
-  })
-
-  pageContent.push({
-    table: {
-      widths: ['*'],
-      body: [
-        [
-          {
-            stack: bottomMessage.map((line, index) => ({
-              text: line,
-              alignment: 'right',
-              fontSize: index === 0 ? 6.75 : 6,
-              bold: index === 0,
-              margin: [0, 0, 0, index === 0 ? 1 : 0],
-            })),
-            minHeight: 16,
           },
         ],
       ],
