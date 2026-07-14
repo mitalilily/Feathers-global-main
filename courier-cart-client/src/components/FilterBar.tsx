@@ -19,7 +19,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material'
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Controller,
   useForm,
@@ -92,6 +92,21 @@ export const FilterBar = <T extends Record<string, any>>({
 
   const primaryFields = fields.filter((f) => !f.isAdvanced)
   const advancedFields = fields.filter((f) => f.isAdvanced)
+  const clearedValues = useMemo(
+    () =>
+      fields.reduce(
+        (acc, field) => {
+          acc[field.name as keyof T] = (field.type === 'multiselect' ? [] : '') as T[keyof T]
+          return acc
+        },
+        { ...defaultValues } as T,
+      ),
+    [defaultValues, fields],
+  )
+
+  useEffect(() => {
+    reset(defaultValues as DefaultValues<T>)
+  }, [defaultValues, reset])
 
   const renderFieldControl = (field: FilterField, controllerField: any) => {
     if (field.type === 'select') {
@@ -158,6 +173,13 @@ export const FilterBar = <T extends Record<string, any>>({
 
   const submit = (data: T) => {
     onApply(data)
+    if (isMobile) setDrawerOpen(false)
+    if (mode === 'button' && !isMobile) setPopoverOpen(false)
+  }
+
+  const handleClear = () => {
+    reset(clearedValues as DefaultValues<T>)
+    onApply(clearedValues)
     if (isMobile) setDrawerOpen(false)
     if (mode === 'button' && !isMobile) setPopoverOpen(false)
   }
@@ -233,10 +255,7 @@ export const FilterBar = <T extends Record<string, any>>({
                 <IconButton
                   sx={desktopActionButtonSx}
                   size="small"
-                  onClick={() => {
-                    reset(defaultValues)
-                    onApply({} as T)
-                  }}
+                  onClick={handleClear}
                 >
                   <MdDelete />
                 </IconButton>
@@ -384,10 +403,7 @@ export const FilterBar = <T extends Record<string, any>>({
           </Button>
           <Button
             variant="outlined"
-            onClick={() => {
-              reset(defaultValues)
-              onApply({} as T)
-            }}
+            onClick={handleClear}
             sx={{
               textTransform: 'none',
               fontWeight: 700,
