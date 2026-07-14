@@ -163,7 +163,23 @@ function mergeSettings(prefs: any) {
   }
 }
 
-export async function generateLabelForOrder(order: any, userId: string, tx: any = db) {
+export function generateLabelForOrder(
+  order: any,
+  userId: string,
+  tx?: any,
+): Promise<string>
+export function generateLabelForOrder(
+  order: any,
+  userId: string,
+  tx: any,
+  options: { returnBuffer: true },
+): Promise<Buffer>
+export async function generateLabelForOrder(
+  order: any,
+  userId: string,
+  tx: any = db,
+  options?: { returnBuffer?: boolean },
+): Promise<string | Buffer> {
   console.log('ORDER', order)
 
   // Load preferences
@@ -286,25 +302,25 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     vLineWidth: () => 1,
     hLineColor: () => strongBorderColor,
     vLineColor: () => strongBorderColor,
-    paddingLeft: () => 7,
-    paddingRight: () => 7,
-    paddingTop: () => 7,
-    paddingBottom: () => 7,
+    paddingLeft: () => 4,
+    paddingRight: () => 4,
+    paddingTop: () => 4,
+    paddingBottom: () => 4,
   }
 
   const detailLabel = (text: string) => ({
     text,
     bold: true,
-    fontSize: 7,
+    fontSize: 6.5,
     color: darkTextColor,
-    margin: [0, 0, 0, 3],
+    margin: [0, 0, 0, 2],
   })
 
   const detailValue = (text: string) => ({
     text: safeLine(text || '-', 40),
-    fontSize: 7,
+    fontSize: 6.5,
     color: darkTextColor,
-    margin: [0, 0, 0, 8],
+    margin: [0, 0, 0, 4],
   })
 
   // Prefer a locally generated AWB barcode so labels do not repeat the AWB text below the bars.
@@ -489,21 +505,21 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
         [
           {
             stack: images.logo
-              ? [{ image: 'logo', fit: [120, 52], alignment: 'left', margin: [0, 8, 0, 6] }]
-              : [{ text: trimText(sellerName, 26), fontSize: 20, bold: true, margin: [0, 12, 0, 0] }],
-            minHeight: 72,
+              ? [{ image: 'logo', fit: [92, 38], alignment: 'left', margin: [0, 2, 0, 2] }]
+              : [{ text: trimText(sellerName, 26), fontSize: 16, bold: true, margin: [0, 8, 0, 0] }],
+            minHeight: 48,
           },
           {
             stack: [
               {
                 text: courierName.toUpperCase(),
-                fontSize: 15,
+                fontSize: 11,
                 bold: true,
                 alignment: 'center',
-                margin: [0, 16, 0, 0],
+                margin: [0, 12, 0, 0],
               },
             ],
-            minHeight: 72,
+            minHeight: 48,
           },
         ],
       ],
@@ -519,26 +535,26 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
         [
           {
             stack: [
-              { text: 'SHIP TO:', bold: true, fontSize: 9, margin: [0, 0, 0, 6] },
+              { text: 'SHIP TO:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
               ...shipToLines.map((line) => ({
                 text: safeLine(line, 55),
-                fontSize: 7,
-                margin: [0, 0, 0, 4],
+                fontSize: 6.25,
+                margin: [0, 0, 0, 2],
               })),
             ],
-            minHeight: 120,
+            minHeight: 82,
           },
           {
             stack: [
-              { text: 'AWB', fontSize: 20, bold: true, alignment: 'center', margin: [0, 22, 0, 10] },
+              { text: 'AWB', fontSize: 16, bold: true, alignment: 'center', margin: [0, 14, 0, 6] },
               {
                 text: safeLine(order.awb_number || '-', 28),
-                fontSize: 15,
+                fontSize: 11.5,
                 bold: true,
                 alignment: 'center',
               },
             ],
-            minHeight: 120,
+            minHeight: 82,
           },
         ],
       ],
@@ -561,7 +577,7 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
               detailLabel('PAYMENT MODE:'),
               detailValue(paymentModeLabel),
             ],
-            minHeight: 118,
+            minHeight: 84,
           },
           {
             stack: [
@@ -574,9 +590,9 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
               detailLabel('WEIGHT:'),
               detailValue(chargeableWeight),
               detailLabel('PIECES:'),
-              { text: `${packageCount} / ${packageCount}`, fontSize: 7, color: darkTextColor },
+              { text: `${packageCount} / ${packageCount}`, fontSize: 6.5, color: darkTextColor },
             ],
-            minHeight: 118,
+            minHeight: 84,
           },
         ],
       ],
@@ -593,16 +609,16 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
           awbEnabled && images.awbBarcode
             ? {
                 image: 'awbBarcode',
-                fit: [235, 62],
+                fit: [220, 48],
                 alignment: 'center',
-                margin: [0, 8, 0, 6],
+                margin: [0, 4, 0, 2],
               }
             : {
                 text: safeLine(order.awb_number || '-', 28),
                 alignment: 'center',
-                fontSize: 18,
+                fontSize: 14,
                 bold: true,
-                margin: [0, 24, 0, 24],
+                margin: [0, 16, 0, 16],
               },
         ],
       ],
@@ -617,10 +633,10 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
       widths: ['*', 42, 68, 68],
       body: [
         [
-          { text: 'ITEM NAME', bold: true, fontSize: 7, alignment: 'center' },
-          { text: 'QTY', bold: true, fontSize: 7, alignment: 'center' },
-          { text: 'PRICE', bold: true, fontSize: 7, alignment: 'center' },
-          { text: 'SKU', bold: true, fontSize: 7, alignment: 'center' },
+          { text: 'ITEM NAME', bold: true, fontSize: 6.25, alignment: 'center' },
+          { text: 'QTY', bold: true, fontSize: 6.25, alignment: 'center' },
+          { text: 'PRICE', bold: true, fontSize: 6.25, alignment: 'center' },
+          { text: 'SKU', bold: true, fontSize: 6.25, alignment: 'center' },
         ],
         ...productRows,
       ],
@@ -636,16 +652,16 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
         [
           {
             stack: [
-              { text: 'SELLER NAME:', bold: true, fontSize: 9, margin: [0, 0, 0, 6] },
-              { text: safeLine(sellerName || '-', 60), fontSize: 7, margin: [0, 0, 0, 12] },
-              { text: 'SELLER ADDRESS:', bold: true, fontSize: 9, margin: [0, 0, 0, 6] },
+              { text: 'SELLER NAME:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
+              { text: safeLine(sellerName || '-', 60), fontSize: 6.25, margin: [0, 0, 0, 6] },
+              { text: 'SELLER ADDRESS:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
               ...sellerAddressLines.map((line) => ({
                 text: safeLine(line, 70),
-                fontSize: 7,
-                margin: [0, 0, 0, 4],
+                fontSize: 6.25,
+                margin: [0, 0, 0, 2],
               })),
             ],
-            minHeight: 78,
+            minHeight: 52,
           },
         ],
       ],
@@ -663,11 +679,11 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
             stack: bottomMessage.map((line, index) => ({
               text: line,
               alignment: 'right',
-              fontSize: index === 0 ? 8 : 7,
+              fontSize: index === 0 ? 6.75 : 6,
               bold: index === 0,
-              margin: [0, 0, 0, index === 0 ? 3 : 0],
+              margin: [0, 0, 0, index === 0 ? 1 : 0],
             })),
-            minHeight: 26,
+            minHeight: 16,
           },
         ],
       ],
@@ -686,16 +702,16 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     defaultStyle: { font: 'Helvetica', color: darkTextColor },
     pageSize: settings.printer_type === 'thermal' ? { width: 288, height: 432 } : 'A4',
     content: pages,
-    pageMargins: [10, 10, 10, 10], // Reduced margins for more space
+    pageMargins: [6, 6, 6, 6],
     background: (_currentPage: number, pageSize: { width: number; height: number }) => ({
       canvas: [
         {
           type: 'rect',
-          x: 5,
-          y: 5,
-          w: pageSize.width - 10,
-          h: pageSize.height - 10,
-          lineWidth: 1.4,
+          x: 3,
+          y: 3,
+          w: pageSize.width - 6,
+          h: pageSize.height - 6,
+          lineWidth: 1.1,
           lineColor: strongBorderColor,
         },
       ],
@@ -721,6 +737,10 @@ export async function generateLabelForOrder(order: any, userId: string, tx: any 
     console.log(
       `📄 PDF generated successfully (${pdfBuffer.length} bytes) for order ${order?.order_number}`,
     )
+
+    if (options?.returnBuffer) {
+      return pdfBuffer
+    }
 
     const labelIdentifier = String(order?.order_number ?? order?.id ?? 'order')
       .trim()
