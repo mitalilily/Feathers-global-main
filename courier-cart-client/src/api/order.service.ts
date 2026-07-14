@@ -266,7 +266,7 @@ export interface FetchOrdersListParams {
   toDate?: string
   search?: string
   productQuery?: string
-  labelGenerated?: 'yes' | 'no' | ''
+  labelGenerated?: 'generated' | 'yes' | 'no' | ''
   fetchAll?: boolean
 }
 

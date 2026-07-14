@@ -479,6 +479,7 @@ export const getB2BOrdersController = async (req: any, res: Response) => {
     // Filters from query
     const filters = {
       status: req.query.status as string | undefined,
+      labelGenerated: req.query.labelGenerated as string | undefined,
       fromDate: req.query.fromDate as string | undefined,
       toDate: req.query.toDate as string | undefined,
       search: req.query.search as string | undefined,

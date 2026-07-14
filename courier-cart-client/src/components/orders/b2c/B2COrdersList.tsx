@@ -110,7 +110,7 @@ interface OrderFilters {
   fromDate?: string
   toDate?: string
   search?: string
-  labelGenerated?: 'yes' | 'no' | ''
+  labelGenerated?: 'generated' | 'yes' | 'no' | ''
 }
 
 type BulkFeedback = {
@@ -1198,7 +1198,7 @@ const B2COrdersList = () => {
       label: 'Label Generated',
       type: 'select',
       options: [
-        { label: 'Generated', value: 'yes' },
+        { label: 'Generated', value: 'generated' },
         { label: 'No', value: 'no' },
       ],
       isAdvanced: true,

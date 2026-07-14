@@ -9855,7 +9855,7 @@ interface OrderFilters {
   fromDate?: string
   toDate?: string
   search?: string
-  labelGenerated?: 'yes' | 'no' | string
+  labelGenerated?: 'generated' | 'yes' | 'no' | string
   sortBy?: 'created_at'
   sortOrder?: 'asc' | 'desc'
 }
@@ -9867,6 +9867,9 @@ export const getB2COrdersByUserService = async (
   filters: OrderFilters = {},
 ) => {
   const offset = (page - 1) * limit
+  const normalizedLabelGenerated = String(filters.labelGenerated || '')
+    .trim()
+    .toLowerCase()
 
   // Build conditions array (explicit type)
   const conditions: SQL<unknown>[] = [eq(b2c_orders.user_id, userId)]
@@ -9880,10 +9883,15 @@ export const getB2COrdersByUserService = async (
     }
   }
 
-  if (filters.labelGenerated === 'yes') {
-    conditions.push(eq(b2c_orders.label_generated_once, true))
-  } else if (filters.labelGenerated === 'no') {
-    conditions.push(eq(b2c_orders.label_generated_once, false))
+  const hasGeneratedLabelCondition = sql`(
+    COALESCE(${b2c_orders.label_generated_once}, false) = true
+    OR NULLIF(BTRIM(COALESCE(${b2c_orders.label}, '')), '') IS NOT NULL
+  )`
+
+  if (normalizedLabelGenerated === 'generated' || normalizedLabelGenerated === 'yes') {
+    conditions.push(hasGeneratedLabelCondition)
+  } else if (normalizedLabelGenerated === 'no') {
+    conditions.push(sql`NOT ${hasGeneratedLabelCondition}`)
   }
 
   // 🔹 Type filter (COD / Prepaid)
@@ -10041,10 +10049,24 @@ export const getB2BOrdersByUserService = async (
   filters: OrderFilters = {},
 ) => {
   const offset = (page - 1) * limit
+  const normalizedLabelGenerated = String(filters.labelGenerated || '')
+    .trim()
+    .toLowerCase()
 
   const conditions: any[] = [sql`${b2b_orders.user_id} = ${userId}::uuid`]
 
   // if (filters.status) conditions.push(eq(b2b_orders.order_status, filters.status))
+  const hasGeneratedLabelCondition = sql`(
+    COALESCE(${b2b_orders.label_generated_once}, false) = true
+    OR NULLIF(BTRIM(COALESCE(${b2b_orders.label}, '')), '') IS NOT NULL
+  )`
+
+  if (normalizedLabelGenerated === 'generated' || normalizedLabelGenerated === 'yes') {
+    conditions.push(hasGeneratedLabelCondition)
+  } else if (normalizedLabelGenerated === 'no') {
+    conditions.push(sql`NOT ${hasGeneratedLabelCondition}`)
+  }
+
   if (filters.fromDate)
     conditions.push(
       gte(b2b_orders.order_date, new Date(filters.fromDate).toISOString().slice(0, 10)),
@@ -13992,7 +14014,7 @@ export interface PaginationParams {
 
 export interface IOrderFilters {
   status?: string | string[]
-  labelGenerated?: 'yes' | 'no' | string
+  labelGenerated?: 'generated' | 'yes' | 'no' | string
   fromDate?: string
   toDate?: string
   search?: string

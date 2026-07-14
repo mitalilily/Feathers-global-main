@@ -103,7 +103,7 @@ type OrdersFilters = {
   toDate?: string
   search?: string
   productQuery?: string
-  labelGenerated?: 'yes' | 'no' | ''
+  labelGenerated?: 'generated' | 'yes' | 'no' | ''
   sortBy?: 'created_at'
   sortOrder?: 'asc' | 'desc'
 }
@@ -1537,7 +1537,7 @@ const AllOrders = () => {
       label: 'Label Generated',
       type: 'select',
       options: [
-        { label: 'Generated', value: 'yes' },
+        { label: 'Generated', value: 'generated' },
         { label: 'No', value: 'no' },
       ],
     },

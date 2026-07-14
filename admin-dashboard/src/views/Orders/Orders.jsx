@@ -150,7 +150,7 @@ const Orders = () => {
       type: 'select',
       placeholder: 'Any label status',
       options: [
-        { value: 'yes', label: 'Generated' },
+        { value: 'generated', label: 'Generated' },
         { value: 'no', label: 'No' },
       ],
     },

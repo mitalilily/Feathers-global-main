@@ -103,6 +103,7 @@ interface Filters {
   warehouse?: string
   productQuery?: string
   courier?: string
+  labelGenerated?: 'generated' | 'yes' | 'no' | ''
   fetchAll?: boolean
 }
 
@@ -245,6 +246,7 @@ export interface FetchOrdersParams {
   toDate?: string
   search?: string
   productQuery?: string
+  labelGenerated?: 'generated' | 'yes' | 'no' | ''
 }
 
 export const useAllOrders = (params: FetchOrdersParams) => {

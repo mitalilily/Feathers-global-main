@@ -30,6 +30,7 @@ const B2bOrders = () => {
     fromDate?: string
     toDate?: string
     search?: string
+    labelGenerated?: 'generated' | 'no' | ''
   }>({})
 
   const filterFields: FilterField[] = [
@@ -57,6 +58,16 @@ const B2bOrders = () => {
       label: 'To Date',
       type: 'date',
       placeholder: 'To',
+    },
+    {
+      name: 'labelGenerated',
+      label: 'Label Generated',
+      type: 'select',
+      options: [
+        { label: 'Generated', value: 'generated' },
+        { label: 'No', value: 'no' },
+      ],
+      isAdvanced: true,
     },
   ]
 
@@ -150,7 +161,7 @@ const B2bOrders = () => {
       <FilterBar
         fields={filterFields}
         onApply={handleApplyFilters}
-        defaultValues={{ status: '', fromDate: '', toDate: '', search: '' }}
+        defaultValues={{ status: '', fromDate: '', toDate: '', search: '', labelGenerated: '' }}
         mode="button"
         buttonLabel="Filters"
         appliedCount={Object.values(filters).filter(Boolean).length}

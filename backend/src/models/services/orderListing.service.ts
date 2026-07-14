@@ -9,7 +9,7 @@ import { b2bOrderListSelect, b2cOrderListSelect } from './orderListSelects'
 export interface CombinedOrderFilters {
   userId?: string
   status?: string | string[]
-  labelGenerated?: 'yes' | 'no' | string
+  labelGenerated?: 'generated' | 'yes' | 'no' | string
   fromDate?: string
   toDate?: string
   search?: string
@@ -131,6 +131,9 @@ const buildPickupAlertCondition = (alias: 'b2c' | 'b2b', pickupAlert?: string) =
 
 const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilters) => {
   const conditions: SQL[] = [sql`true`]
+  const normalizedLabelGenerated = String(filters.labelGenerated || '')
+    .trim()
+    .toLowerCase()
 
   if (filters.userId) {
     conditions.push(sql`${sql.raw(`${alias}.user_id`)} = ${filters.userId}`)
@@ -141,10 +144,15 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
     conditions.push(statusCondition)
   }
 
-  if (filters.labelGenerated === 'yes') {
-    conditions.push(sql`COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = true`)
-  } else if (filters.labelGenerated === 'no') {
-    conditions.push(sql`COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = false`)
+  const hasGeneratedLabelCondition = sql`(
+    COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = true
+    OR NULLIF(BTRIM(COALESCE(${sql.raw(`${alias}.label`)}, '')), '') IS NOT NULL
+  )`
+
+  if (normalizedLabelGenerated === 'generated' || normalizedLabelGenerated === 'yes') {
+    conditions.push(hasGeneratedLabelCondition)
+  } else if (normalizedLabelGenerated === 'no') {
+    conditions.push(sql`NOT ${hasGeneratedLabelCondition}`)
   }
 
   if (filters.fromDate) {
