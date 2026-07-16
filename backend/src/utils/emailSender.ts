@@ -125,7 +125,9 @@ export const renderEmailFrame = ({
 // Create SMTP transporter (Hostinger/custom SMTP if provided, else Gmail service)
 const createTransporter = () => {
   if (!GOOGLE_SMTP_PASSWORD) {
-    console.warn('Google SMTP password not configured. Email not sent.')
+    console.error(
+      'SMTP password not configured. Set SMTP_PASSWORD, SMTP_PASS, MAIL_PASSWORD, or GOOGLE_SMTP_PASSWORD.',
+    )
     return null
   }
 
@@ -161,8 +163,7 @@ export const sendEmail = async (
 ) => {
   const transporter = createTransporter()
   if (!transporter) {
-    console.warn('Email transporter not configured. Email not sent.')
-    return
+    throw new Error('Email transporter not configured')
   }
 
   const mailOptions: any = {

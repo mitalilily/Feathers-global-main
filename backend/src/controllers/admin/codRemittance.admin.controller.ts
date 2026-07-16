@@ -3,6 +3,7 @@ import { Response } from 'express'
 import { buildCsv } from '../../utils/csv'
 import { db } from '../../models/client'
 import { codRemittances } from '../../models/schema/codRemittance'
+import { dashboardPreferences } from '../../models/schema/dashboardPreferences'
 import { users } from '../../models/schema/users'
 import { wallets } from '../../models/schema/wallet'
 import { getCodPayableReport } from '../../models/services/codPayableReport.service'
@@ -79,7 +80,7 @@ export const getAllCodRemittances = async (req: any, res: Response): Promise<any
         id: codRemittances.id,
         userId: codRemittances.userId,
         userEmail: users.email,
-        remittancePlan: users.codRemittancePlan,
+        remittancePlan: sql<string>`coalesce(${dashboardPreferences.layout}->>'codRemittancePlan', 'T+4 Days (Default)')`,
         // userName: users.name,
         orderId: codRemittances.orderId,
         orderType: codRemittances.orderType,
@@ -100,6 +101,7 @@ export const getAllCodRemittances = async (req: any, res: Response): Promise<any
       })
       .from(codRemittances)
       .leftJoin(users, eq(codRemittances.userId, users.id))
+      .leftJoin(dashboardPreferences, eq(dashboardPreferences.userId, codRemittances.userId))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(codRemittances.createdAt))
       .limit(parseInt(limit as string))
@@ -379,7 +381,7 @@ export const exportAllCodRemittances = async (req: any, res: Response): Promise<
         orderNumber: codRemittances.orderNumber,
         awbNumber: codRemittances.awbNumber,
         userEmail: users.email,
-        remittancePlan: users.codRemittancePlan,
+        remittancePlan: sql<string>`coalesce(${dashboardPreferences.layout}->>'codRemittancePlan', 'T+4 Days (Default)')`,
         // userName: users.name,
         courierPartner: codRemittances.courierPartner,
         codAmount: codRemittances.codAmount,
@@ -391,6 +393,7 @@ export const exportAllCodRemittances = async (req: any, res: Response): Promise<
       })
       .from(codRemittances)
       .leftJoin(users, eq(codRemittances.userId, users.id))
+      .leftJoin(dashboardPreferences, eq(dashboardPreferences.userId, codRemittances.userId))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(codRemittances.createdAt))
       .limit(10000)

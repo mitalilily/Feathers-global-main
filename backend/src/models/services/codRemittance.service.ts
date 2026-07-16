@@ -2,7 +2,7 @@ import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import { billingInvoices, invoiceCodOffsets } from '../../schema/schema'
 import { db } from '../client'
 import { codRemittances } from '../schema/codRemittance'
-import { users } from '../schema/users'
+import { dashboardPreferences } from '../schema/dashboardPreferences'
 import { sendCodRemittanceEventEmail } from './eventEmail.service'
 import { getInvoiceStatement } from './invoiceStatement.service'
 
@@ -37,13 +37,13 @@ const DEFAULT_COD_REMITTANCE_PLAN = 'T+4 Days (Default)'
 const allowedCodRemittancePlanNames = new Set(COD_REMITTANCE_PLANS.map((plan) => plan.name))
 
 export async function getCodRemittancePlan(userId: string) {
-  const [user] = await db
-    .select({ codRemittancePlan: users.codRemittancePlan })
-    .from(users)
-    .where(eq(users.id, userId))
+  const [prefs] = await db
+    .select({ layout: dashboardPreferences.layout })
+    .from(dashboardPreferences)
+    .where(eq(dashboardPreferences.userId, userId))
     .limit(1)
 
-  const selectedPlan = user?.codRemittancePlan || DEFAULT_COD_REMITTANCE_PLAN
+  const selectedPlan = (prefs?.layout as any)?.codRemittancePlan || DEFAULT_COD_REMITTANCE_PLAN
 
   return {
     selectedPlan,
@@ -57,17 +57,39 @@ export async function updateCodRemittancePlan(userId: string, planName: string) 
     throw new Error('Invalid COD remittance plan selected.')
   }
 
-  const [updated] = await db
-    .update(users)
-    .set({
-      codRemittancePlan: normalizedPlan,
-      updatedAt: new Date(),
+  const [existing] = await db
+    .select({
+      widgetVisibility: dashboardPreferences.widgetVisibility,
+      widgetOrder: dashboardPreferences.widgetOrder,
+      layout: dashboardPreferences.layout,
+      dateRange: dashboardPreferences.dateRange,
     })
-    .where(eq(users.id, userId))
-    .returning({ codRemittancePlan: users.codRemittancePlan })
+    .from(dashboardPreferences)
+    .where(eq(dashboardPreferences.userId, userId))
+    .limit(1)
+
+  const nextLayout = {
+    ...((existing?.layout as any) || {}),
+    codRemittancePlan: normalizedPlan,
+  }
+
+  if (existing) {
+    await db
+      .update(dashboardPreferences)
+      .set({
+        layout: nextLayout,
+        updatedAt: new Date(),
+      })
+      .where(eq(dashboardPreferences.userId, userId))
+  } else {
+    await db.insert(dashboardPreferences).values({
+      userId,
+      layout: nextLayout,
+    })
+  }
 
   return {
-    selectedPlan: updated?.codRemittancePlan || normalizedPlan,
+    selectedPlan: normalizedPlan,
     plans: COD_REMITTANCE_PLANS,
   }
 }
