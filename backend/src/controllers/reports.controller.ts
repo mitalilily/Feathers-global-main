@@ -27,6 +27,8 @@ const FIELD_LABELS: Record<string, string> = {
   breadth: 'breadth',
   order_status: 'order_status',
   freight_charges: 'freight_charges',
+  gst_amount: 'gst_amount',
+  total_deducted: 'total_deducted',
   discount: 'discount',
   products: 'products',
   shipment_date: 'shipment_date',
@@ -58,6 +60,11 @@ const endOfDay = (d: Date) => {
 const toNumber = (v: unknown) => {
   const n = Number(v ?? 0)
   return Number.isFinite(n) ? n : 0
+}
+
+const toPositiveNumber = (v: unknown) => {
+  const n = toNumber(v)
+  return n > 0 ? n : 0
 }
 
 const formatProducts = (products: unknown) => {
@@ -202,6 +209,16 @@ export const exportCustomReportCsvController = async (req: any, res: Response) =
 
       const pickupTimeFromDetails = order?.pickup_details?.pickup_time || order?.pickup_details?.pickupTime
       const shipmentDate = stringifyDate(order.created_at)
+      const freightCharges = toNumber(order.freight_charges)
+      const gstAmount = toNumber(order.gst_amount)
+      const storedWalletDebit = toPositiveNumber(order.wallet_debit_amount)
+      const totalDeducted =
+        storedWalletDebit ||
+        freightCharges +
+          toNumber(order.other_charges) +
+          toNumber(order.cod_charges) +
+          toNumber(order.razorpay_charge_amount) +
+          gstAmount
       const rowMap: Record<string, string | number> = {
         order_number: order.order_number || '',
         order_date: order.order_date || '',
@@ -219,7 +236,9 @@ export const exportCustomReportCsvController = async (req: any, res: Response) =
         height: toNumber(order.height).toFixed(2),
         breadth: toNumber(order.breadth).toFixed(2),
         order_status: order.order_status || '',
-        freight_charges: toNumber(order.freight_charges).toFixed(2),
+        freight_charges: freightCharges.toFixed(2),
+        gst_amount: gstAmount.toFixed(2),
+        total_deducted: totalDeducted.toFixed(2),
         discount: toNumber(order.discount).toFixed(2),
         products: formatProducts(order.products),
         shipment_date: shipmentDate,

@@ -51,6 +51,8 @@ const GROUPS: FieldGroup[] = [
       { key: 'breadth', label: 'breadth' },
       { key: 'order_status', label: 'order_status' },
       { key: 'freight_charges', label: 'freight_charges' },
+      { key: 'gst_amount', label: 'gst_amount' },
+      { key: 'total_deducted', label: 'total_deducted' },
       { key: 'discount', label: 'discount' },
       { key: 'products', label: 'products' },
     ],
