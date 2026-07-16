@@ -20,6 +20,7 @@
     "check:shopify-oauth": "node -r ts-node/register src/scripts/checkShopifyOAuth.ts",
     "cleanup:disconnected-stores": "tsx src/scripts/cleanupDisconnectedStoreOrders.ts",
     "cleanup:imported-unbooked-ndr": "tsx src/scripts/cleanupImportedUnbookedNdrEvents.ts",
+    "cleanup:imported-unbooked-rto": "tsx src/scripts/cleanupImportedUnbookedRtoEvents.ts",
     "sync:shopify-orders": "tsx src/scripts/syncShopifyOrders.ts",
     "sync:shopify-statuses": "tsx src/scripts/syncShopifyStatuses.ts",
     "normalize:ekart-reverse-statuses": "tsx src/scripts/normalizeEkartReverseStatuses.ts",

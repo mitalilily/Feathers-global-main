@@ -1,9 +1,50 @@
-import { and, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '../client'
 import { rto_events } from '../schema/rto'
 import { b2c_orders } from '../schema/b2cOrders'
 import { sendWebhookEvent } from '../../services/webhookDelivery.service'
 import { buildCsv } from '../../utils/csv'
+
+export const RTO_ELIGIBLE_ORDER_SQL = sql`
+  ${b2c_orders.id} is not null
+  and nullif(trim(coalesce(${b2c_orders.awb_number}, '')), '') is not null
+  and nullif(trim(coalesce(${b2c_orders.courier_partner}, '')), '') is not null
+  and lower(trim(coalesce(${b2c_orders.courier_partner}, ''))) not in ('shopify', 'woocommerce', 'woo commerce')
+`
+
+export const RTO_INELIGIBLE_IMPORTED_ORDER_SQL = sql`
+  (
+    lower(trim(coalesce(${b2c_orders.integration_type}, ''))) in ('shopify', 'woocommerce')
+    or lower(trim(coalesce(${b2c_orders.courier_partner}, ''))) in ('shopify', 'woocommerce', 'woo commerce')
+    or lower(trim(coalesce(${b2c_orders.order_id}, ''))) like 'shopify_%'
+    or lower(trim(coalesce(${b2c_orders.order_id}, ''))) like 'woocommerce_%'
+    or lower(trim(coalesce(${b2c_orders.provider_meta}->>'source', ''))) in ('shopify', 'woocommerce')
+  )
+  and (
+    nullif(trim(coalesce(${b2c_orders.awb_number}, '')), '') is null
+    or lower(trim(coalesce(${b2c_orders.courier_partner}, ''))) in ('shopify', 'woocommerce', 'woo commerce')
+  )
+`
+
+const getRtoEligibilityWhere = (base: SQL | undefined) =>
+  and(base || sql`true`, RTO_ELIGIBLE_ORDER_SQL)
+
+const assertOrderCanReceiveRto = async (orderId: string) => {
+  const [order] = await db
+    .select({
+      id: b2c_orders.id,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+    })
+    .from(b2c_orders)
+    .where(and(eq(b2c_orders.id, orderId), RTO_ELIGIBLE_ORDER_SQL))
+    .limit(1)
+
+  if (!order?.id) {
+    throw new Error('RTO can be recorded only after the order is booked with a real courier AWB.')
+  }
+}
 
 const rtoEventListSelect = {
   id: rto_events.id,
@@ -29,6 +70,7 @@ export async function recordRtoEvent(params: {
   payload?: any
 }) {
   const { orderId, userId, awbNumber, status, reason, remarks, rtoCharges, payload } = params
+  await assertOrderCanReceiveRto(orderId)
 
   const values = {
     order_id: orderId,
@@ -101,13 +143,15 @@ export async function listRtoEvents(
     : undefined
 
   const where = searchWhere || dateWhere ? and(whereBase, searchWhere || sql`true`, dateWhere || sql`true`) : whereBase
+  const eligibleWhere = getRtoEligibilityWhere(where)
 
   const offset = (page - 1) * limit
 
   const rows = await db
     .select(rtoEventListSelect)
     .from(rto_events)
-    .where(where)
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)
     .orderBy(desc(rto_events.created_at))
     .limit(limit)
     .offset(offset)
@@ -115,7 +159,8 @@ export async function listRtoEvents(
   const [{ count }] = (await db
     .select({ count: sql<number>`count(*)` })
     .from(rto_events)
-    .where(where)) as unknown as Array<{ count: number }>
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)) as unknown as Array<{ count: number }>
 
   return { rows, totalCount: Number(count) || 0 }
 }
@@ -144,13 +189,15 @@ export async function listRtoEventsAdmin(
     : undefined
 
   const where = searchWhere || dateWhere ? and(whereBase, searchWhere || sql`true`, dateWhere || sql`true`) : whereBase
+  const eligibleWhere = getRtoEligibilityWhere(where)
 
   const offset = (page - 1) * limit
 
   const rows = await db
     .select(rtoEventListSelect)
     .from(rto_events)
-    .where(where)
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)
     .orderBy(desc(rto_events.created_at))
     .limit(limit)
     .offset(offset)
@@ -158,7 +205,8 @@ export async function listRtoEventsAdmin(
   const [{ count }] = (await db
     .select({ count: sql<number>`count(*)` })
     .from(rto_events)
-    .where(where)) as unknown as Array<{ count: number }>
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)) as unknown as Array<{ count: number }>
 
   return { rows, totalCount: Number(count) || 0 }
 }
@@ -186,24 +234,29 @@ export async function adminRtoKpis(params?: {
       )
     : sql`true`
 
+  const eligibleWhere = getRtoEligibilityWhere(and(searchWhere, dateWhere))
+
   // Totals
   const [{ total }] = (await db
     .select({ total: sql<number>`count(*)` })
     .from(rto_events)
-    .where(and(searchWhere, dateWhere))) as unknown as Array<{ total: number }>
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)) as unknown as Array<{ total: number }>
 
   // By status
   const byStatus = await db
     .select({ status: rto_events.status, count: sql<number>`count(*)` })
     .from(rto_events)
-    .where(and(searchWhere, dateWhere))
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)
     .groupBy(rto_events.status)
 
   // Sum charges
   const [{ sumCharges }] = (await db
     .select({ sumCharges: sql<number>`coalesce(sum(${rto_events.rto_charges}), 0)` })
     .from(rto_events)
-    .where(and(searchWhere, dateWhere))) as unknown as Array<{ sumCharges: number }>
+    .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
+    .where(eligibleWhere)) as unknown as Array<{ sumCharges: number }>
 
   // By courier (join orders)
   const byCourier = await db
@@ -213,7 +266,7 @@ export async function adminRtoKpis(params?: {
     })
     .from(rto_events)
     .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
-    .where(and(searchWhere, dateWhere))
+    .where(eligibleWhere)
     .groupBy(b2c_orders.courier_partner)
 
   return {
@@ -247,6 +300,8 @@ export async function adminRtoExport(params?: {
       )
     : sql`true`
 
+  const eligibleWhere = getRtoEligibilityWhere(and(searchWhere, dateWhere))
+
   const rows = await db
     .select({
       created_at: rto_events.created_at,
@@ -260,7 +315,7 @@ export async function adminRtoExport(params?: {
     })
     .from(rto_events)
     .leftJoin(b2c_orders, eq(b2c_orders.id, rto_events.order_id))
-    .where(and(searchWhere, dateWhere))
+    .where(eligibleWhere)
     .orderBy(desc(rto_events.created_at))
 
   // Build CSV
@@ -286,4 +341,32 @@ export async function adminRtoExport(params?: {
   ])
 
   return buildCsv(headers, rowsData)
+}
+
+export async function cleanupImportedUnbookedRtoEvents({ apply = false } = {}) {
+  const countResult = (await db.execute(sql`
+    SELECT COUNT(*)::int AS total
+    FROM ${rto_events}
+    INNER JOIN ${b2c_orders} ON ${rto_events.order_id} = ${b2c_orders.id}
+    WHERE ${RTO_INELIGIBLE_IMPORTED_ORDER_SQL}
+  `)) as any
+
+  const total = Number(countResult.rows?.[0]?.total || 0)
+  if (!apply || total === 0) {
+    return { deleted: 0, matched: total, dryRun: !apply }
+  }
+
+  const deleteResult = (await db.execute(sql`
+    DELETE FROM ${rto_events}
+    USING ${b2c_orders}
+    WHERE ${rto_events.order_id} = ${b2c_orders.id}
+      AND ${RTO_INELIGIBLE_IMPORTED_ORDER_SQL}
+    RETURNING ${rto_events.id}
+  `)) as any
+
+  return {
+    deleted: Number(deleteResult.rowCount ?? deleteResult.rows?.length ?? 0),
+    matched: total,
+    dryRun: false,
+  }
 }
