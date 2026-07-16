@@ -29,7 +29,7 @@ const { teal, tealDark, orange, muted, border } = BRAND.colors
 
 const termsAndConditions = {
   b2c: [
-    'Above Shared Commercials are Exclusive GST.',
+    'Rate calculator results are inclusive of GST; the GST percentage is shown on each courier rate.',
     'Above pricing subject to change based on courier company updation or change in any commercials.',
     'Freight Weight is Picked - Volumetric or Dead weight whichever is higher will be charged.',
     "Return charges as same as Forward for currier's where special RTO pricing is not shared.",
@@ -43,7 +43,7 @@ const termsAndConditions = {
     'Liability of Reverse QC check - maximum limit INR 2000 or product value whichever is lower.',
   ],
   b2b: [
-    'Above Shared Commercials are Exclusive GST.',
+    'Rate calculator results are inclusive of GST; the GST percentage is shown on each courier rate.',
     'Above pricing subject to change based on courier company updation or change in any commercials.',
     'Freight Weight is Picked - Volumetric or Dead weight whichever is higher will be charged.',
     'Other charges like address correction charges if applicable shall be charged extra.',

@@ -23,6 +23,10 @@ type ForwardRate = {
   cod_percent?: number | null
   other_charges?: number | null
   total_charges?: number | null
+  gst_percent?: number | string | null
+  gst_amount?: number | string | null
+  total_charges_with_gst?: number | string | null
+  wallet_debit_amount?: number | string | null
   chargeable_weight?: number | null
   volumetric_weight?: number | null
   is_prepaid?: boolean
@@ -45,6 +49,10 @@ export type Courier = {
   cod_charges?: number | null
   other_charges?: number | null
   total_charges?: number | null
+  gst_percent?: number | string | null
+  gst_amount?: number | string | null
+  total_charges_with_gst?: number | string | null
+  wallet_debit_amount?: number | string | null
   edd?: string | null
   localRates?: LocalRates | null
   special_zone?: boolean | null
@@ -64,6 +72,7 @@ const ACCENT = '#047b85'
 const TEXT_PRIMARY = '#17171A'
 const TEXT_MUTED = '#496189'
 const BORDER = '#E2E8F0'
+const DEFAULT_GST_PERCENT = 18
 
 const formatWeightDisplay = (value?: number | string | null) => {
   const grams = Number(value ?? 0)
@@ -71,6 +80,9 @@ const formatWeightDisplay = (value?: number | string | null) => {
   if (grams < 1000) return `${Math.round(grams).toLocaleString('en-IN')} g`
   return `${(grams / 1000).toFixed(2)} kg`
 }
+
+const formatCurrencyValue = (value: number) =>
+  Number.isFinite(value) ? value.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : 'N/A'
 
 export default function CourierRateList({
   availableCouriers = [],
@@ -171,6 +183,21 @@ export default function CourierRateList({
             explicitTotal !== undefined && explicitTotal !== null
               ? Number(explicitTotal)
               : freight + codCharges + otherCharges
+          const gstPercent = Number(
+            forward?.gst_percent ?? courier?.gst_percent ?? DEFAULT_GST_PERCENT,
+          )
+          const calculatedGstAmount =
+            totalCharges > 0 && Number.isFinite(gstPercent) ? (totalCharges * gstPercent) / 100 : 0
+          const gstAmount = Number(forward?.gst_amount ?? courier?.gst_amount ?? calculatedGstAmount)
+          const explicitTotalWithGst =
+            forward?.total_charges_with_gst ??
+            courier?.total_charges_with_gst ??
+            forward?.wallet_debit_amount ??
+            courier?.wallet_debit_amount
+          const totalChargesWithGst =
+            explicitTotalWithGst !== undefined && explicitTotalWithGst !== null
+              ? Number(explicitTotalWithGst)
+              : totalCharges + gstAmount
 
           // Parse EDD
           const eddText = courier?.edd ?? '—'
@@ -265,7 +292,7 @@ export default function CourierRateList({
                           lineHeight: 1,
                         }}
                       >
-                        {totalCharges > 0 ? totalCharges.toLocaleString('en-IN') : 'N/A'}
+                        {totalChargesWithGst > 0 ? formatCurrencyValue(totalChargesWithGst) : 'N/A'}
                       </Typography>
                     </Stack>
                     <Typography
@@ -277,8 +304,23 @@ export default function CourierRateList({
                         display: 'block',
                       }}
                     >
-                      {isCOD ? 'Including COD Charges' : 'Prepaid Rate'}
+                      {isCOD
+                        ? `Including COD charges and ${gstPercent}% GST`
+                        : `Prepaid rate including ${gstPercent}% GST`}
                     </Typography>
+                    {totalCharges > 0 && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: TEXT_MUTED,
+                          mt: 0.35,
+                          display: 'block',
+                        }}
+                      >
+                        Base: Rs. {formatCurrencyValue(totalCharges)} + GST: Rs.{' '}
+                        {formatCurrencyValue(gstAmount)}
+                      </Typography>
+                    )}
                   </Box>
 
                   {/* Details Grid */}
