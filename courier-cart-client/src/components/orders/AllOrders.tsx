@@ -151,6 +151,23 @@ const isMarketplaceSourceOrder = (order: Order) => {
 const getCourierDisplayName = (order: Order) =>
   String(order.courier_partner || order.integration_type || '').trim() || '-'
 
+const getPaymentModeDisplay = (order: Order) => {
+  const rawValue =
+    order.payment_mode ??
+    order.paymentMode ??
+    order.payment_type ??
+    order.paymentType ??
+    order.order_type ??
+    order.orderType
+  const normalized = String(rawValue || '')
+    .trim()
+    .toLowerCase()
+
+  if (normalized === 'cod') return 'COD'
+  if (normalized === 'prepaid') return 'Prepaid'
+  return rawValue ? String(rawValue) : '-'
+}
+
 const terminalB2CStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
 
 const documentGenerationStatuses = new Set([
@@ -1468,6 +1485,27 @@ const AllOrders = () => {
     { id: 'city', label: 'City' },
     { id: 'state', label: 'State' },
     { id: 'order_amount', label: 'Amount' },
+    {
+      id: 'payment_mode',
+      label: 'Payment Mode',
+      minWidth: 150,
+      showCellTooltip: false,
+      render: (_value, row) => {
+        const paymentMode = getPaymentModeDisplay(row)
+
+        return paymentMode === '-' ? (
+          <span>-</span>
+        ) : (
+          <Chip
+            size="small"
+            label={paymentMode}
+            variant="outlined"
+            color={paymentMode === 'COD' ? 'warning' : 'success'}
+            sx={{ fontWeight: 700 }}
+          />
+        )
+      },
+    },
     {
       id: 'courier_partner',
       label: 'Courier',
