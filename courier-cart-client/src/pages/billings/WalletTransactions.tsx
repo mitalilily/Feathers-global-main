@@ -60,6 +60,11 @@ const formatCurrency = (value: unknown, currency = 'INR') => {
   }).format(Number.isFinite(amount) ? amount : 0)
 }
 
+const formatCsvAmount = (value: unknown) => {
+  const amount = Number(value || 0)
+  return (Number.isFinite(amount) ? Math.abs(amount) : 0).toFixed(2)
+}
+
 const formatDate = (date?: string) => {
   if (!date) return '-'
   const parsed = new Date(date)
@@ -270,7 +275,7 @@ const WalletTransactions = () => {
       Reason: txn.reason || '-',
       Reference: txn.ref || '-',
       AWB: getTransactionAwb(txn) || '-',
-      Amount: `${txn.type === 'credit' ? '+' : '-'}${formatCurrency(txn.amount, txn.currency)}`,
+      Amount: formatCsvAmount(txn.amount),
       Date: formatDate(txn.created_at),
     }))
 
