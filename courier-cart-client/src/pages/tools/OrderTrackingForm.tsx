@@ -29,7 +29,7 @@ import {
   FaReceipt,
   FaSearch,
 } from 'react-icons/fa'
-import { MdLocationOn, MdSchedule } from 'react-icons/md'
+import { MdContentCopy, MdLocationOn, MdSchedule } from 'react-icons/md'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { TrackingHistory } from '../../api/tracking.service'
 import AWBLink from '../../components/UI/AWBLink'
@@ -40,9 +40,11 @@ import { useTracking } from '../../hooks/Orders/useTracking'
 import {
   getAwbTrackingPath,
   getClientAwbTrackingPath,
+  getPublicTrackingUrl,
   isValidAwb,
   normalizeAwb,
 } from '../../utils/awb'
+import { toast } from '../../components/UI/Toast'
 
 type FormValues = {
   awb: string
@@ -84,7 +86,12 @@ export default function OrderTrackingForm() {
   const activeOrder = searchParams.get('orderNumber')
   const activeContact = searchParams.get('contact')
   const isClientTrackingRoute = location.pathname.startsWith('/tools/order_tracking')
-  const trackingBasePath = isClientTrackingRoute ? '/tools/order_tracking' : '/tracking'
+  const isPublicLandingTrackingRoute = location.pathname.startsWith('/track-order')
+  const trackingBasePath = isClientTrackingRoute
+    ? '/tools/order_tracking'
+    : isPublicLandingTrackingRoute
+      ? '/track-order'
+      : '/tracking'
 
   const {
     control,
@@ -115,6 +122,7 @@ export default function OrderTrackingForm() {
     isValidAwb(activeAwb) ? activeAwb : null,
     activeOrder ?? null,
     activeContact ?? null,
+    !isClientTrackingRoute,
   )
 
   useEffect(() => {
@@ -202,6 +210,15 @@ export default function OrderTrackingForm() {
       (a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime(),
     )
   }, [tracking])
+
+  const handleCopyTrackingLink = async () => {
+    const awb = normalizeAwb(tracking?.awb_number || activeAwb)
+    if (!isValidAwb(awb)) return
+
+    const link = getPublicTrackingUrl(awb, searchParams.get('uid') || tracking?.user_id)
+    await navigator.clipboard.writeText(link)
+    toast.open({ message: 'Tracking link copied', severity: 'success' })
+  }
 
   const resetResults = () => {
     setError('')
@@ -516,15 +533,28 @@ export default function OrderTrackingForm() {
                 <Typography variant="h6" fontWeight={800} color="#17171A">
                   Tracking Timeline
                 </Typography>
-                <Chip
-                  label={`${sortedHistory.length} event${sortedHistory.length === 1 ? '' : 's'}`}
-                  sx={{
-                    bgcolor: alpha(BRAND_ACCENT, 0.1),
-                    color: BRAND_ACCENT,
-                    borderRadius: '999px',
-                    fontWeight: 800,
-                  }}
-                />
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Button
+                    type="button"
+                    size="small"
+                    variant="outlined"
+                    startIcon={<MdContentCopy size={16} />}
+                    onClick={handleCopyTrackingLink}
+                    disabled={!isValidAwb(tracking.awb_number)}
+                    sx={{ borderRadius: '8px', textTransform: 'none', fontWeight: 800 }}
+                  >
+                    Copy tracking link
+                  </Button>
+                  <Chip
+                    label={`${sortedHistory.length} event${sortedHistory.length === 1 ? '' : 's'}`}
+                    sx={{
+                      bgcolor: alpha(BRAND_ACCENT, 0.1),
+                      color: BRAND_ACCENT,
+                      borderRadius: '999px',
+                      fontWeight: 800,
+                    }}
+                  />
+                </Stack>
               </Stack>
               <Divider sx={{ mb: 1.5 }} />
               <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: 'none' }}>
@@ -546,8 +576,8 @@ export default function OrderTrackingForm() {
                         </ListItemIcon>
                         <ListItemText
                           primary={
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Typography fontWeight={600}>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                              <Typography fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>
                                 {event.message || event.status_code}
                               </Typography>
                               <Chip
@@ -572,7 +602,11 @@ export default function OrderTrackingForm() {
                                 </Typography>
                               </Stack>
                               {event.location && (
-                                <Typography variant="caption" color="text.secondary">
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{ overflowWrap: 'anywhere' }}
+                                >
                                   {event.location}
                                 </Typography>
                               )}

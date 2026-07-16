@@ -30,6 +30,7 @@ import {
   MdAdd,
   MdAssignment,
   MdCancel,
+  MdContentCopy,
   MdDownload,
   MdKeyboardReturn,
   MdLocalOffer,
@@ -89,6 +90,8 @@ import { OrderExpandedRow } from './OrderExpandedRow'
 import ReverseModal from './reverse/ReverseModal'
 import BulkOrderCourierDrawer from './BulkOrderCourierDrawer'
 import SourceOrderCourierDrawer from './SourceOrderCourierDrawer'
+import { getClientAwbTrackingPath, getPublicTrackingUrl } from '../../utils/awb'
+import { useAuth } from '../../context/auth/AuthContext'
 
 interface Order {
   id: string | number
@@ -257,6 +260,7 @@ const AllOrders = () => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { canAddReturnOrders, canViewReturnOrders } = useEmployeePermissions()
 
   const [searchParams] = useSearchParams()
@@ -369,7 +373,18 @@ const AllOrders = () => {
       return
     }
 
-    navigate(`/tools/order_tracking?awb=${encodeURIComponent(awb)}`)
+    navigate(getClientAwbTrackingPath(awb))
+  }
+
+  const handleCopyTrackingLink = async (order: Order) => {
+    const awb = String(order.awb_number || '').trim()
+    if (!awb) {
+      toast.open({ message: 'AWB number is not available for this order.', severity: 'info' })
+      return
+    }
+
+    await navigator.clipboard.writeText(getPublicTrackingUrl(awb, order.user_id || user?.id))
+    toast.open({ message: 'Tracking link copied', severity: 'success' })
   }
 
   const requestDelhiveryPickupSchedule = (ordersForPickup: Order[], label: string) =>
@@ -1423,6 +1438,13 @@ const AllOrders = () => {
             disabled: !canTrackShipment,
           })}
           {renderActionItem({
+            key: 'copy-tracking-link',
+            icon: <MdContentCopy />,
+            label: 'Copy Tracking Link',
+            onClick: () => handleCopyTrackingLink(row),
+            disabled: !canTrackShipment,
+          })}
+          {renderActionItem({
             key: 'sync-live-status',
             icon: <MdSync />,
             label: isTrackingRow ? 'Syncing Live Status' : 'Sync Live Status',
@@ -1463,20 +1485,34 @@ const AllOrders = () => {
     {
       id: 'awb_number',
       label: 'AWB',
-      render: (value) =>
+      render: (value, row) =>
         value ? (
-          <Box
-            onClick={() => navigate(`/tools/order_tracking?awb=${value}`)}
-            sx={{
-              cursor: 'pointer',
-              color: '#047b85',
-              fontWeight: 500,
-              textDecoration: 'underline',
-              '&:hover': { opacity: 0.8 },
-            }}
-          >
-            {value}
-          </Box>
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <Box
+              onClick={() => navigate(getClientAwbTrackingPath(String(value)))}
+              sx={{
+                cursor: 'pointer',
+                color: '#047b85',
+                fontWeight: 500,
+                textDecoration: 'underline',
+                '&:hover': { opacity: 0.8 },
+              }}
+            >
+              {value}
+            </Box>
+            <Button
+              size="small"
+              variant="text"
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleCopyTrackingLink(row)
+              }}
+              sx={{ minWidth: 30, px: 0.5, color: '#047b85' }}
+              title="Copy tracking link"
+            >
+              <MdContentCopy size={16} />
+            </Button>
+          </Stack>
         ) : (
           <span>-</span>
         ),

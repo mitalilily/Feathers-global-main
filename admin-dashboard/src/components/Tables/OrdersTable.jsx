@@ -43,6 +43,7 @@ import {
 } from 'react-icons/fi'
 import { useHistory } from 'react-router-dom'
 import { fetchTracking } from 'services/order.service'
+import { getPublicTrackingUrl } from 'utils/trackingLink'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 import OrderDetailsModal from './OrderDetailsModal'
 
@@ -162,6 +163,28 @@ const OrdersTable = ({
       navigator.clipboard.writeText(awb)
       // You might want to show a toast notification here
     }
+  }
+
+  const handleCopyTrackingLink = async (order) => {
+    const awb = String(order?.awb_number || '').trim()
+    if (!awb) {
+      toast({
+        title: 'AWB is required',
+        description: 'This order does not have an AWB yet.',
+        status: 'warning',
+        duration: 4000,
+        isClosable: true,
+      })
+      return
+    }
+
+    await navigator.clipboard.writeText(getPublicTrackingUrl(awb, order?.user_id))
+    toast({
+      title: 'Tracking link copied',
+      status: 'success',
+      duration: 3000,
+      isClosable: true,
+    })
   }
 
   const handleDownloadLabel = (order) => {
@@ -414,7 +437,7 @@ const OrdersTable = ({
         {value || row?.merchantEmail || row?.merchantPhone || 'Unknown Merchant'}
       </Button>
     ),
-    awb_number: (value) => (
+    awb_number: (value, row) => (
       <Flex align="center" gap={2}>
         <span style={{ fontFamily: 'monospace' }}>{value || 'N/A'}</span>
         {value && (
@@ -425,6 +448,19 @@ const OrdersTable = ({
             color="gray.500"
             _hover={{ color: 'blue.500' }}
           />
+        )}
+        {value && (
+          <Tooltip label="Copy tracking link">
+            <span>
+              <Icon
+                as={FiTruck}
+                cursor="pointer"
+                onClick={() => handleCopyTrackingLink(row)}
+                color="gray.500"
+                _hover={{ color: 'blue.500' }}
+              />
+            </span>
+          </Tooltip>
         )}
       </Flex>
     ),
@@ -495,6 +531,11 @@ const OrdersTable = ({
           {order.awb_number && (
             <MenuItem icon={<FiTruck />} onClick={() => handleTrackShipment(order)}>
               Track Shipment
+            </MenuItem>
+          )}
+          {order.awb_number && (
+            <MenuItem icon={<FiCopy />} onClick={() => handleCopyTrackingLink(order)}>
+              Copy Tracking Link
             </MenuItem>
           )}
           {order.awb_number && (

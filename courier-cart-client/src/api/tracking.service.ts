@@ -9,6 +9,7 @@ export interface TrackingHistory {
 
 export interface TrackingResponse {
   id: string
+  user_id?: string
   order_id: string
   order_number: string
   awb_number: string
@@ -25,6 +26,7 @@ export interface TrackingParams {
   awb?: string
   orderNumber?: string
   contact?: string
+  public?: boolean
 }
 
 interface ApiResponse {
@@ -34,7 +36,9 @@ interface ApiResponse {
 
 export async function fetchTracking(params: TrackingParams): Promise<TrackingResponse> {
   try {
-    const { data } = await axiosInstance.get<ApiResponse>('/orders/track', { params })
+    const { public: isPublicTracking, ...queryParams } = params
+    const endpoint = isPublicTracking ? '/public/tracking' : '/orders/track'
+    const { data } = await axiosInstance.get<ApiResponse>(endpoint, { params: queryParams })
 
     if (!data.success || !data.data) {
       throw new Error('No shipment found!')

@@ -72,6 +72,7 @@ import { plans } from '../schema/plans'
 import { shippingRates } from '../schema/shippingRates'
 import { userPlans } from '../schema/userPlans'
 import { userProfiles } from '../schema/userProfile'
+import { tracking_events } from '../schema/trackingEvents'
 import { b2bPincodes, b2bZoneToZoneRates, zones } from '../schema/zones'
 import { calculateB2BRate } from './b2bAdmin.service'
 import {
@@ -14063,6 +14064,7 @@ type TrackingHistoryItem = {
 
 interface TrackingServiceResponse {
   id: string
+  user_id: string
   order_id: string | null
   order_number: string
   awb_number: string
@@ -15450,6 +15452,7 @@ const buildTrackingResponse = (
 
   return {
     id: order.id,
+    user_id: order.user_id,
     order_id: order.order_id ?? order.id,
     order_number: order.order_number,
     awb_number: order.awb_number,
@@ -15460,6 +15463,90 @@ const buildTrackingResponse = (
     payment_type: sanitizeString(order.order_type ?? 'prepaid', 'prepaid').toUpperCase(),
     shipment_info: shipmentInfoValue,
   }
+}
+
+const normalizeStoredTrackingHistory = (order: OrderSummary, rows: any[]): TrackingHistoryItem[] => {
+  const history: TrackingHistoryItem[] = []
+
+  for (const row of rows) {
+    const rawHistory = Array.isArray(row.raw?.history) ? row.raw.history : []
+    for (const event of rawHistory) {
+      pushHistoryEvent(
+        history,
+        {
+          statusCode: event?.status_code ?? event?.statusCode ?? row.status_code,
+          message: event?.message ?? event?.status_text ?? event?.statusText ?? row.status_text,
+          location: event?.location ?? row.location,
+          time: event?.event_time ?? event?.eventTime ?? event?.created_at ?? row.created_at,
+        },
+        toIsoString(row.created_at ?? order.updated_at ?? order.created_at),
+      )
+    }
+
+    pushHistoryEvent(
+      history,
+      {
+        statusCode: row.status_code || order.order_status || 'Status Update',
+        message: row.status_text || order.delivery_message || order.order_status || 'Status Update',
+        location: row.location || '',
+        time: row.created_at ?? order.updated_at ?? order.created_at,
+      },
+      toIsoString(order.updated_at ?? order.created_at),
+    )
+  }
+
+  sortHistoryDescending(history)
+  return history
+}
+
+const getStoredTrackingProviderData = async (
+  order: OrderSummary,
+): Promise<ProviderNormalizedTracking | null> => {
+  if (order.source_type !== 'b2c') return null
+
+  const rows = await db
+    .select({
+      status_code: tracking_events.status_code,
+      status_text: tracking_events.status_text,
+      location: tracking_events.location,
+      raw: tracking_events.raw,
+      created_at: tracking_events.created_at,
+    })
+    .from(tracking_events)
+    .where(
+      or(
+        eq(tracking_events.order_id, order.id),
+        eq(tracking_events.awb_number, order.awb_number),
+      ),
+    )
+    .orderBy(desc(tracking_events.created_at))
+    .limit(30)
+
+  const history = normalizeStoredTrackingHistory(order, rows as any[])
+  if (!history.length) return null
+
+  const latest = history[0]
+  return {
+    history,
+    status: latest?.message || order.order_status || 'Status Update',
+    courier_name: order.courier_partner || order.integration_type || 'Courier',
+    edd: order.edd || null,
+    shipment_info: order.delivery_message || latest?.message || null,
+  }
+}
+
+const mergeStoredTrackingHistory = async (
+  order: OrderSummary,
+  providerData: ProviderNormalizedTracking,
+) => {
+  const storedData = await getStoredTrackingProviderData(order)
+  if (!storedData?.history?.length) return providerData
+
+  providerData.history = [...(providerData.history || []), ...storedData.history]
+  sortHistoryDescending(providerData.history)
+  providerData.status = providerData.status || storedData.status
+  providerData.shipment_info = providerData.shipment_info || storedData.shipment_info
+  return providerData
 }
 
 const findOrderByAwb = async (awb: string): Promise<OrderSummary | null> => {
@@ -15698,17 +15785,23 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
       providerData = mapEkartTracking(raw, order)
     }
   } catch (err: any) {
-    if (err instanceof HttpError) throw err
-    const status = err?.status ?? err?.response?.status ?? 500
-    const message =
-      err?.response?.data?.message ?? err?.message ?? 'Failed to fetch tracking information'
-    throw new HttpError(status, message)
+    const storedData = await getStoredTrackingProviderData(order)
+    if (storedData) {
+      providerData = storedData
+    } else {
+      if (err instanceof HttpError) throw err
+      const status = err?.status ?? err?.response?.status ?? 500
+      const message =
+        err?.response?.data?.message ?? err?.message ?? 'Failed to fetch tracking information'
+      throw new HttpError(status, message)
+    }
   }
 
   if (!providerData) {
     throw new HttpError(500, 'Failed to resolve tracking information')
   }
 
+  providerData = await mergeStoredTrackingHistory(order, providerData)
   const trackingResponse = buildTrackingResponse(order, providerData)
   await persistLiveTrackingStatus(order, providerKey, trackingResponse)
 

@@ -3,6 +3,7 @@
 import {
   Badge,
   Box,
+  Button,
   Container,
   Flex,
   Grid,
@@ -11,6 +12,7 @@ import {
   Spinner,
   Text,
   useColorModeValue,
+  useToast,
   VStack,
 } from '@chakra-ui/react'
 import {
@@ -21,6 +23,8 @@ import {
   FaStore,
   FaTruck,
 } from 'react-icons/fa'
+import { FiCopy } from 'react-icons/fi'
+import { getPublicTrackingUrl } from 'utils/trackingLink'
 
 const stages = [
   { label: 'Booked', icon: FaStore },
@@ -56,7 +60,7 @@ export default function TrackingDetails({ data, isLoading, error }) {
   const cardBg = useColorModeValue('white', 'gray.800')
   const detailItemBg = useColorModeValue('gray.50', 'gray.700')
   const historyBorderColor = useColorModeValue('gray.200', 'gray.600')
-  console.log(data)
+  const toast = useToast()
   if (isLoading) {
     return (
       <Flex direction="column" align="center" justify="center" py={12}>
@@ -87,6 +91,17 @@ export default function TrackingDetails({ data, isLoading, error }) {
       (h) => statusLabels[h.status_code]?.toLowerCase() === data.status?.toLowerCase(),
     ) ?? 0
 
+  const copyTrackingLink = async () => {
+    if (!data?.awb_number) return
+    await navigator.clipboard.writeText(getPublicTrackingUrl(data.awb_number, data.user_id))
+    toast({
+      title: 'Tracking link copied',
+      status: 'success',
+      duration: 3000,
+      isClosable: true,
+    })
+  }
+
   return (
     <Container maxW="6xl" py={8}>
       <Grid templateColumns={{ base: '1fr', md: '1fr 2fr' }} gap={6}>
@@ -95,6 +110,17 @@ export default function TrackingDetails({ data, isLoading, error }) {
           <Text fontSize="xl" fontWeight="bold" mb={4}>
             Shipment Details
           </Text>
+          <Button
+            size="sm"
+            leftIcon={<FiCopy />}
+            variant="outline"
+            colorScheme="blue"
+            mb={4}
+            onClick={copyTrackingLink}
+            isDisabled={!data.awb_number}
+          >
+            Copy Tracking Link
+          </Button>
           <VStack spacing={3} align="stretch">
             {[
               { label: 'Courier', value: data.courier_name },
@@ -122,7 +148,7 @@ export default function TrackingDetails({ data, isLoading, error }) {
         <VStack spacing={6} align="stretch">
           {/* Progress */}
           <Box bg={cardBg} rounded="lg" shadow="md" p={6}>
-            <HStack justify="space-between">
+            <HStack justify="space-between" overflowX="auto" pb={2}>
               {stages.map((stage, index) => {
                 const active = index <= currentStage
                 return (
@@ -143,6 +169,7 @@ export default function TrackingDetails({ data, isLoading, error }) {
                       fontWeight={active ? 'bold' : 'normal'}
                       color={active ? 'blue.600' : 'gray.500'}
                       textAlign="center"
+                      minW="72px"
                     >
                       {stage.label}
                     </Text>
@@ -179,12 +206,12 @@ export default function TrackingDetails({ data, isLoading, error }) {
                       <strong>Location:</strong> {h.location}
                     </Text>
                   )}
-                  <Text fontSize="sm">
+                  <Text fontSize="sm" wordBreak="break-word">
                     <strong>Time:</strong>{' '}
                     {formatTrackingEventTime(h.event_time)}
                   </Text>
                   {h.message && (
-                    <Text fontSize="sm" mt={1}>
+                    <Text fontSize="sm" mt={1} whiteSpace="pre-wrap" wordBreak="break-word">
                       {h.message}
                     </Text>
                   )}

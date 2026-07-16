@@ -96,14 +96,14 @@ const RtoList = lazy(() => import('../pages/ops/RtoList'))
 // API Integration
 const ApiIntegration = lazy(() => import('../pages/settings/ApiIntegration'))
 
-function PublicTrackingRoute() {
+function PublicTrackingRoute({ forcePublic = false }: { forcePublic?: boolean }) {
   const { isAuthenticated, loading } = useAuth()
   const location = useLocation()
   const { awb } = useParams<{ awb?: string }>()
 
   if (loading) return <FullScreenLoader />
 
-  if (isAuthenticated) {
+  if (isAuthenticated && !forcePublic) {
     const params = new URLSearchParams(location.search)
     const normalizedAwb = normalizeAwb(awb)
 
@@ -127,6 +127,7 @@ export default function AppRoutes() {
         <Routes>
           {/* public */}
           <Route path="/" element={<Login />} />
+          <Route path="/track-order" element={<PublicTrackingRoute forcePublic />} />
           <Route path="/tracking" element={<PublicTrackingRoute />} />
           <Route path="/tracking/:awb" element={<PublicTrackingRoute />} />
           {/* onboarding */}

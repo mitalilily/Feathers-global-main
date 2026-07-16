@@ -56,6 +56,7 @@ import { FiDownload, FiFileText, FiPlusCircle, FiUploadCloud } from 'react-icons
 import {
   MdAssignment,
   MdCancel,
+  MdContentCopy,
   MdDownload,
   MdKeyboardReturn,
   MdLocalOffer,
@@ -68,7 +69,8 @@ import {
   MdVisibility,
 } from 'react-icons/md'
 import { courierLogos, defaultLogo } from '../../../utils/constants'
-import { getClientAwbTrackingPath } from '../../../utils/awb'
+import { getClientAwbTrackingPath, getPublicTrackingUrl } from '../../../utils/awb'
+import { useAuth } from '../../../context/auth/AuthContext'
 import {
   downloadClientOrdersCsv,
   CLIENT_ORDER_ADDED_HEADERS,
@@ -239,6 +241,7 @@ const actionMenuIconSx = {
 /* ───────────── Shipping Statuses ───────────── */
 const B2COrdersList = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const theme = useTheme()
   const isXs = useMediaQuery(theme.breakpoints.down('sm')) // mobile
   const isSm = useMediaQuery(theme.breakpoints.between('sm', 'md')) // tablet
@@ -373,6 +376,17 @@ const B2COrdersList = () => {
       return
     }
     navigate(getClientAwbTrackingPath(awb))
+  }
+
+  const handleCopyTrackingLink = async (order: B2COrder) => {
+    const awb = String(order.awb_number || '').trim()
+    if (!awb) {
+      toast.open({ message: 'AWB number is not available for this order.', severity: 'info' })
+      return
+    }
+
+    await navigator.clipboard.writeText(getPublicTrackingUrl(awb, order.user_id || user?.id))
+    toast.open({ message: 'Tracking link copied', severity: 'success' })
   }
 
   const requestDelhiveryPickupSchedule = (ordersForPickup: B2COrder[], label: string) =>
@@ -1288,20 +1302,34 @@ const B2COrdersList = () => {
       label: 'AWB',
       id: 'awb_number',
       minWidth: 220,
-      render: (value) =>
+      render: (value, row) =>
         value ? (
-          <Box
-            onClick={() => navigate(getClientAwbTrackingPath(String(value)))}
-            sx={{
-              cursor: 'pointer',
-              color: '#047b85',
-              fontWeight: 500,
-              textDecoration: 'underline',
-              '&:hover': { opacity: 0.8 },
-            }}
-          >
-            {value}
-          </Box>
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <Box
+              onClick={() => navigate(getClientAwbTrackingPath(String(value)))}
+              sx={{
+                cursor: 'pointer',
+                color: '#047b85',
+                fontWeight: 500,
+                textDecoration: 'underline',
+                '&:hover': { opacity: 0.8 },
+              }}
+            >
+              {value}
+            </Box>
+            <Button
+              size="small"
+              variant="text"
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleCopyTrackingLink(row)
+              }}
+              sx={{ minWidth: 30, px: 0.5, color: '#047b85' }}
+              title="Copy tracking link"
+            >
+              <MdContentCopy size={16} />
+            </Button>
+          </Stack>
         ) : (
           <span>-</span>
         ),
@@ -1651,6 +1679,13 @@ const B2COrdersList = () => {
                 icon: <MdLocalShipping />,
                 label: 'Track Shipment',
                 onClick: () => handleTrackShipment(row),
+                disabled: !canTrackShipment,
+              })}
+              {renderActionItem({
+                key: 'copy-tracking-link',
+                icon: <MdContentCopy />,
+                label: 'Copy Tracking Link',
+                onClick: () => handleCopyTrackingLink(row),
                 disabled: !canTrackShipment,
               })}
               {renderActionItem({

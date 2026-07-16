@@ -75,7 +75,8 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
     return res.status(200).json({ success: true, data: trackingData })
   } catch (error: any) {
     console.error('Public tracking error:', error)
-    return res.status(500).json({
+    const statusCode = Number(error?.status || error?.statusCode || error?.response?.status || 500)
+    return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({
       success: false,
       message: error?.message || 'Failed to fetch tracking information',
     })

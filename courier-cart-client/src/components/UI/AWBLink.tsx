@@ -20,7 +20,8 @@ export default function AWBLink({ awb, stopPropagation = true }: AWBLinkProps) {
     return <>{normalizedAwb || '—'}</>
   }
 
-  const trackingPath = location.pathname.startsWith('/tracking')
+  const trackingPath =
+    location.pathname.startsWith('/tracking') || location.pathname.startsWith('/track-order')
     ? getAwbTrackingPath(normalizedAwb)
     : getClientAwbTrackingPath(normalizedAwb)
 
