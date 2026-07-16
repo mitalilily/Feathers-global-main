@@ -3,7 +3,8 @@ import { and, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { ndr_events } from '../schema/ndr'
-import { b2bPincodes, zones } from '../schema/zones'
+import { b2bPincodes, zoneMappings, zones } from '../schema/zones'
+import { locations } from '../schema/locations'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
@@ -99,6 +100,49 @@ const getCourierLabel = (value: unknown) => {
   if (lowerCourier.includes('ecom')) return 'Ecom'
   if (lowerCourier.includes('amazon')) return 'Amazon'
   return capitalizeWords(courier)
+}
+
+const SALES_CHANNEL_COURIERS = new Set(['shopify', 'woocommerce', 'woo commerce'])
+
+const isSalesChannelLabel = (value: unknown) => SALES_CHANNEL_COURIERS.has(lower(value))
+
+const firstRealCourierValue = (...values: unknown[]) => {
+  for (const value of values) {
+    const normalized = normalizeText(value)
+    if (normalized && !isSalesChannelLabel(normalized)) return normalized
+  }
+  return ''
+}
+
+const getProviderMetaCourier = (meta: unknown) => {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return ''
+  const record = meta as Record<string, any>
+  return firstRealCourierValue(
+    record.courier_name,
+    record.courierPartner,
+    record.courier_partner,
+    record.provider_name,
+    record.provider,
+    record.carrier_name,
+    record.carrier,
+    record.provider_serviceability?.courier_name,
+    record.provider_serviceability?.courierPartner,
+    record.provider_serviceability?.courier_partner,
+    record.provider_serviceability?.provider_name,
+    record.provider_serviceability?.provider,
+  )
+}
+
+const resolveCourierLabel = (row: any) => {
+  const courier = firstRealCourierValue(
+    getProviderMetaCourier(row.providerMeta),
+    row.courierPartner,
+    row.providerService,
+    row.providerMode,
+    row.shippingMode,
+  )
+
+  return courier ? getCourierLabel(courier) : 'Courier Pending'
 }
 
 const getWeightValue = (row: any) => toNumber(row.actualWeight ?? row.chargedWeight ?? row.weight)
@@ -276,7 +320,21 @@ const resolveZoneIndex = async (orders: any[]) => {
     ),
   )
 
-  const [pincodeRows, zoneRows] = await Promise.all([
+  const [b2cMappingRows, pincodeRows, zoneRows] = await Promise.all([
+    uniquePincodes.length
+      ? db
+          .select({
+            pincode: locations.pincode,
+            state: locations.state,
+            zoneCode: zones.code,
+            zoneName: zones.name,
+            zoneStates: zones.states,
+          })
+          .from(zoneMappings)
+          .innerJoin(locations, eq(locations.id, zoneMappings.location_id))
+          .innerJoin(zones, eq(zones.id, zoneMappings.zone_id))
+          .where(and(eq(zones.business_type, 'B2C'), inArray(locations.pincode, uniquePincodes)))
+      : Promise.resolve([]),
     uniquePincodes.length
       ? db
           .select({
@@ -302,11 +360,19 @@ const resolveZoneIndex = async (orders: any[]) => {
   const pincodeMap = new Map<string, any>()
   const stateMap = new Map<string, any>()
 
+  for (const row of b2cMappingRows as any[]) {
+    const zoneCode = normalizeText(row.zoneCode)
+    const zoneName = normalizeText(row.zoneName)
+    const label = canonicalZoneLabel(zoneCode, zoneName, normalizeText(row.state))
+    pincodeMap.set(normalizeText(row.pincode).toLowerCase(), { label, zoneCode, zoneName })
+  }
+
   for (const row of pincodeRows as any[]) {
     const zoneCode = normalizeText(row.zoneCode)
     const zoneName = normalizeText(row.zoneName)
     const label = canonicalZoneLabel(zoneCode, zoneName)
-    pincodeMap.set(normalizeText(row.pincode).toLowerCase(), { label, zoneCode, zoneName })
+    const pincodeKey = normalizeText(row.pincode).toLowerCase()
+    if (!pincodeMap.has(pincodeKey)) pincodeMap.set(pincodeKey, { label, zoneCode, zoneName })
   }
 
   for (const row of zoneRows as any[]) {
@@ -322,12 +388,42 @@ const resolveZoneIndex = async (orders: any[]) => {
   return { pincodeMap, stateMap }
 }
 
+const getProviderMetaZone = (meta: unknown) => {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return ''
+  const record = meta as Record<string, any>
+  return firstRealCourierValue(
+    record.zone_name,
+    record.zoneName,
+    record.zone,
+    record.zone_code,
+    record.zoneCode,
+    record.approxZone?.name,
+    record.approxZone?.code,
+    record.provider_serviceability?.zone_name,
+    record.provider_serviceability?.zoneName,
+    record.provider_serviceability?.zone,
+    record.provider_serviceability?.zone_code,
+    record.provider_serviceability?.zoneCode,
+  )
+}
+
+const zoneFromSavedOrder = (row: any) => {
+  const savedZone = normalizeText(row.deliveryLocation || getProviderMetaZone(row.providerMeta))
+  if (!savedZone) return null
+  return {
+    label: canonicalZoneLabel(savedZone, savedZone, normalizeText(row.state)),
+    zoneCode: savedZone,
+    zoneName: savedZone,
+  }
+}
+
 const pickZone = (row: any, zoneIndex: any) =>
+  zoneFromSavedOrder(row) ||
   zoneIndex.pincodeMap.get(normalizeText(row.pincode).toLowerCase()) ||
   zoneIndex.stateMap.get(normalizeText(row.state).toLowerCase()) || {
-    label: 'Unknown',
-    zoneCode: 'Unknown',
-    zoneName: 'Unknown',
+    label: 'Unmapped Zone',
+    zoneCode: 'Unmapped Zone',
+    zoneName: 'Unmapped Zone',
   }
 
 const topByOrders = (values: any[], limit = 5) =>
@@ -402,15 +498,17 @@ const dispatchOrder = (label: string) => {
   return 3
 }
 
+const isPendingCourier = (value: unknown) => lower(value) === 'courier pending'
+
+const rankCourierStats = (entries: Array<{ courier: string } & Record<string, any>>) => {
+  const realCouriers = entries.filter((entry) => !isPendingCourier(entry.courier))
+  return realCouriers.length ? realCouriers : entries
+}
+
 const buildZoneOverview = (zoneStats: Map<string, any>) =>
   Array.from(zoneStats.entries())
-    .map(([label, stats]) => ({
-      zone: label,
-      label,
-      ...finalizeBaseStats(stats),
-      rawZoneName: stats.rawZoneName,
-      rawZoneCode: stats.rawZoneCode,
-      bestCourier:
+    .map(([label, stats]) => {
+      const rankedCouriers = rankCourierStats(
         Object.entries(stats.courierStats)
           .map(([courier, courierStats]) => ({
             courier,
@@ -421,8 +519,18 @@ const buildZoneOverview = (zoneStats: Map<string, any>) =>
               a.avgDeliveryDays - b.avgDeliveryDays ||
               b.deliveryRate - a.deliveryRate ||
               b.orders - a.orders,
-          )[0]?.courier || 'Unknown',
-    }))
+          ),
+      )
+
+      return {
+        zone: label,
+        label,
+        ...finalizeBaseStats(stats),
+        rawZoneName: stats.rawZoneName,
+        rawZoneCode: stats.rawZoneCode,
+        bestCourier: rankedCouriers[0]?.courier || 'Courier Pending',
+      }
+    })
     .sort((a, b) => zoneOrderIndex(a.label) - zoneOrderIndex(b.label) || b.orders - a.orders)
 
 export const getAdminOpsAnalytics = async (filters: any = {}) => {
@@ -434,7 +542,12 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
   if (filters.courier) {
     const courierPattern = `%${filters.courier.trim()}%`
     conditions.push(
-      or(ilike(b2c_orders.courier_partner, courierPattern), ilike(b2c_orders.integration_type, courierPattern)),
+      or(
+        ilike(b2c_orders.courier_partner, courierPattern),
+        ilike(b2c_orders.provider_service, courierPattern),
+        ilike(b2c_orders.provider_mode, courierPattern),
+        ilike(b2c_orders.shipping_mode, courierPattern),
+      ),
     )
   }
 
@@ -472,6 +585,11 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
       chargedWeight: b2c_orders.charged_weight,
       courierPartner: b2c_orders.courier_partner,
       integrationType: b2c_orders.integration_type,
+      deliveryLocation: b2c_orders.delivery_location,
+      providerService: b2c_orders.provider_service,
+      providerMode: b2c_orders.provider_mode,
+      shippingMode: b2c_orders.shipping_mode,
+      providerMeta: b2c_orders.provider_meta,
       createdAt: b2c_orders.created_at,
       updatedAt: b2c_orders.updated_at,
       awbNumber: b2c_orders.awb_number,
@@ -486,7 +604,7 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
   const normalizedOrders = (orders as any[])
     .map((row) => ({
       ...row,
-      courierLabel: getCourierLabel(row.courierPartner || row.integrationType),
+      courierLabel: resolveCourierLabel(row),
       orderAmountNumber: toNumber(row.orderAmount),
       weightNumber: getWeightValue(row),
       dispatchDays: getDispatchDays(row),
@@ -601,7 +719,9 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
 
   const zoneOverview = buildZoneOverview(zoneStats)
   const zoneNames = zoneOverview.map((item) => item.label)
-  const topCouriers = topByOrders(buildPairMap(courierStats), 4)
+  const allCourierPairs = buildPairMap(courierStats)
+  const realCourierPairs = allCourierPairs.filter((item) => !isPendingCourier(item.label))
+  const topCouriers = topByOrders(realCourierPairs.length ? realCourierPairs : allCourierPairs, 4)
   const matrixCouriers = topCouriers.map((item) => item.label)
   const courierZoneMatrix = matrixCouriers.map((courier) => ({
     courier,
@@ -622,12 +742,14 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
   })
 
   const zoneSpeed = zoneOverview.map((zone) => {
-    const couriers = Object.entries(zoneCourierStats.get(zone.label) || {})
-      .map(([courier, stats]) => ({ courier, ...finalizeBaseStats(stats) }))
-      .sort((a: any, b: any) => a.avgDeliveryDays - b.avgDeliveryDays || b.deliveryRate - a.deliveryRate || b.orders - a.orders)
+    const couriers = rankCourierStats(
+      Object.entries(zoneCourierStats.get(zone.label) || {})
+        .map(([courier, stats]) => ({ courier, ...finalizeBaseStats(stats) }))
+        .sort((a: any, b: any) => a.avgDeliveryDays - b.avgDeliveryDays || b.deliveryRate - a.deliveryRate || b.orders - a.orders),
+    )
 
     const bestCourier = couriers[0]
-    return { zone: zone.label, bestCourier: bestCourier?.courier || 'Unknown', avgDays: bestCourier?.avgDeliveryDays || 0 }
+    return { zone: zone.label, bestCourier: bestCourier?.courier || 'Courier Pending', avgDays: bestCourier?.avgDeliveryDays || 0 }
   })
 
   const ndrAnalytics = buildPairMap(ndrReasonStats).slice(0, 5).map((item) => ({
@@ -744,6 +866,10 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
     [...zoneOverview].sort((a, b) => a.deliveryRate - b.deliveryRate || b.rtoRate - a.rtoRate)[0] || null
   const bestCourier = topCouriers[0] || null
   const overallFinalized = finalizeBaseStats(overallStats)
+  const guidance = zoneOverview
+    .filter((zone) => zone.orders > 0)
+    .slice(0, 4)
+    .map((zone) => `${zone.label}: ${zone.bestCourier} leads with ${zone.deliveryRate}% delivery`)
 
   return {
     success: true,
@@ -782,7 +908,7 @@ export const getAdminOpsAnalytics = async (filters: any = {}) => {
       skuWiseRto,
       sizeWiseRto,
       dispatchDelay,
-      guidance: ['West India -> Delhivery Best', 'South India -> Ecom Best'],
+      guidance,
       filtersApplied: {
         fromDate: filters.fromDate ?? null,
         toDate: filters.toDate ?? null,
