@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Box, Divider, Paper, Stack, Typography } from '@mui/material'
+import { Box, Paper, Typography } from '@mui/material'
 import Barcode from 'react-barcode'
+import type React from 'react'
 import type { LabelPreferences } from '../../../api/labelPreference.api'
 
 const normalize = (value: unknown) => {
@@ -8,20 +9,29 @@ const normalize = (value: unknown) => {
   return typeof value === 'string' ? value.trim() : `${value}`
 }
 
-const clampText = (value: unknown, max = 25) => {
-  const text = normalize(value)
-  if (!text) return ''
-  return text.length > max ? `${text.slice(0, max)}...` : text
-}
+const isEnabled = (value: unknown) => (value === undefined ? true : value === true)
 
 const pickFirst = (...values: unknown[]) => values.map(normalize).find(Boolean) || ''
 
+const clampText = (value: unknown, max = 25) => {
+  const text = normalize(value)
+  if (!text) return '-'
+  return text.length > max ? `${text.slice(0, max)}...` : text
+}
+
+const toAmount = (value: unknown) => {
+  const n = Number(String(value ?? '').replace(/[^\d.-]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+const formatCurrency = (value: unknown) => `Rs. ${toAmount(value).toLocaleString('en-IN')}`
+
+const compactAddress = (...parts: unknown[]) => parts.map(normalize).filter(Boolean)
+
 const buildDimensions = (order: any) => {
-  const dimension = normalize(order.dimension) || normalize(order.dimensions)
+  const dimension = pickFirst(order.dimension, order.dimensions)
   if (dimension) return dimension
-  if (order.length && order.breadth && order.height) {
-    return `${order.length}x${order.breadth}x${order.height} cm`
-  }
+  if (order.length && order.breadth && order.height) return `${order.length} x ${order.breadth} x ${order.height} cm`
   return ''
 }
 
@@ -32,7 +42,16 @@ const buildWeight = (order: any) => {
   return ''
 }
 
-const isEnabled = (value: unknown) => (value === undefined ? true : value === true)
+const Cell = ({ children, sx }: { children: React.ReactNode; sx?: any }) => (
+  <Box sx={{ border: '1px solid #111', p: 0.55, minHeight: 34, ...sx }}>{children}</Box>
+)
+
+const TinyLabel = ({ label, value }: { label: string; value: string }) => (
+  <Box>
+    <Typography sx={{ fontSize: 9, fontWeight: 800, lineHeight: 1.1 }}>{label}</Typography>
+    <Typography sx={{ fontSize: 9.5, fontWeight: 700, lineHeight: 1.15 }}>{value || '-'}</Typography>
+  </Box>
+)
 
 type LabelPreviewProps = {
   values: any
@@ -41,360 +60,241 @@ type LabelPreviewProps = {
 }
 
 export function LabelPreview({ values, order, preferences }: LabelPreviewProps) {
-  const charsLimit = Math.max(5, Number(values?.charLimit ?? 25))
+  const charsLimit = Math.max(10, Number(values?.charLimit ?? 25))
   const maxItems = Math.max(1, Number(values?.maxItems ?? 3))
+  const orderInfo = values?.orderInfo || {}
+  const shipperInfo = values?.shipperInfo || {}
+  const productInfo = values?.productInfo || {}
 
   const awbNumber = pickFirst(order.awb, order.awbNumber, order.awb_number)
-  const courierName = normalize(order.courier || order.courier_partner || 'Courier').toUpperCase()
-  const paymentType = (normalize(order.paymentType) || normalize(order.payment_type) || 'Prepaid').toLowerCase()
-  const paymentBadge = paymentType === 'cod' ? 'COD' : 'PREPAID'
-
   const orderId = pickFirst(order.orderId, order.order_number)
   const invoiceNumber = pickFirst(order.invoiceNumber, order.invoice_number)
+  const paymentType = pickFirst(order.paymentType, order.payment_type, order.order_type).toLowerCase()
+  const paymentMode = paymentType === 'cod' ? 'COD' : 'PREPAID'
+  const courierName = pickFirst(order.courier, order.courier_partner, 'Courier').toUpperCase()
   const customerPhone = pickFirst(order.phone, order.buyer_phone, order.customerPhone)
-  const orderValue = pickFirst(order.totalAmount, order.orderValue, order.order_amount, order.order_value)
-  const codValue = pickFirst(order.codValue, order.cod_amount, order.cod_value, order.codAmount)
-  const declaredValue = pickFirst(order.declaredValue, order.orderValue, order.declared_value)
-
-  const productEntries = Array.isArray(order.products) ? order.products.slice(0, maxItems) : []
+  const declaredValue = pickFirst(order.declaredValue, order.orderValue, order.order_amount, order.totalAmount)
+  const sortCode = pickFirst(order.sortCode, order.sort_code)
   const dimensionValue = buildDimensions(order)
   const weightValue = buildWeight(order)
+  const products = Array.isArray(order.products) ? order.products.slice(0, maxItems) : []
 
-  const showSellerLogo = isEnabled(values.shipperInfo?.brandLogo) && Boolean(order.shipper?.logoUrl)
-  const showSellerName = isEnabled(values.shipperInfo?.sellerBrandName) && Boolean(order.shipper?.name)
-  const showShipperAddress = isEnabled(values.shipperInfo?.shipperAddress) && Boolean(order.shipper?.address)
-  const showShipperPhone = isEnabled(values.shipperInfo?.shipperPhone) && Boolean(order.shipper?.phone)
-  const showShipperGst = isEnabled(values.shipperInfo?.gstin) && Boolean(order.shipper?.gst)
-  const showReturnAddress = isEnabled(values.shipperInfo?.rtoAddress) && Boolean(order.shipper?.rtoAddress)
+  const showAwb = isEnabled(orderInfo.awb) && Boolean(awbNumber)
+  const showOrderId = isEnabled(orderInfo.orderId) && Boolean(orderId)
+  const showInvoiceNumber = isEnabled(orderInfo.invoiceNumber) && Boolean(invoiceNumber)
+  const showOrderDate = isEnabled(orderInfo.orderDate) && Boolean(order.orderDate)
+  const showInvoiceDate = isEnabled(orderInfo.invoiceDate) && Boolean(order.invoiceDate)
+  const showOrderBarcode = isEnabled(orderInfo.orderBarcode) && Boolean(orderId)
+  const showInvoiceBarcode = isEnabled(orderInfo.invoiceBarcode) && Boolean(invoiceNumber)
+  const showCustomerPhone = isEnabled(orderInfo.customerPhone) && Boolean(customerPhone)
+  const showRtoRoutingCode = isEnabled(orderInfo.rtoRoutingCode) && Boolean(sortCode)
+  const showDeclaredValue = isEnabled(orderInfo.declaredValue) && Boolean(declaredValue)
+  const showCod = isEnabled(orderInfo.cod)
+  const showTerms = isEnabled(orderInfo.terms)
 
-  const showCustomerPhone = isEnabled(values.orderInfo?.customerPhone) && Boolean(customerPhone)
-  const showOrderId = isEnabled(values.orderInfo?.orderId) && Boolean(orderId)
-  const showInvoiceNumber = isEnabled(values.orderInfo?.invoiceNumber) && Boolean(invoiceNumber)
-  const showOrderDate = isEnabled(values.orderInfo?.orderDate) && Boolean(order.orderDate)
-  const showInvoiceDate = isEnabled(values.orderInfo?.invoiceDate) && Boolean(order.invoiceDate)
-  const showRtoRoutingCode = isEnabled(values.orderInfo?.rtoRoutingCode) && Boolean(order.sortCode)
-  const showDeclaredValue = isEnabled(values.orderInfo?.declaredValue) && Boolean(declaredValue)
-  const showAwb = isEnabled(values.orderInfo?.awb) && Boolean(awbNumber)
-  const showCodBadge = isEnabled(values.orderInfo?.cod)
-  const showProductDescription = isEnabled(values.productInfo?.itemName) && productEntries.length > 0
-  const showOrderSummary =
-    isEnabled(values.productInfo?.otherCharges) &&
-    isEnabled(values.productInfo?.productCost) &&
-    Boolean(orderValue)
-  const showDimensions = isEnabled(values.productInfo?.dimension) && Boolean(dimensionValue)
-  const showWeight = isEnabled(values.productInfo?.deadWeight) && Boolean(weightValue)
-  const showTerms = isEnabled(values.orderInfo?.terms)
-  const showPlatformBranding = Boolean(preferences?.powered_by?.trim())
+  const showSellerLogo = isEnabled(shipperInfo.brandLogo) && Boolean(order.shipper?.logoUrl)
+  const showSellerName = isEnabled(shipperInfo.sellerBrandName) && Boolean(order.shipper?.name)
+  const showShipperAddress = isEnabled(shipperInfo.shipperAddress) && Boolean(order.shipper?.address)
+  const showShipperPhone = isEnabled(shipperInfo.shipperPhone) && Boolean(order.shipper?.phone)
+  const showShipperGst = isEnabled(shipperInfo.gstin) && Boolean(order.shipper?.gst)
+  const showReturnAddress = isEnabled(shipperInfo.rtoAddress) && Boolean(order.shipper?.rtoAddress)
 
-  const infoLineParts: string[] = []
-  if (showOrderId) infoLineParts.push(`Order ID: ${orderId}`)
-  if (showInvoiceNumber) infoLineParts.push(`Invoice: ${invoiceNumber}`)
-  if (showOrderDate) infoLineParts.push(`Order Dt: ${normalize(order.orderDate)}`)
-  if (showInvoiceDate) infoLineParts.push(`Inv Dt: ${normalize(order.invoiceDate)}`)
-  if (showDeclaredValue) infoLineParts.push(`Declared: ${declaredValue}`)
+  const showItemName = isEnabled(productInfo.itemName)
+  const showProductCost = isEnabled(productInfo.productCost)
+  const showProductQuantity = isEnabled(productInfo.productQuantity)
+  const showSkuCode = isEnabled(productInfo.skuCode)
+  const showDimensions = isEnabled(productInfo.dimension) && Boolean(dimensionValue)
+  const showWeight = isEnabled(productInfo.deadWeight) && Boolean(weightValue)
+  const showOtherCharges = isEnabled(productInfo.otherCharges) && Boolean(order.otherCharges)
 
-  const metrics: { label: string; value: string }[] = []
-  if (showDimensions) metrics.push({ label: 'Dimensions', value: dimensionValue })
-  if (showWeight) metrics.push({ label: 'Weight', value: weightValue })
+  const shipToLines = compactAddress(
+    order.name,
+    order.address,
+    showCustomerPhone ? `Phone: ${customerPhone}` : '',
+  )
 
-  const barcodeForOrder = isEnabled(values.orderInfo?.orderBarcode) && Boolean(orderId)
-  const showOtherCharges =
-    isEnabled(values.productInfo?.otherCharges) &&
-    isEnabled(values.productInfo?.productCost) &&
-    Boolean(order.otherCharges)
-  const showTotal = isEnabled(values.productInfo?.productCost) && Boolean(order.totalAmount)
-  const summaryLabelColSpan =
-    1 +
-    Number(isEnabled(values.productInfo?.skuCode)) +
-    Number(isEnabled(values.productInfo?.productQuantity))
+  const detailCells = [
+    showOrderId && { label: 'ORDER ID', value: orderId },
+    showInvoiceNumber && { label: 'INVOICE', value: invoiceNumber },
+    showOrderDate && { label: 'ORDER DATE', value: normalize(order.orderDate) },
+    showInvoiceDate && { label: 'INVOICE DATE', value: normalize(order.invoiceDate) },
+    showRtoRoutingCode && { label: 'SORT CODE', value: sortCode },
+    { label: 'COURIER', value: courierName },
+    showCod && { label: 'PAYMENT MODE', value: paymentMode },
+    { label: 'SERVICE TYPE', value: courierName },
+    showWeight && { label: 'WEIGHT / PIECES', value: weightValue },
+    showDimensions && { label: 'DIMENSIONS', value: dimensionValue },
+    showDeclaredValue && { label: 'DECLARED VALUE', value: declaredValue },
+  ].filter(Boolean) as Array<{ label: string; value: string }>
+
+  const productColumns = [
+    showItemName && { key: 'name', label: 'ITEM NAME', align: 'left' },
+    showProductQuantity && { key: 'qty', label: 'QTY', align: 'center' },
+    showProductCost && { key: 'price', label: 'PRICE', align: 'center' },
+    showSkuCode && { key: 'sku', label: 'SKU', align: 'center' },
+  ].filter(Boolean) as Array<{ key: string; label: string; align: string }>
 
   return (
     <Paper
       sx={{
-        p: 2,
-        border: '2px solid #0f172a',
-        borderRadius: 2,
-        width: values.printer === 'thermal' ? '100mm' : '210mm',
-        minHeight: values.printer === 'thermal' ? '150mm' : '297mm',
-        bgcolor: 'white',
-        color: '#0f172a',
+        p: 0.75,
+        border: '2px solid #111',
+        borderRadius: 1,
+        width: values?.printer === 'inkjet' ? '148mm' : '100mm',
+        minHeight: values?.printer === 'inkjet' ? '210mm' : '150mm',
+        bgcolor: '#fff',
+        color: '#111',
         mx: 'auto',
+        overflow: 'hidden',
       }}
       elevation={1}
     >
-      <Stack spacing={2}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
-          <Stack spacing={0.75} flex={1}>
-            <Stack direction="row" alignItems="center" spacing={1}>
-              {showSellerLogo && (
-                <Box
-                  component="img"
-                  src={order.shipper?.logoUrl}
-                  alt="Seller Logo"
-                  sx={{ width: 60, height: 30, objectFit: 'contain', borderRadius: 1, border: '1px solid #cbd5f5' }}
-                />
-              )}
-              <Stack spacing={0.25}>
-                {showSellerName && (
-                  <Typography variant="subtitle1" fontWeight="700">
-                    {order.shipper?.name}
-                  </Typography>
-                )}
-                <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 0.5 }}>
-                  {courierName}
-                </Typography>
-              </Stack>
-            </Stack>
-            {showShipperAddress && (
-              <Typography variant="body2" color="text.secondary">
-                {order.shipper?.address}
-              </Typography>
-            )}
-            {showShipperPhone && (
-              <Typography variant="body2">
-                Phone: {order.shipper?.phone}
-              </Typography>
-            )}
-            {showShipperGst && (
-              <Typography variant="body2">{`GSTIN: ${order.shipper?.gst}`}</Typography>
-            )}
-          </Stack>
+      <Box sx={{ border: '1px solid #111' }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '58% 42%' }}>
+          <Cell sx={{ minHeight: 48 }}>
+            {showSellerLogo ? (
+              <Box component="img" src={order.shipper.logoUrl} alt="Seller Logo" sx={{ width: 92, height: 38, objectFit: 'contain' }} />
+            ) : showSellerName ? (
+              <Typography sx={{ fontSize: 22, fontWeight: 900, lineHeight: 1.05 }}>{clampText(order.shipper.name, 26)}</Typography>
+            ) : null}
+          </Cell>
+          <Cell sx={{ minHeight: 48, display: 'grid', placeItems: 'center' }}>
+            <Typography sx={{ fontSize: 15, fontWeight: 900, textAlign: 'center' }}>{courierName}</Typography>
+          </Cell>
+        </Box>
 
-          <Stack spacing={1} minWidth={160} alignItems="flex-end">
-            {showAwb && (
-              <Typography variant="body2" fontWeight="700" letterSpacing={0.4}>
-                AWB #{awbNumber}
-              </Typography>
-            )}
-            {showRtoRoutingCode && (
-              <Typography variant="caption" fontWeight="700" color="text.secondary">
-                Sort Code: {order.sortCode}
-              </Typography>
-            )}
-            {showAwb &&
-              (order.barcodeUrl ? (
-                <Box
-                  component="img"
-                  src={order.barcodeUrl}
-                  alt="Shipment Barcode"
-                  sx={{ maxWidth: '100%', maxHeight: 90, objectFit: 'contain', border: '1px solid #cbd5f5', borderRadius: 1 }}
-                />
-              ) : (
-                <Box sx={{ width: 140 }}>
-                  <Barcode value={awbNumber} height={45} width={1.2} displayValue={false} />
-                </Box>
-              ))}
-            {showCodBadge && (
-              <Typography
-                variant="caption"
-                fontWeight="600"
-                sx={{
-                  px: 1.25,
-                  py: 0.5,
-                  borderRadius: 1,
-                  bgcolor: paymentType === 'cod' ? '#fee2e2' : '#dcfce7',
-                  color: paymentType === 'cod' ? '#b91c1c' : '#15803d',
-                }}
-              >
-                {paymentBadge}
-              </Typography>
-            )}
-          </Stack>
-        </Stack>
-
-        <Divider sx={{ borderStyle: 'dashed' }} />
-
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={2}
-          alignItems="stretch"
-        >
-          <Box sx={{ flex: 1, p: 1, border: '1px solid #e2e8f0', borderRadius: 1, minHeight: 140 }}>
-            <Typography variant="caption" color="text.secondary">
-              SHIP TO
-            </Typography>
-            <Typography variant="subtitle2" fontWeight="700">
-              {order.name}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-              {order.address}
-            </Typography>
-            {showCustomerPhone && (
-              <Typography variant="body2">Phone: {customerPhone}</Typography>
-            )}
-          </Box>
-          <Box sx={{ flex: 1, p: 1, border: '1px solid #e2e8f0', borderRadius: 1, minHeight: 140 }}>
-            <Typography variant="caption" color="text.secondary">
-              SHIP FROM
-            </Typography>
-            {showSellerName && (
-              <Typography variant="subtitle2" fontWeight="700">
-                {order.shipper?.name}
-              </Typography>
-            )}
-            {showShipperAddress && (
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                {order.shipper?.address}
-              </Typography>
-            )}
-            {showShipperPhone && (
-              <Typography variant="body2">Phone: {order.shipper?.phone}</Typography>
-            )}
-          </Box>
-        </Stack>
-
-        {infoLineParts.length > 0 && (
-          <Typography variant="body2" color="text.secondary">
-            {infoLineParts.join(' | ')}
-          </Typography>
-        )}
-
-        {metrics.length > 0 && (
-          <Stack direction="row" spacing={1} flexWrap="wrap">
-            {metrics.map((metric) => (
-              <Box
-                key={metric.label}
-                sx={{
-                  px: 1.25,
-                  py: 0.4,
-                  borderRadius: 1,
-                  border: '1px solid #e2e8f0',
-                  fontSize: 11,
-                  fontWeight: 600,
-                }}
-              >
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  {metric.label}
-                </Typography>
-                <Typography variant="subtitle2">{metric.value}</Typography>
-              </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '58% 42%' }}>
+          <Cell sx={{ minHeight: 82 }}>
+            <Typography sx={{ fontSize: 10, fontWeight: 900, mb: 0.5 }}>SHIP TO:</Typography>
+            {shipToLines.map((line) => (
+              <Typography key={line} sx={{ fontSize: 9, lineHeight: 1.25 }}>{clampText(line, 55)}</Typography>
             ))}
-          </Stack>
+          </Cell>
+          <Cell sx={{ minHeight: 82, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+            {showAwb ? (
+              <Box>
+                <Typography sx={{ fontSize: 22, fontWeight: 900 }}>AWB</Typography>
+                <Typography sx={{ fontSize: 14, fontWeight: 900 }}>{awbNumber}</Typography>
+              </Box>
+            ) : (
+              <Typography sx={{ fontSize: 14, fontWeight: 900 }}>{courierName}</Typography>
+            )}
+          </Cell>
+        </Box>
+
+        {detailCells.length > 0 && (
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {detailCells.map((item) => (
+              <Cell key={`${item.label}-${item.value}`}>
+                <TinyLabel label={item.label} value={clampText(item.value, 28)} />
+              </Cell>
+            ))}
+          </Box>
         )}
 
-        {showProductDescription && (
-          <Box sx={{ border: '1px solid #e2e8f0', borderRadius: 1, overflow: 'hidden' }}>
-            <Box component="table" width="100%" sx={{
-              borderCollapse: 'collapse',
-            }}>
-              <Box component="thead" sx={{ backgroundColor: '#f8fafc' }}>
-                <Box component="tr">
-                  <Box component="th" align="left" sx={{ p: 1, fontSize: 11 }}>
-                    Item
-                  </Box>
-                  {isEnabled(values.productInfo?.skuCode) && (
-                    <Box component="th" align="left" sx={{ p: 1, fontSize: 11 }}>
-                      SKU
-                    </Box>
-                  )}
-                  {isEnabled(values.productInfo?.productQuantity) && (
-                    <Box component="th" align="right" sx={{ p: 1, fontSize: 11 }}>
-                      Qty
-                    </Box>
-                  )}
-                  {isEnabled(values.productInfo?.productCost) && (
-                    <Box component="th" align="right" sx={{ p: 1, fontSize: 11 }}>
-                      Amount
-                    </Box>
-                  )}
-                </Box>
-              </Box>
-              <Box component="tbody">
-                {productEntries.map((product: any, index: number) => (
-                  <Box component="tr" key={`${product.name}-${index}`}>
-                    <Box component="td" sx={{ p: 1, fontSize: 11 }}>
-                      {clampText(product.name, charsLimit)}
-                    </Box>
-                    {isEnabled(values.productInfo?.skuCode) && (
-                      <Box component="td" sx={{ p: 1, fontSize: 11 }}>
-                        {normalize(product.sku)}
-                      </Box>
-                    )}
-                    {isEnabled(values.productInfo?.productQuantity) && (
-                      <Box component="td" align="right" sx={{ p: 1, fontSize: 11 }}>
-                        {normalize(product.qty ?? product.quantity)}
-                      </Box>
-                    )}
-                    {isEnabled(values.productInfo?.productCost) && (
-                      <Box component="td" align="right" sx={{ p: 1, fontSize: 11 }}>
-                        {normalize(product.price)}
-                      </Box>
-                    )}
+        {(showAwb || (!showAwb && (showOrderBarcode || showInvoiceBarcode))) && (
+          <Cell sx={{ textAlign: 'center', minHeight: 62 }}>
+            {showAwb && (
+              <>
+                <Typography sx={{ fontSize: 14, fontWeight: 900, mb: 0.25 }}>{awbNumber}</Typography>
+                <Barcode value={awbNumber} height={38} width={1.2} displayValue={false} margin={0} />
+              </>
+            )}
+            {!showAwb && showOrderBarcode && (
+              <>
+                <Typography sx={{ fontSize: 12, fontWeight: 900 }}>ORDER ID: {orderId}</Typography>
+                <Barcode value={orderId} height={30} width={1.1} displayValue={false} margin={0} />
+              </>
+            )}
+            {!showAwb && showInvoiceBarcode && (
+              <>
+                <Typography sx={{ fontSize: 12, fontWeight: 900 }}>INVOICE: {invoiceNumber}</Typography>
+                <Barcode value={invoiceNumber} height={30} width={1.1} displayValue={false} margin={0} />
+              </>
+            )}
+          </Cell>
+        )}
+
+        {productColumns.length > 0 && (
+          <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
+            <Box component="thead">
+              <Box component="tr">
+                {productColumns.map((column) => (
+                  <Box component="th" key={column.key} sx={{ border: '1px solid #111', p: 0.5, fontSize: 9 }}>
+                    {column.label}
                   </Box>
                 ))}
-                {showOtherCharges && (
-                  <Box component="tr">
-                    <Box component="td" colSpan={summaryLabelColSpan} sx={{ p: 1, fontSize: 11, fontWeight: 600 }}>
-                      Other Charges
-                    </Box>
-                    <Box component="td" align="right" sx={{ p: 1, fontSize: 11 }}>
-                      {normalize(order.otherCharges)}
-                    </Box>
-                  </Box>
-                )}
-                {showTotal && (
-                  <Box component="tr">
-                    <Box component="td" colSpan={summaryLabelColSpan} sx={{ p: 1, fontSize: 11, fontWeight: 700 }}>
-                      Total
-                    </Box>
-                    <Box component="td" align="right" sx={{ p: 1, fontSize: 11, fontWeight: 700 }}>
-                      {normalize(order.totalAmount)}
-                    </Box>
-                  </Box>
-                )}
               </Box>
+            </Box>
+            <Box component="tbody">
+              {(products.length ? products : [{}]).map((product: any, index: number) => (
+                <Box component="tr" key={`${product.name || 'item'}-${index}`}>
+                  {productColumns.map((column) => (
+                    <Box
+                      component="td"
+                      key={column.key}
+                      sx={{ border: '1px solid #111', p: 0.5, fontSize: 9, textAlign: column.align }}
+                    >
+                      {column.key === 'name' && clampText(product.name || product.productName || '-', charsLimit)}
+                      {column.key === 'qty' && normalize(product.qty ?? product.quantity ?? 1)}
+                      {column.key === 'price' && normalize(product.price)}
+                      {column.key === 'sku' && normalize(product.sku)}
+                    </Box>
+                  ))}
+                </Box>
+              ))}
+              {showOtherCharges && (
+                <Box component="tr">
+                  <Box component="td" colSpan={Math.max(1, productColumns.length - 1)} sx={{ border: '1px solid #111', p: 0.5, fontSize: 9, fontWeight: 800 }}>
+                    {productColumns.length === 1 ? `OTHER CHARGES: ${formatCurrency(order.otherCharges)}` : 'OTHER CHARGES'}
+                  </Box>
+                  {productColumns.length > 1 && (
+                    <Box component="td" sx={{ border: '1px solid #111', p: 0.5, fontSize: 9, fontWeight: 800, textAlign: 'center' }}>
+                      {formatCurrency(order.otherCharges)}
+                    </Box>
+                  )}
+                </Box>
+              )}
             </Box>
           </Box>
         )}
 
-        {showOrderSummary && (
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-            <Typography variant="body2" fontWeight="600">
-              Order Value: {orderValue}
-            </Typography>
-            {showCodBadge && paymentType === 'cod' && codValue && (
-              <Typography variant="body2" fontWeight="600">
-                Collectable: {codValue}
-              </Typography>
-            )}
-          </Stack>
-        )}
+        <Cell sx={{ minHeight: 52 }}>
+          {showSellerName && (
+            <>
+              <Typography sx={{ fontSize: 10, fontWeight: 900 }}>SELLER NAME:</Typography>
+              <Typography sx={{ fontSize: 9, mb: 0.5 }}>{clampText(order.shipper?.name, 60)}</Typography>
+            </>
+          )}
+          {showShipperAddress && (
+            <>
+              <Typography sx={{ fontSize: 10, fontWeight: 900 }}>SELLER ADDRESS:</Typography>
+              <Typography sx={{ fontSize: 9, lineHeight: 1.25 }}>{clampText(order.shipper?.address, 70)}</Typography>
+            </>
+          )}
+          {showShipperPhone && <Typography sx={{ fontSize: 9 }}>PHONE: {order.shipper?.phone}</Typography>}
+          {showShipperGst && <Typography sx={{ fontSize: 9 }}>GSTIN: {order.shipper?.gst}</Typography>}
+        </Cell>
 
         {showReturnAddress && (
-          <Box sx={{ border: '1px dashed #cbd5f5', borderRadius: 1, p: 1 }}>
-            <Typography variant="caption" color="text.secondary" gutterBottom>
-              RETURN TO (If undelivered)
-            </Typography>
-            <Typography variant="body2" fontWeight="600">
-              {order.shipper?.rtoAddress}
-            </Typography>
-            {showShipperPhone && (
-              <Typography variant="body2">Phone: {order.shipper?.phone}</Typography>
-            )}
-          </Box>
+          <Cell>
+            <Typography sx={{ fontSize: 10, fontWeight: 900 }}>RETURN TO:</Typography>
+            <Typography sx={{ fontSize: 9, lineHeight: 1.25 }}>{clampText(order.shipper?.rtoAddress, 70)}</Typography>
+          </Cell>
         )}
 
         {showTerms && (
-          <Typography variant="caption" color="text.secondary">
-            *Terms & Conditions apply. Please refer to your courier documentation for details.
+          <Typography sx={{ fontSize: 8, textAlign: 'center', p: 0.5 }}>
+            *Terms & Conditions apply.
           </Typography>
         )}
 
-        {barcodeForOrder && (
-          <Box textAlign="center">
-            <Typography variant="body2" gutterBottom>
-              Order ID#: {orderId}
-            </Typography>
-            <Barcode value={orderId} height={50} width={1.3} displayValue={false} />
-          </Box>
-        )}
-
-        {showPlatformBranding && (
-          <Typography variant="caption" align="center" color="text.secondary" fontWeight="600">
-            Powered by {preferences?.powered_by}
+        {preferences?.powered_by?.trim() && (
+          <Typography sx={{ fontSize: 8, textAlign: 'center', p: 0.5, fontWeight: 700 }}>
+            Powered by {preferences.powered_by}
           </Typography>
         )}
-      </Stack>
+      </Box>
     </Paper>
   )
 }

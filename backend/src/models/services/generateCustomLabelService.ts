@@ -241,7 +241,29 @@ export async function generateLabelForOrder(
   const isEnabled = (value: unknown) => (value === undefined ? true : value === true)
   const awbEnabled = isEnabled(settings.order_info?.awb)
   const showBrandLogo = isEnabled(settings.shipper_info?.brandLogo)
+  const showSellerName = isEnabled(settings.shipper_info?.sellerBrandName)
+  const showShipperAddress = isEnabled(settings.shipper_info?.shipperAddress)
+  const showShipperPhone = isEnabled(settings.shipper_info?.shipperPhone)
+  const showShipperGst = isEnabled(settings.shipper_info?.gstin)
+  const showRtoAddress = isEnabled(settings.shipper_info?.rtoAddress)
   const showCustomerPhone = isEnabled(settings.order_info?.customerPhone)
+  const showOrderId = isEnabled(settings.order_info?.orderId)
+  const showInvoiceNumber = isEnabled(settings.order_info?.invoiceNumber)
+  const showOrderDate = isEnabled(settings.order_info?.orderDate)
+  const showInvoiceDate = isEnabled(settings.order_info?.invoiceDate)
+  const showOrderBarcode = isEnabled(settings.order_info?.orderBarcode)
+  const showInvoiceBarcode = isEnabled(settings.order_info?.invoiceBarcode)
+  const showRtoRoutingCode = isEnabled(settings.order_info?.rtoRoutingCode)
+  const showDeclaredValue = isEnabled(settings.order_info?.declaredValue)
+  const showCod = isEnabled(settings.order_info?.cod)
+  const showTerms = isEnabled(settings.order_info?.terms)
+  const showItemName = isEnabled(settings.product_info?.itemName)
+  const showProductCost = isEnabled(settings.product_info?.productCost)
+  const showProductQuantity = isEnabled(settings.product_info?.productQuantity)
+  const showSkuCode = isEnabled(settings.product_info?.skuCode)
+  const showDimensions = isEnabled(settings.product_info?.dimension)
+  const showDeadWeight = isEnabled(settings.product_info?.deadWeight)
+  const showOtherCharges = isEnabled(settings.product_info?.otherCharges)
   const charLimit = Math.max(10, Number(settings.char_limit ?? 25))
   const maxItems = Math.max(1, Number(settings.max_items ?? 3))
   const companyInfo = safeParseObject(profileOfUser?.companyInfo)
@@ -351,10 +373,20 @@ export async function generateLabelForOrder(
   // Check for barcode from courier APIs - can be URL or data URL
   const barcodeSource =
     order.barcode_img || order.barcode_url || order.barcode_image || order.barcode || null
+  let orderBarcode: string | null = null
+  let invoiceBarcode: string | null = null
 
   if (awbEnabled && order.awb_number) {
     awbBarcode = await generateBarcodeBase64(order.awb_number)
     console.log('✅ Generated AWB barcode locally')
+  }
+
+  if (showOrderBarcode && order.order_number) {
+    orderBarcode = await generateBarcodeBase64(String(order.order_number))
+  }
+
+  if (showInvoiceBarcode && order.invoice_number) {
+    invoiceBarcode = await generateBarcodeBase64(String(order.invoice_number))
   }
 
   if (!awbBarcode && awbEnabled && providerKey.includes('delhivery') && barcodeSource) {
@@ -401,6 +433,12 @@ export async function generateLabelForOrder(
   }
   if (awbEnabled && awbBarcode && isValidDataUrl(awbBarcode)) {
     images.awbBarcode = awbBarcode
+  }
+  if (showOrderBarcode && orderBarcode && isValidDataUrl(orderBarcode)) {
+    images.orderBarcode = orderBarcode
+  }
+  if (showInvoiceBarcode && invoiceBarcode && isValidDataUrl(invoiceBarcode)) {
+    images.invoiceBarcode = invoiceBarcode
   }
 
   const chunk = products.slice(0, maxItems)
@@ -461,6 +499,17 @@ export async function generateLabelForOrder(
     pickup.pincode || companyInfo.pincode,
     order.country || 'India',
   )
+  const sellerPhone = String(pickup.phone || companyInfo.phone || profileOfUser?.phone || '').trim()
+  const sellerGstin = String(pickup.gst_number || companyInfo.companyGst || companyInfo.gstin || '').trim()
+  const rtoDetails = safeParseObject(order.rto_details)
+  const rtoAddressLines = compactAddressLines(
+    rtoDetails.address || pickup.rto_address || pickup.address || companyInfo.companyAddress,
+    [rtoDetails.city || pickup.city || companyInfo.city, rtoDetails.state || pickup.state || companyInfo.state]
+      .filter(Boolean)
+      .join(', '),
+    rtoDetails.pincode || pickup.pincode || companyInfo.pincode,
+    order.country || 'India',
+  )
   const courierName = String(order.courier_partner || order.integration_type || '-').trim() || '-'
   const serviceType =
     String(
@@ -475,6 +524,13 @@ export async function generateLabelForOrder(
       .toUpperCase() || '-'
   const chargeableWeight = formatWeightKg(
     order.charged_weight ?? order.actual_weight ?? order.weight ?? 0,
+  )
+  const dimensionText =
+    toAmount(order.length) > 0 && toAmount(order.breadth) > 0 && toAmount(order.height) > 0
+      ? `${toAmount(order.length)} x ${toAmount(order.breadth)} x ${toAmount(order.height)} cm`
+      : ''
+  const declaredValue = formatCurrency(
+    order.declared_value ?? order.invoice_amount ?? order.order_amount ?? 0,
   )
   const packageCount = Math.max(
     1,
@@ -498,18 +554,39 @@ export async function generateLabelForOrder(
     consignee.country || order.country || 'India',
     showCustomerPhone && consignee.phone ? `Phone: ${consignee.phone}` : '',
   )
+  const productColumns = [
+    showItemName && { key: 'itemName', label: 'ITEM NAME', width: '*', alignment: 'left' as const },
+    showProductQuantity && { key: 'quantity', label: 'QTY', width: 42, alignment: 'center' as const },
+    showProductCost && { key: 'price', label: 'PRICE', width: 68, alignment: 'center' as const },
+    showSkuCode && { key: 'sku', label: 'SKU', width: 68, alignment: 'center' as const },
+  ].filter(Boolean) as Array<{
+    key: 'itemName' | 'quantity' | 'price' | 'sku'
+    label: string
+    width: string | number
+    alignment: 'left' | 'center'
+  }>
+
   const productRows = (chunk.length ? chunk : [{}]).map((product: any) => {
     const itemName = product.name ?? product.productName ?? product.box_name ?? '-'
     const qty = Math.max(1, Number(product.qty ?? product.quantity ?? 1) || 1)
     const price = getDisplayedUnitPrice(product)
     const sku = product.sku ?? product.skuCode ?? '-'
 
-    return [
-      { text: String(itemName || '-').trim() || '-', fontSize: 6.75, bold: true, alignment: 'left' },
-      { text: String(qty), fontSize: 6.75, bold: true, alignment: 'center' },
-      { text: formatCurrency(price), fontSize: 7, alignment: 'center' },
-      { text: String(sku || '-').trim() || '-', fontSize: 6.75, bold: true, alignment: 'center' },
-    ]
+    return productColumns.map((column) => {
+      const textByColumn = {
+        itemName: String(itemName || '-').trim() || '-',
+        quantity: String(qty),
+        price: formatCurrency(price),
+        sku: String(sku || '-').trim() || '-',
+      }
+
+      return {
+        text: column.key === 'itemName' ? trimText(textByColumn[column.key]) : textByColumn[column.key],
+        fontSize: column.key === 'price' ? 7 : 6.75,
+        bold: column.key !== 'price',
+        alignment: column.alignment,
+      }
+    })
   })
 
   pageContent.push({
@@ -520,7 +597,9 @@ export async function generateLabelForOrder(
           {
             stack: images.logo
               ? [{ image: 'logo', fit: [92, 38], alignment: 'left', margin: [0, 2, 0, 2] }]
-              : [{ text: trimText(sellerName, 26), fontSize: 16, bold: true, margin: [0, 8, 0, 0] }],
+              : showSellerName
+                ? [{ text: trimText(sellerName, 26), fontSize: 16, bold: true, margin: [0, 8, 0, 0] }]
+                : [{ text: '', fontSize: 16, margin: [0, 8, 0, 0] }],
             minHeight: 48,
           },
           {
@@ -560,13 +639,25 @@ export async function generateLabelForOrder(
           },
           {
             stack: [
-              { text: 'AWB', fontSize: 16, bold: true, alignment: 'center', margin: [0, 14, 0, 6] },
-              {
-                text: safeLine(order.awb_number || '-', 28),
-                fontSize: 11.5,
-                bold: true,
-                alignment: 'center',
-              },
+              ...(awbEnabled
+                ? [
+                    { text: 'AWB', fontSize: 16, bold: true, alignment: 'center', margin: [0, 14, 0, 6] },
+                    {
+                      text: safeLine(order.awb_number || '-', 28),
+                      fontSize: 11.5,
+                      bold: true,
+                      alignment: 'center',
+                    },
+                  ]
+                : [
+                    {
+                      text: serviceType,
+                      fontSize: 11,
+                      bold: true,
+                      alignment: 'center',
+                      margin: [0, 26, 0, 0],
+                    },
+                  ]),
             ],
             minHeight: 82,
           },
@@ -577,82 +668,149 @@ export async function generateLabelForOrder(
     margin: [0, 0, 0, 0],
   })
 
+  const detailCells: any[] = [
+    showOrderId && compactDetailCell('ORDER ID', String(order.order_number || '-'), 24),
+    showInvoiceNumber && compactDetailCell('INVOICE', String(order.invoice_number || '-'), 24),
+    showOrderDate && compactDetailCell('ORDER DATE', formatLabelDateTime(order.order_date || order.created_at), 24),
+    showInvoiceDate && compactDetailCell('INVOICE DATE', formatLabelDateTime(order.invoice_date), 24),
+    showRtoRoutingCode && compactDetailCell('SORT CODE', String(order.sort_code || '-'), 24),
+    compactDetailCell('COURIER', courierName.toUpperCase(), 24),
+    showCod && compactDetailCell('PAYMENT MODE', paymentModeLabel, 18),
+    compactDetailCell('SERVICE TYPE', serviceType, 20),
+    showDeadWeight && compactDetailCell('WEIGHT / PIECES', `${chargeableWeight} | ${packageCount} / ${packageCount}`, 26),
+    showDimensions && compactDetailCell('DIMENSIONS', dimensionText || '-', 28),
+    showDeclaredValue && compactDetailCell('DECLARED VALUE', declaredValue, 20),
+  ].filter(Boolean)
+
+  const detailRows =
+    detailCells.length > 0
+      ? Array.from({ length: Math.ceil(detailCells.length / 3) }, (_, rowIndex) => {
+          const row = detailCells.slice(rowIndex * 3, rowIndex * 3 + 3)
+          while (row.length < 3) row.push({ text: '', fontSize: 6 })
+          return row
+        })
+      : [[{ text: '', fontSize: 6 }, { text: '', fontSize: 6 }, { text: '', fontSize: 6 }]]
+
   pageContent.push({
     table: {
       widths: ['33%', '33%', '34%'],
-      body: [
-        [
-          compactDetailCell('ORDER ID', String(order.order_number || '-'), 24),
-          compactDetailCell('COURIER', courierName.toUpperCase(), 24),
-          compactDetailCell('DATE & TIME', formatLabelDateTime(order.order_date || order.created_at), 24),
-        ],
-        [
-          compactDetailCell('PAYMENT MODE', paymentModeLabel, 18),
-          compactDetailCell('SERVICE TYPE', serviceType, 20),
-          compactDetailCell('WEIGHT / PIECES', `${chargeableWeight} | ${packageCount} / ${packageCount}`, 26),
-        ],
-      ],
+      body: detailRows,
     },
     layout: sectionLayout,
     margin: [0, 0, 0, 0],
   })
 
-  pageContent.push({
-    table: {
-      widths: ['*'],
-      body: [
-        [
-          {
-            stack: awbEnabled && images.awbBarcode
-              ? [
-                  {
-                    text: safeLine(order.awb_number || '-', 28),
-                    alignment: 'center',
-                    fontSize: 11,
-                    bold: true,
-                    margin: [0, 0, 0, 3],
-                  },
-                  {
-                    image: 'awbBarcode',
-                    fit: [220, 42],
-                    alignment: 'center',
-                    margin: [0, 0, 0, 0],
-                  },
-                ]
-              : [
-                  {
-                    text: safeLine(order.awb_number || '-', 28),
-                    alignment: 'center',
-                    fontSize: 12,
-                    bold: true,
-                    margin: [0, 10, 0, 10],
-                  },
-                ],
+  const barcodeStack: any[] = []
+  if (awbEnabled) {
+    barcodeStack.push(
+      {
+        text: safeLine(order.awb_number || '-', 28),
+        alignment: 'center',
+        fontSize: 11,
+        bold: true,
+        margin: [0, 0, 0, 3],
+      },
+      images.awbBarcode
+        ? {
+            image: 'awbBarcode',
+            fit: [220, 42],
+            alignment: 'center',
+            margin: [0, 0, 0, 0],
+          }
+        : {
+            text: 'AWB barcode unavailable',
+            alignment: 'center',
+            fontSize: 7,
+            margin: [0, 0, 0, 0],
           },
-        ],
-      ],
-    },
-    layout: sectionLayout,
-    margin: [0, 0, 0, 0],
-  })
+    )
+  }
+  if (showOrderBarcode && order.order_number && !awbEnabled) {
+    barcodeStack.push(
+      {
+        text: `ORDER ID: ${safeLine(order.order_number, 28)}`,
+        alignment: 'center',
+        fontSize: 11,
+        bold: true,
+        margin: [0, 4, 0, 3],
+      },
+      images.orderBarcode
+        ? { image: 'orderBarcode', fit: [180, 32], alignment: 'center', margin: [0, 0, 0, 4] }
+        : { text: '', fontSize: 1 },
+    )
+  }
+  if (showInvoiceBarcode && order.invoice_number && !awbEnabled) {
+    barcodeStack.push(
+      {
+        text: `INVOICE: ${safeLine(order.invoice_number, 28)}`,
+        alignment: 'center',
+        fontSize: 11,
+        bold: true,
+        margin: [0, 4, 0, 3],
+      },
+      images.invoiceBarcode
+        ? { image: 'invoiceBarcode', fit: [180, 32], alignment: 'center', margin: [0, 0, 0, 4] }
+        : { text: '', fontSize: 1 },
+    )
+  }
 
-  pageContent.push({
-    table: {
-      headerRows: 1,
-      widths: ['*', 42, 68, 68],
-      body: [
-        [
-          { text: 'ITEM NAME', bold: true, fontSize: 6.25, alignment: 'center' },
-          { text: 'QTY', bold: true, fontSize: 6.25, alignment: 'center' },
-          { text: 'PRICE', bold: true, fontSize: 6.25, alignment: 'center' },
-          { text: 'SKU', bold: true, fontSize: 6.25, alignment: 'center' },
+  if (barcodeStack.length > 0) {
+    pageContent.push({
+      table: {
+        widths: ['*'],
+        body: [[{ stack: barcodeStack }]],
+      },
+      layout: sectionLayout,
+      margin: [0, 0, 0, 0],
+    })
+  }
+
+  if (productColumns.length > 0) {
+    pageContent.push({
+      table: {
+        headerRows: 1,
+        widths: productColumns.map((column) => column.width),
+        body: [
+          productColumns.map((column) => ({
+            text: column.label,
+            bold: true,
+            fontSize: 6.25,
+            alignment: 'center',
+          })),
+          ...productRows,
+          ...(showOtherCharges
+            ? [
+                productColumns.length === 1
+                  ? [
+                      {
+                        text: `OTHER CHARGES: ${formatCurrency(order.other_charges ?? 0)}`,
+                        bold: true,
+                        fontSize: 6.25,
+                      },
+                    ]
+                  : [
+                      {
+                        text: 'OTHER CHARGES',
+                        bold: true,
+                        fontSize: 6.25,
+                        colSpan: productColumns.length - 1,
+                      },
+                      ...Array.from({ length: Math.max(0, productColumns.length - 2) }, () => ({ text: '' })),
+                      {
+                        text: formatCurrency(order.other_charges ?? 0),
+                        fontSize: 6.75,
+                        bold: true,
+                        alignment: 'center',
+                      },
+                    ],
+              ]
+            : []),
         ],
-        ...productRows,
-      ],
-    },
-    layout: sectionLayout,
-    margin: [0, 0, 0, 0],
-  })
+      },
+      layout: sectionLayout,
+      margin: [0, 0, 0, 0],
+    })
+  }
 
   pageContent.push({
     table: {
@@ -661,14 +819,28 @@ export async function generateLabelForOrder(
         [
           {
             stack: [
-              { text: 'SELLER NAME:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
-              { text: safeLine(sellerName || '-', 60), fontSize: 6.25, margin: [0, 0, 0, 6] },
-              { text: 'SELLER ADDRESS:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
-              ...sellerAddressLines.map((line) => ({
-                text: safeLine(line, 70),
-                fontSize: 6.25,
-                margin: [0, 0, 0, 2],
-              })),
+              ...(showSellerName
+                ? [
+                    { text: 'SELLER NAME:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
+                    { text: safeLine(sellerName || '-', 60), fontSize: 6.25, margin: [0, 0, 0, 6] },
+                  ]
+                : []),
+              ...(showShipperAddress
+                ? [
+                    { text: 'SELLER ADDRESS:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
+                    ...sellerAddressLines.map((line) => ({
+                      text: safeLine(line, 70),
+                      fontSize: 6.25,
+                      margin: [0, 0, 0, 2],
+                    })),
+                  ]
+                : []),
+              ...(showShipperPhone && sellerPhone
+                ? [{ text: `PHONE: ${safeLine(sellerPhone, 28)}`, fontSize: 6.25, margin: [0, 2, 0, 0] }]
+                : []),
+              ...(showShipperGst && sellerGstin
+                ? [{ text: `GSTIN: ${safeLine(sellerGstin, 24)}`, fontSize: 6.25, margin: [0, 2, 0, 0] }]
+                : []),
             ],
             minHeight: 52,
           },
@@ -678,6 +850,40 @@ export async function generateLabelForOrder(
     layout: sectionLayout,
     margin: [0, 0, 0, 0],
   })
+
+  if (showRtoAddress && rtoAddressLines.length > 0) {
+    pageContent.push({
+      table: {
+        widths: ['*'],
+        body: [
+          [
+            {
+              stack: [
+                { text: 'RETURN TO:', bold: true, fontSize: 7.5, margin: [0, 0, 0, 4] },
+                ...rtoAddressLines.map((line) => ({
+                  text: safeLine(line, 70),
+                  fontSize: 6.25,
+                  margin: [0, 0, 0, 2],
+                })),
+              ],
+            },
+          ],
+        ],
+      },
+      layout: sectionLayout,
+      margin: [0, 0, 0, 0],
+    })
+  }
+
+  if (showTerms) {
+    pageContent.push({
+      text: '*Terms & Conditions apply.',
+      fontSize: 5.5,
+      color: darkTextColor,
+      margin: [4, 3, 4, 0],
+      alignment: 'center',
+    })
+  }
 
   // Push pageContent to pages array - CRITICAL: Without this, label will be empty!
   if (pageContent.length === 0) {
