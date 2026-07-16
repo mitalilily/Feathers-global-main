@@ -3,7 +3,12 @@ import { Response } from 'express'
 import { db } from '../models/client'
 import { b2c_orders } from '../models/schema/b2cOrders'
 import { ndr_events } from '../models/schema/ndr'
-import { getNdrTimeline, listNdrEvents, listNdrEventsAdmin } from '../models/services/ndr.service'
+import {
+  NDR_ELIGIBLE_ORDER_SQL,
+  getNdrTimeline,
+  listNdrEvents,
+  listNdrEventsAdmin,
+} from '../models/services/ndr.service'
 import { buildCsv } from '../utils/csv'
 
 export const getMyNdrEvents = async (req: any, res: Response) => {
@@ -174,22 +179,31 @@ export const exportAdminNdrCsv = async (req: any, res: Response) => {
 export const getAdminNdrKpis = async (req: any, res: Response) => {
   try {
     // Simple KPIs: total NDRs, by status, by courier, unique orders affected
-    const [{ total }] = (await db.select({ total: sql<number>`count(*)` }).from(ndr_events)) as any
+    const [{ total }] = (await db
+      .select({ total: sql<number>`count(*)` })
+      .from(ndr_events)
+      .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
+      .where(NDR_ELIGIBLE_ORDER_SQL)) as any
 
     const byStatus = (await db
       .select({ status: ndr_events.status, count: sql<number>`count(*)` })
       .from(ndr_events)
+      .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
+      .where(NDR_ELIGIBLE_ORDER_SQL)
       .groupBy(ndr_events.status)) as any
 
     const byCourier = (await db
       .select({ courier: b2c_orders.courier_partner, count: sql<number>`count(*)` })
       .from(ndr_events)
       .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
+      .where(NDR_ELIGIBLE_ORDER_SQL)
       .groupBy(b2c_orders.courier_partner)) as any
 
     const [{ ordersAffected }] = (await db
       .select({ ordersAffected: sql<number>`count(distinct ${ndr_events.order_id})` })
-      .from(ndr_events)) as any
+      .from(ndr_events)
+      .leftJoin(b2c_orders, eq(ndr_events.order_id, b2c_orders.id))
+      .where(NDR_ELIGIBLE_ORDER_SQL)) as any
 
     return res
       .status(200)

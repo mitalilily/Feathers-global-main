@@ -1,10 +1,51 @@
-import { and, desc, eq, gte, ilike, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { userProfiles } from '../schema/userProfile'
 import { ndr_events } from '../schema/ndr'
 import { tracking_events } from '../schema/trackingEvents'
 import { sendWebhookEvent } from '../../services/webhookDelivery.service'
+
+export const NDR_ELIGIBLE_ORDER_SQL = sql`
+  ${b2c_orders.id} is not null
+  and nullif(trim(coalesce(${b2c_orders.awb_number}, '')), '') is not null
+  and nullif(trim(coalesce(${b2c_orders.courier_partner}, '')), '') is not null
+  and lower(trim(coalesce(${b2c_orders.courier_partner}, ''))) not in ('shopify', 'woocommerce', 'woo commerce')
+`
+
+export const NDR_INELIGIBLE_IMPORTED_ORDER_SQL = sql`
+  (
+    lower(trim(coalesce(${b2c_orders.integration_type}, ''))) in ('shopify', 'woocommerce')
+    or lower(trim(coalesce(${b2c_orders.courier_partner}, ''))) in ('shopify', 'woocommerce', 'woo commerce')
+    or lower(trim(coalesce(${b2c_orders.order_id}, ''))) like 'shopify_%'
+    or lower(trim(coalesce(${b2c_orders.order_id}, ''))) like 'woocommerce_%'
+    or lower(trim(coalesce(${b2c_orders.provider_meta}->>'source', ''))) in ('shopify', 'woocommerce')
+  )
+  and (
+    nullif(trim(coalesce(${b2c_orders.awb_number}, '')), '') is null
+    or lower(trim(coalesce(${b2c_orders.courier_partner}, ''))) in ('shopify', 'woocommerce', 'woo commerce')
+  )
+`
+
+const getNdrEligibilityWhere = (base: SQL | undefined) =>
+  and(base || sql`true`, NDR_ELIGIBLE_ORDER_SQL)
+
+const assertOrderCanReceiveNdr = async (orderId: string) => {
+  const [order] = await db
+    .select({
+      id: b2c_orders.id,
+      awb_number: b2c_orders.awb_number,
+      courier_partner: b2c_orders.courier_partner,
+      integration_type: b2c_orders.integration_type,
+    })
+    .from(b2c_orders)
+    .where(and(eq(b2c_orders.id, orderId), NDR_ELIGIBLE_ORDER_SQL))
+    .limit(1)
+
+  if (!order?.id) {
+    throw new Error('NDR can be recorded only after the order is booked with a real courier AWB.')
+  }
+}
 
 export async function recordNdrEvent(params: {
   orderId: string
@@ -17,6 +58,7 @@ export async function recordNdrEvent(params: {
   payload?: any
 }) {
   const { orderId, userId, awbNumber, status, reason, remarks, attemptNo, payload } = params
+  await assertOrderCanReceiveNdr(orderId)
 
   const values = {
     order_id: orderId,
@@ -100,6 +142,7 @@ export async function listNdrEvents(
     searchWhere || dateWhere
       ? and(whereBase, searchWhere || sql`true`, dateWhere || sql`true`)
       : whereBase
+  const eligibleWhere = getNdrEligibilityWhere(where)
 
   const offset = (page - 1) * limit
   const countResult = (await db.execute(sql`
@@ -113,7 +156,7 @@ export async function listNdrEvents(
         ) AS rn
       FROM ${ndr_events}
       LEFT JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
-      WHERE ${where}
+      WHERE ${eligibleWhere}
     )
     SELECT COUNT(*)::int AS total
     FROM filtered
@@ -148,7 +191,7 @@ export async function listNdrEvents(
         ) AS rn
       FROM ${ndr_events}
       LEFT JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
-      WHERE ${where}
+      WHERE ${eligibleWhere}
     )
     SELECT
       id,
@@ -238,12 +281,12 @@ export async function listNdrEventsAdmin(
   )
 
   const offset = (page - 1) * limit
-  const scopedWhere = and(
+  const scopedWhere = getNdrEligibilityWhere(and(
     whereFinal,
     courier ? ilike(b2c_orders.courier_partner, `%${courier}%`) : sql`true`,
     integration_type ? ilike(b2c_orders.integration_type, `%${integration_type}%`) : sql`true`,
     attempt_count ? eq(ndr_events.attempt_no, String(attempt_count)) : sql`true`,
-  )
+  ))
 
   const countResult = (await db.execute(sql`
     WITH filtered AS (
@@ -388,4 +431,32 @@ export async function getNdrTimeline(params: { awb?: string; orderId?: string })
   )
 
   return { orderId: resolvedOrderId, awb: resolvedAwb, events: combined }
+}
+
+export async function cleanupImportedUnbookedNdrEvents({ apply = false } = {}) {
+  const countResult = (await db.execute(sql`
+    SELECT COUNT(*)::int AS total
+    FROM ${ndr_events}
+    INNER JOIN ${b2c_orders} ON ${ndr_events.order_id} = ${b2c_orders.id}
+    WHERE ${NDR_INELIGIBLE_IMPORTED_ORDER_SQL}
+  `)) as any
+
+  const total = Number(countResult.rows?.[0]?.total || 0)
+  if (!apply || total === 0) {
+    return { deleted: 0, matched: total, dryRun: !apply }
+  }
+
+  const deleteResult = (await db.execute(sql`
+    DELETE FROM ${ndr_events}
+    USING ${b2c_orders}
+    WHERE ${ndr_events.order_id} = ${b2c_orders.id}
+      AND ${NDR_INELIGIBLE_IMPORTED_ORDER_SQL}
+    RETURNING ${ndr_events.id}
+  `)) as any
+
+  return {
+    deleted: Number(deleteResult.rowCount ?? deleteResult.rows?.length ?? 0),
+    matched: total,
+    dryRun: false,
+  }
 }
