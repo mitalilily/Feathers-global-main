@@ -612,6 +612,7 @@ export default function AdminCodRemittancePage() {
   const captions = [
     'Order',
     'User',
+    'Plan',
     'Courier',
     'COD Amount',
     'Deductions',
@@ -625,6 +626,7 @@ export default function AdminCodRemittancePage() {
   const columnKeys = [
     'orderNumber',
     'userEmail',
+    'remittancePlan',
     'courierPartner',
     'codAmount',
     'deductions',
@@ -804,6 +806,11 @@ export default function AdminCodRemittancePage() {
                 </Text>
               )}
             </Box>
+          ),
+          remittancePlan: (value) => (
+            <Text fontSize="sm" fontWeight="600" color="teal.600">
+              {value || 'T+4 Days (Default)'}
+            </Text>
           ),
           codAmount: (value) => <Text fontWeight="600">₹{value?.toLocaleString('en-IN')}</Text>,
           deductions: (value) => <Text color="red.500">₹{value?.toLocaleString('en-IN')}</Text>,

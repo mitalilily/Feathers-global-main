@@ -1,5 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
-import { exportRemittances, getCodRemittances, getCodStats } from '../api/codRemittance'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  exportRemittances,
+  getCodRemittancePlan,
+  getCodRemittances,
+  getCodStats,
+  updateCodRemittancePlan,
+} from '../api/codRemittance'
 
 interface CodFilters {
   status?: string
@@ -15,6 +21,25 @@ export const useCodStats = () => {
     queryKey: ['codStats'],
     queryFn: getCodStats,
     staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+export const useCodRemittancePlan = () => {
+  return useQuery({
+    queryKey: ['codRemittancePlan'],
+    queryFn: getCodRemittancePlan,
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useUpdateCodRemittancePlan = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: updateCodRemittancePlan,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['codRemittancePlan'] })
+    },
   })
 }
 

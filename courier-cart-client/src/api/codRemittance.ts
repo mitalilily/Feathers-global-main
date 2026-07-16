@@ -31,6 +31,18 @@ export interface CodStats {
   pendingCount: number
 }
 
+export interface CodRemittancePlan {
+  name: string
+  chargePercent: number
+  frequency: string
+  description: string
+}
+
+export interface CodRemittancePlanData {
+  selectedPlan: string
+  plans: CodRemittancePlan[]
+}
+
 export interface CodDashboardData {
   stats: CodStats
   recentRemittances: CodRemittance[]
@@ -75,6 +87,21 @@ export async function getCodRemittances(params?: {
 export async function getCodStats() {
   const response = await axiosInstance.get<{ success: boolean; data: CodStats }>(
     '/cod-remittance/remittances/stats',
+  )
+  return response.data.data
+}
+
+export async function getCodRemittancePlan() {
+  const response = await axiosInstance.get<{ success: boolean; data: CodRemittancePlanData }>(
+    '/cod-remittance/remittance-plan',
+  )
+  return response.data.data
+}
+
+export async function updateCodRemittancePlan(planName: string) {
+  const response = await axiosInstance.patch<{ success: boolean; data: CodRemittancePlanData }>(
+    '/cod-remittance/remittance-plan',
+    { planName },
   )
   return response.data.data
 }

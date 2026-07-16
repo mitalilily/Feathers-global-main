@@ -25,6 +25,7 @@ export const users = pgTable('users', {
 
   /** Misc */
   profilePicture: varchar('profilePicture', { length: 512 }),
+  codRemittancePlan: varchar('cod_remittance_plan', { length: 60 }).default('T+4 Days (Default)'),
   otp: varchar('otp', { length: 6 }),
   otpExpiresAt: timestamp('otpExpiresAt', { withTimezone: true }),
   emailVerificationToken: varchar('emailVerificationToken', { length: 8 }),

@@ -2,8 +2,75 @@ import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import { billingInvoices, invoiceCodOffsets } from '../../schema/schema'
 import { db } from '../client'
 import { codRemittances } from '../schema/codRemittance'
+import { users } from '../schema/users'
 import { sendCodRemittanceEventEmail } from './eventEmail.service'
 import { getInvoiceStatement } from './invoiceStatement.service'
+
+export const COD_REMITTANCE_PLANS = [
+  {
+    name: 'T+1 Day',
+    chargePercent: 1,
+    frequency: 'All Weekdays',
+    description: 'The applicable transaction charges is 1.00% of the COD amount (Exclusive of GST)',
+  },
+  {
+    name: 'T+2 Days',
+    chargePercent: 0.7,
+    frequency: 'All Weekdays',
+    description: 'The applicable transaction charges is 0.70% of the COD amount (Exclusive of GST)',
+  },
+  {
+    name: 'T+3 Days',
+    chargePercent: 0.5,
+    frequency: 'All Weekdays',
+    description: 'The applicable transaction charges is 0.50% of the COD amount (Exclusive of GST)',
+  },
+  {
+    name: 'T+4 Days (Default)',
+    chargePercent: 0,
+    frequency: 'Weekly Twice',
+    description: 'The applicable transaction charges is 0% of the COD amount (Exclusive of GST)',
+  },
+] as const
+
+const DEFAULT_COD_REMITTANCE_PLAN = 'T+4 Days (Default)'
+const allowedCodRemittancePlanNames = new Set(COD_REMITTANCE_PLANS.map((plan) => plan.name))
+
+export async function getCodRemittancePlan(userId: string) {
+  const [user] = await db
+    .select({ codRemittancePlan: users.codRemittancePlan })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+
+  const selectedPlan = user?.codRemittancePlan || DEFAULT_COD_REMITTANCE_PLAN
+
+  return {
+    selectedPlan,
+    plans: COD_REMITTANCE_PLANS,
+  }
+}
+
+export async function updateCodRemittancePlan(userId: string, planName: string) {
+  const normalizedPlan = String(planName || '').trim()
+  if (!allowedCodRemittancePlanNames.has(normalizedPlan as any)) {
+    throw new Error('Invalid COD remittance plan selected.')
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set({
+      codRemittancePlan: normalizedPlan,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning({ codRemittancePlan: users.codRemittancePlan })
+
+  return {
+    selectedPlan: updated?.codRemittancePlan || normalizedPlan,
+    plans: COD_REMITTANCE_PLANS,
+  }
+}
 
 /**
  * Create a COD remittance entry when an order is delivered with COD

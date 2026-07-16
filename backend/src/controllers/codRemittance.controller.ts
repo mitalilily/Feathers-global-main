@@ -5,8 +5,10 @@ import { codRemittances } from '../models/schema/codRemittance'
 import { buildCsv } from '../utils/csv'
 import {
   getCodDashboardSummary,
+  getCodRemittancePlan,
   getCodRemittances,
   getCodRemittanceStats,
+  updateCodRemittancePlan,
   updateCodRemittanceNotes,
 } from '../models/services/codRemittance.service'
 
@@ -76,6 +78,42 @@ export const getRemittanceStats = async (req: any, res: Response): Promise<any> 
   } catch (error) {
     console.error('[getRemittanceStats] Error:', error)
     return res.status(500).json({ success: false, message: 'Failed to fetch stats' })
+  }
+}
+
+export const getRemittancePlan = async (req: any, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
+
+    const data = await getCodRemittancePlan(userId)
+    return res.json({ success: true, data })
+  } catch (error) {
+    console.error('[getRemittancePlan] Error:', error)
+    return res.status(500).json({ success: false, message: 'Failed to fetch remittance plan' })
+  }
+}
+
+export const updateRemittancePlan = async (req: any, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    const { planName } = req.body || {}
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
+
+    const data = await updateCodRemittancePlan(userId, planName)
+    return res.json({ success: true, data })
+  } catch (error: any) {
+    console.error('[updateRemittancePlan] Error:', error)
+    return res.status(400).json({
+      success: false,
+      message: error?.message || 'Failed to update remittance plan',
+    })
   }
 }
 
