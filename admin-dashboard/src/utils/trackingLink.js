@@ -1,5 +1,5 @@
 const PUBLIC_TRACKING_BASE_URL =
-  process.env.REACT_APP_PUBLIC_TRACKING_BASE_URL || 'https://panel.shipmozo.com'
+  process.env.REACT_APP_PUBLIC_TRACKING_BASE_URL || 'https://fgship.in'
 
 export const normalizeAwb = (awb) =>
   String(awb || '')

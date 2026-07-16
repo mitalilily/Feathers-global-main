@@ -17,6 +17,8 @@ const VOLUMETRIC_STORAGE_KEY = "feather-volumetric-calculator";
 const RATE_STORAGE_KEY = "feather-rate-calculator";
 const RATE_RESULT_STORAGE_KEY = "feather-rate-calculator-result";
 
+const normalizeAwb = (value = "") => String(value || "").trim().toUpperCase();
+
 function parseNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -723,18 +725,28 @@ export function ShippingToolPlaceholders() {
 
 export function TrackingPanel() {
   const location = useLocation();
+  const urlParams = new URLSearchParams(location.search);
+  const queryAwb = normalizeAwb(urlParams.get("awb"));
   const storedTracking = readStoredValue("feather-tracking-panel", {
     awb: "SRX-2048127",
     searched: "SRX-2048127",
     mode: "Container",
   });
-  const initialQuery = location.state?.query || storedTracking.awb || "SRX-2048127";
-  const initialMode =
-    location.state?.mode === "booking" ? "Booking Number" : location.state?.mode ? "Container" : storedTracking.mode;
+  const initialQuery = queryAwb || location.state?.query || storedTracking.awb || "SRX-2048127";
+  const initialMode = queryAwb
+    ? "AWB Number"
+    : location.state?.mode === "booking"
+      ? "Booking Number"
+      : location.state?.mode
+        ? "Container"
+        : storedTracking.mode;
   const [awb, setAwb] = useState(initialQuery);
-  const [searched, setSearched] = useState(location.state?.query || storedTracking.searched || initialQuery);
+  const [searched, setSearched] = useState(queryAwb || location.state?.query || storedTracking.searched || initialQuery);
   const [mode, setMode] = useState(initialMode);
-  const timeline = useMemo(
+  const [trackingData, setTrackingData] = useState(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState("");
+  const previewTimeline = useMemo(
     () =>
       trackingStatuses.map((status, index) => ({
         ...status,
@@ -743,11 +755,53 @@ export function TrackingPanel() {
       })),
     []
   );
+  const timeline =
+    trackingData?.history?.length > 0
+      ? trackingData.history.map((event) => ({
+          title: event.status_code || trackingData.status || "Tracking update",
+          detail: [event.message, event.location].filter(Boolean).join(" - ") || "Shipment scan recorded.",
+          time: event.event_time,
+          complete: true,
+          active: false,
+        }))
+      : previewTimeline;
+
+  const loadTracking = async (nextAwb) => {
+    const normalized = normalizeAwb(nextAwb);
+    if (!normalized) return;
+
+    setTrackingLoading(true);
+    setTrackingError("");
+    setTrackingData(null);
+    try {
+      const response = await fetch(`${COURIER_CART_API}/public/tracking?awb=${encodeURIComponent(normalized)}`);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload?.success || !payload?.data) {
+        throw new Error(payload?.message || "Tracking details are not available for this AWB yet.");
+      }
+      setTrackingData(payload.data);
+      setSearched(payload.data.awb_number || normalized);
+      setMode("AWB Number");
+    } catch (error) {
+      setTrackingError(error?.message || "Tracking details are not available right now.");
+      setSearched(normalized);
+    } finally {
+      setTrackingLoading(false);
+    }
+  };
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    setSearched(awb || "SRX-2048127");
+    loadTracking(awb || "SRX-2048127");
   };
+
+  useEffect(() => {
+    if (queryAwb) {
+      setAwb(queryAwb);
+      loadTracking(queryAwb);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryAwb]);
 
   useEffect(() => {
     try {
@@ -777,7 +831,7 @@ export function TrackingPanel() {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-x-5 gap-y-3 text-sm text-slate-700">
-            {["Container", "Booking Number"].map((option) => (
+            {["AWB Number", "Booking Number"].map((option) => (
               <label key={option} className="flex items-center gap-2">
                 <input
                   type="radio"
@@ -812,7 +866,11 @@ export function TrackingPanel() {
             <p className="mt-2 break-all font-display text-2xl sm:text-3xl">{searched}</p>
             <p className="mt-1 text-xs uppercase tracking-[0.22em] text-slate-500">{mode}</p>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              Current preview shows a shipment that is out for delivery and ready for final customer notification.
+              {trackingLoading
+                ? "Fetching live tracking details..."
+                : trackingData
+                  ? `${trackingData.courier_name || "Courier"} - ${trackingData.status || "Status updated"}`
+                  : trackingError || "Enter an AWB to load the real tracking journey."}
             </p>
           </div>
         </MotionForm>
@@ -827,10 +885,12 @@ export function TrackingPanel() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Tracking timeline</p>
-              <h3 className="mt-2 font-display text-2xl text-slate-900">Delivery journey snapshot</h3>
+              <h3 className="mt-2 font-display text-2xl text-slate-900">
+                {trackingData ? "Live shipment scans" : "Delivery journey snapshot"}
+              </h3>
             </div>
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-              Out for delivery
+              {trackingData?.status || (trackingLoading ? "Loading" : "Preview")}
             </span>
           </div>
 
@@ -855,7 +915,9 @@ export function TrackingPanel() {
                     ) : null}
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.22em] text-slate-400">Step 0{index + 1}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.22em] text-slate-400">
+                    {item.time ? new Date(item.time).toLocaleString("en-IN") : `Step 0${index + 1}`}
+                  </p>
                 </div>
               </div>
             ))}

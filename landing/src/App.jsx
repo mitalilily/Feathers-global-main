@@ -135,6 +135,14 @@ function App() {
               }
             />
             <Route
+              path="/track-order"
+              element={
+                <Suspense fallback={<RouteFallback />}>
+                  <TrackingPage />
+                </Suspense>
+              }
+            />
+            <Route
               path="*"
               element={
                 <Suspense fallback={<RouteFallback />}>

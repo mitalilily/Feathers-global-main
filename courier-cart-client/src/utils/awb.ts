@@ -18,12 +18,12 @@ export const getPublicTrackingUrl = (awb: string, uid?: string | null) => {
   const path = getPublicTrackingPath(awb, uid)
   const configuredBase = String(import.meta.env.VITE_PUBLIC_TRACKING_BASE_URL || '').trim()
   if (configuredBase) return new URL(path, configuredBase).toString()
-  if (typeof window === 'undefined') return new URL(path, 'https://panel.shipmozo.com').toString()
+  if (typeof window === 'undefined') return new URL(path, 'https://fgship.in').toString()
 
   const host = window.location.hostname.toLowerCase()
   const base =
     host === 'localhost' || host === '127.0.0.1' || host === '::1'
       ? window.location.origin
-      : 'https://panel.shipmozo.com'
+      : 'https://fgship.in'
   return new URL(path, base).toString()
 }
