@@ -29,14 +29,28 @@ const normalizeText = (value: unknown) =>
     .trim()
     .toLowerCase()
 
-const rowMatchesTargetProvider = (row: CSVRow) => {
-  const provider = normalizeText(cell(row, 'Service Provider'))
-  const courierName = normalizeText(cell(row, 'Courier') || cell(row, 'Courier Name'))
-  const courierId = Number(cell(row, 'Courier ID'))
+const isTargetAmazonOrDelhivery = (params: {
+  serviceProvider?: unknown
+  courierName?: unknown
+  courierId?: unknown
+}) => {
+  const provider = normalizeText(params.serviceProvider)
+  const courierName = normalizeText(params.courierName)
+  const courierId = Number(params.courierId)
 
-  if (TARGET_PROVIDER_NAMES.has(provider)) return true
+  if (provider) return TARGET_PROVIDER_NAMES.has(provider)
   if (courierName.includes('amazon') || courierName.includes('delhivery')) return true
+  if (courierName.includes('xpress')) return false
+
   return Number.isFinite(courierId) && TARGET_COURIER_IDS.includes(courierId)
+}
+
+const rowMatchesTargetProvider = (row: CSVRow) => {
+  return isTargetAmazonOrDelhivery({
+    serviceProvider: cell(row, 'Service Provider'),
+    courierName: cell(row, 'Courier') || cell(row, 'Courier Name'),
+    courierId: cell(row, 'Courier ID'),
+  })
 }
 
 async function main() {
@@ -99,6 +113,11 @@ async function main() {
         eq(shippingRates.plan_id, plan.id),
         eq(shippingRates.business_type, 'b2c'),
         inArray(shippingRates.courier_id, TARGET_COURIER_IDS),
+        sql`(
+          lower(coalesce(${shippingRates.service_provider}, '')) in ('amazon', 'delhivery')
+          or lower(coalesce(${shippingRates.courier_name}, '')) like '%amazon%'
+          or lower(coalesce(${shippingRates.courier_name}, '')) like '%delhivery%'
+        )`,
       ),
     )
 
@@ -110,6 +129,11 @@ async function main() {
           eq(shippingRates.plan_id, plan.id),
           eq(shippingRates.business_type, 'b2c'),
           inArray(shippingRates.courier_id, TARGET_COURIER_IDS),
+          sql`(
+            lower(coalesce(${shippingRates.service_provider}, '')) in ('amazon', 'delhivery')
+            or lower(coalesce(${shippingRates.courier_name}, '')) like '%amazon%'
+            or lower(coalesce(${shippingRates.courier_name}, '')) like '%delhivery%'
+          )`,
         ),
       )
   }

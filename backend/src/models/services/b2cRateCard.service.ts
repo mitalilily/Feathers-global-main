@@ -115,7 +115,7 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-const DELHIVERY_B2C_COURIER_IDS = new Set([99, 100, 1, 92, 93])
+const DELHIVERY_B2C_COURIER_IDS = new Set([99, 100, 92, 93])
 
 function inferB2CServiceProvider(row: typeof shippingRates.$inferSelect): string {
   const explicitProvider = normalizeB2CServiceProvider(row.service_provider)
