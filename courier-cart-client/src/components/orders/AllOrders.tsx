@@ -1466,7 +1466,7 @@ const AllOrders = () => {
     {
       id: 'order_number',
       label: 'Order #',
-      minWidth: 280,
+      minWidth: 180,
       showCellTooltip: false,
       render: (value) => (
         <Typography
@@ -1485,6 +1485,7 @@ const AllOrders = () => {
     {
       id: 'awb_number',
       label: 'AWB',
+      minWidth: 260,
       render: (value, row) =>
         value ? (
           <Stack direction="row" spacing={0.75} alignItems="center">

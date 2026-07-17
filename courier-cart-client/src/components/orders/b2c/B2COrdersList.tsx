@@ -1297,11 +1297,11 @@ const B2COrdersList = () => {
         />
       ),
     },
-    { label: 'Order #', id: 'order_number', minWidth: 230 },
+    { label: 'Order #', id: 'order_number', minWidth: 170 },
     {
       label: 'AWB',
       id: 'awb_number',
-      minWidth: 220,
+      minWidth: 280,
       render: (value, row) =>
         value ? (
           <Stack direction="row" spacing={0.75} alignItems="center">
