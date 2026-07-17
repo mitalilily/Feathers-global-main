@@ -5,6 +5,7 @@ type ExportOrder = Record<string, any>
 export const ADMIN_ORDER_EXPORT_HEADERS = [
   'Order ID',
   'Seller Name',
+  'SKU ID',
   'AWB Number',
   'Customer Name',
   'Customer Phone',
@@ -12,7 +13,9 @@ export const ADMIN_ORDER_EXPORT_HEADERS = [
   'Status',
   'Order Type',
   'Amount',
+  'Courier Name',
   'Courier Partner',
+  'Zone Name',
   'Order Date',
   'Pickup Date',
   'Delivery Date / Last Status',
@@ -48,6 +51,18 @@ const parseJsonObject = (value: unknown) => {
       : {}
   } catch {
     return {}
+  }
+}
+
+const parseJsonArray = (value: unknown): any[] => {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -132,9 +147,48 @@ export const getAdminOrderDeliveryDateOrLastStatus = (order: ExportOrder) => {
   )
 }
 
+const getSkuValue = (item: any) =>
+  item?.sku ??
+  item?.sku_id ??
+  item?.skuId ??
+  item?.sellerSku ??
+  item?.seller_sku ??
+  item?.productSku ??
+  item?.product_sku ??
+  item?.itemSku ??
+  item?.item_sku ??
+  ''
+
+export const getAdminOrderSkuIds = (order: ExportOrder) => {
+  const seen = new Set<string>()
+  const addSku = (value: unknown) => {
+    const normalized = getTrimmedString(value)
+    if (normalized) seen.add(normalized)
+  }
+
+  for (const product of parseJsonArray(order.products)) addSku(getSkuValue(product))
+  for (const pkg of parseJsonArray(order.packages)) {
+    for (const product of parseJsonArray(pkg?.products)) addSku(getSkuValue(product))
+  }
+
+  return Array.from(seen).join(' | ')
+}
+
+export const getAdminOrderZoneName = (order: ExportOrder) =>
+  getTrimmedString(
+    firstPresent(
+      order.zone_name,
+      order.zoneName,
+      order.delivery_location,
+      order.zone,
+      order.zone_code,
+    ),
+  )
+
 export const toAdminOrderExportRow = (order: ExportOrder): CsvValue[] => [
   firstPresent(order.order_id, order.order_number, order.id),
   getAdminOrderSellerName(order),
+  getAdminOrderSkuIds(order),
   order.awb_number,
   order.buyer_name,
   order.buyer_phone,
@@ -143,6 +197,8 @@ export const toAdminOrderExportRow = (order: ExportOrder): CsvValue[] => [
   order.order_type,
   order.order_amount,
   order.courier_partner,
+  order.courier_partner,
+  getAdminOrderZoneName(order),
   order.order_date,
   getAdminOrderPickupDate(order),
   getAdminOrderDeliveryDateOrLastStatus(order),

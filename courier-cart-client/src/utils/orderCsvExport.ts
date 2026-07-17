@@ -19,11 +19,14 @@ export const CLIENT_ORDER_BASE_HEADERS = [
 export const CLIENT_ORDER_ADDED_HEADERS = [
   'Order ID',
   'Seller Name',
+  'SKU ID',
   'AWB Number',
   'Customer Phone',
   'Customer Email',
   'Order Type',
+  'Courier Name',
   'Courier Partner',
+  'Zone Name',
   'Order Date',
   'Pickup Date',
   'Delivery Date / Last Status',
@@ -70,6 +73,18 @@ const parseJsonObject = (value: unknown) => {
       : {}
   } catch {
     return {}
+  }
+}
+
+const parseJsonArray = (value: unknown): any[] => {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -194,6 +209,44 @@ export const getClientOrderDeliveryDateOrLastStatus = (order: ClientOrderExportR
   )
 }
 
+const getSkuValue = (item: any) =>
+  item?.sku ??
+  item?.sku_id ??
+  item?.skuId ??
+  item?.sellerSku ??
+  item?.seller_sku ??
+  item?.productSku ??
+  item?.product_sku ??
+  item?.itemSku ??
+  item?.item_sku ??
+  ''
+
+export const getClientOrderSkuIds = (order: ClientOrderExportRow) => {
+  const seen = new Set<string>()
+  const addSku = (value: unknown) => {
+    const normalized = getTrimmedString(value)
+    if (normalized) seen.add(normalized)
+  }
+
+  for (const product of parseJsonArray(order.products)) addSku(getSkuValue(product))
+  for (const pkg of parseJsonArray(order.packages)) {
+    for (const product of parseJsonArray(pkg?.products)) addSku(getSkuValue(product))
+  }
+
+  return Array.from(seen).join(' | ')
+}
+
+export const getClientOrderZoneName = (order: ClientOrderExportRow) =>
+  getTrimmedString(
+    firstPresent(
+      order.zone_name,
+      order.zoneName,
+      order.delivery_location,
+      order.zone,
+      order.zone_code,
+    ),
+  )
+
 export const toClientOrderExportRow = (order: ClientOrderExportRow): CsvValue[] => [
   toCsvValue(firstPresent(order.order_number, order.order_id, order.id)),
   toCsvValue(firstPresent(order.type, order.order_type)),
@@ -205,11 +258,14 @@ export const toClientOrderExportRow = (order: ClientOrderExportRow): CsvValue[] 
   formatDisplayDate(firstPresent(order.created_at, order.createdAt)),
   toCsvValue(firstPresent(order.order_id, order.order_number, order.id)),
   getClientOrderSellerName(order),
+  getClientOrderSkuIds(order),
   toCsvValue(order.awb_number),
   toCsvValue(order.buyer_phone),
   toCsvValue(order.buyer_email),
   toCsvValue(order.order_type),
   toCsvValue(order.courier_partner),
+  toCsvValue(order.courier_partner),
+  getClientOrderZoneName(order),
   toCsvValue(order.order_date),
   getClientOrderPickupDate(order),
   getClientOrderDeliveryDateOrLastStatus(order),

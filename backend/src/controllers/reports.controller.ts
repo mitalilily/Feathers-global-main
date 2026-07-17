@@ -30,15 +30,18 @@ const FIELD_LABELS: Record<string, string> = {
   gst_amount: 'gst_amount',
   total_deducted: 'total_deducted',
   discount: 'discount',
+  sku_id: 'sku_id',
   products: 'products',
   shipment_date: 'shipment_date',
   awb_number: 'awb_number',
+  courier_name: 'courier_name',
   shipment_status: 'shipment_status',
   remittance_id: 'remittance_id',
   pickup_time: 'pickup_time',
   delivered_time: 'delivered_time',
   charged_weight: 'charged_weight',
   zone: 'zone',
+  zone_name: 'zone_name',
   last_status_updated: 'last_status_updated',
   ndr_attempts_info: 'ndr_attempts_info',
 }
@@ -67,9 +70,22 @@ const toPositiveNumber = (v: unknown) => {
   return n > 0 ? n : 0
 }
 
+const toArray = (value: unknown): any[] => {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 const formatProducts = (products: unknown) => {
-  if (!Array.isArray(products) || products.length === 0) return ''
-  return products
+  const productList = toArray(products)
+  if (productList.length === 0) return ''
+  return productList
     .map((p: any) => {
       const name = p?.name || p?.productName || p?.box_name || 'Item'
       const qty = p?.qty ?? p?.quantity ?? 1
@@ -78,6 +94,41 @@ const formatProducts = (products: unknown) => {
     })
     .join(' | ')
 }
+
+const getSkuValue = (item: any) =>
+  item?.sku ??
+  item?.sku_id ??
+  item?.skuId ??
+  item?.sellerSku ??
+  item?.seller_sku ??
+  item?.productSku ??
+  item?.product_sku ??
+  item?.itemSku ??
+  item?.item_sku ??
+  ''
+
+const extractSkuIds = (products: unknown, packages: unknown) => {
+  const seen = new Set<string>()
+  const addSku = (value: unknown) => {
+    const normalized = String(value ?? '').trim()
+    if (normalized) seen.add(normalized)
+  }
+
+  for (const product of toArray(products)) addSku(getSkuValue(product))
+  for (const pkg of toArray(packages)) {
+    for (const product of toArray(pkg?.products)) addSku(getSkuValue(product))
+  }
+
+  return Array.from(seen).join(' | ')
+}
+
+const getZoneName = (order: any) =>
+  order.zone_name ||
+  order.zoneName ||
+  order.delivery_location ||
+  order.zone ||
+  order.zone_code ||
+  ''
 
 const stringifyDate = (v: unknown) => {
   if (!v) return ''
@@ -240,15 +291,18 @@ export const exportCustomReportCsvController = async (req: any, res: Response) =
         gst_amount: gstAmount.toFixed(2),
         total_deducted: totalDeducted.toFixed(2),
         discount: toNumber(order.discount).toFixed(2),
+        sku_id: extractSkuIds(order.products, order.packages),
         products: formatProducts(order.products),
         shipment_date: shipmentDate,
         awb_number: order.awb_number || '',
+        courier_name: order.courier_partner || '',
         shipment_status: order.order_status || '',
         remittance_id: remittanceId,
         pickup_time: pickupTimeFromDetails || '',
         delivered_time: deliveredTime,
         charged_weight: toNumber(order.charged_weight || order.weight).toFixed(3),
-        zone: order.delivery_location || '',
+        zone: getZoneName(order),
+        zone_name: getZoneName(order),
         last_status_updated: stringifyDate(order.updated_at || order.created_at),
         ndr_attempts_info: ndrInfo,
       }
