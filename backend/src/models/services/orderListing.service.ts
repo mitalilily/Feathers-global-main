@@ -55,6 +55,11 @@ const buildStatusCondition = (qualifiedColumn: string, status?: string | string[
   return sql`${sql.raw(qualifiedColumn)} = ${String(status).trim()}`
 }
 
+const buildGeneratedLabelCondition = (alias: 'b2c' | 'b2b') => sql`(
+  COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = true
+  OR NULLIF(BTRIM(COALESCE(${sql.raw(`${alias}.label`)}, '')), '') IS NOT NULL
+)`
+
 const buildSearchCondition = (alias: 'b2c' | 'b2b', search?: string) => {
   const trimmed = String(search || '').trim()
   if (!trimmed) return null
@@ -144,10 +149,7 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
     conditions.push(statusCondition)
   }
 
-  const hasGeneratedLabelCondition = sql`(
-    COALESCE(${sql.raw(`${alias}.label_generated_once`)}, false) = true
-    OR NULLIF(BTRIM(COALESCE(${sql.raw(`${alias}.label`)}, '')), '') IS NOT NULL
-  )`
+  const hasGeneratedLabelCondition = buildGeneratedLabelCondition(alias)
 
   if (normalizedLabelGenerated === 'generated' || normalizedLabelGenerated === 'yes') {
     conditions.push(hasGeneratedLabelCondition)

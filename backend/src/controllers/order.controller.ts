@@ -699,7 +699,7 @@ export const downloadBulkB2CLabelsController = async (req: any, res: Response) =
       generatedLabels.push(String(order.order_number || order.id))
       await db
         .update(b2c_orders)
-        .set({ label: generatedLabelKey, updated_at: new Date() })
+        .set({ label: generatedLabelKey, label_generated_once: true, updated_at: new Date() })
         .where(and(eq(b2c_orders.id, order.id), eq(b2c_orders.user_id, userId)))
       order.label = generatedLabelKey
       return generatedLabelKey

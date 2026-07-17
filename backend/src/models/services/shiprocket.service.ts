@@ -5839,6 +5839,11 @@ type ExistingB2COrderBookingOptions = {
   forcePickupManifestStatus?: boolean
 }
 
+const hasGeneratedLabelSql = (labelColumn: unknown, generatedOnceColumn: unknown) => sql`(
+  COALESCE(${generatedOnceColumn}, false) = true
+  OR NULLIF(BTRIM(COALESCE(${labelColumn}, '')), '') IS NOT NULL
+)`
+
 export async function createB2COrder({
   tx,
   params,
@@ -6049,6 +6054,8 @@ export async function createB2COrder({
         awb_number: shipmentData?.awb_number ?? null,
         // Store courier-provided label key/identifier if available
         label: typeof shipmentData?.label === 'string' ? shipmentData.label : null,
+        label_generated_once:
+          typeof shipmentData?.label === 'string' && shipmentData.label.trim().length > 0,
         manifest:
           typeof shipmentData?.manifest === 'string' && shipmentData?.manifest.length <= 100
             ? shipmentData.manifest
@@ -6269,6 +6276,10 @@ async function updateExistingB2COrderWithShipment({
       provider_meta: shipmentData ?? existingOrder.provider_meta,
       awb_number: shipmentData?.awb_number ?? existingOrder.awb_number,
       label: typeof shipmentData?.label === 'string' ? shipmentData.label : existingOrder.label,
+      label_generated_once:
+        typeof shipmentData?.label === 'string' && shipmentData.label.trim().length > 0
+          ? true
+          : existingOrder.label_generated_once,
       manifest:
         typeof shipmentData?.manifest === 'string' && shipmentData?.manifest.length <= 100
           ? shipmentData.manifest
@@ -8949,6 +8960,7 @@ export const createB2CShipmentService = async (
                   .update(b2c_orders)
                   .set({
                     label: labelKey,
+                    label_generated_once: true,
                     updated_at: new Date(),
                   })
                   .where(eq(b2c_orders.id, newOrder.id))
@@ -8968,6 +8980,7 @@ export const createB2CShipmentService = async (
                     .update(b2c_orders)
                     .set({
                       label: labelKey,
+                      label_generated_once: true,
                       updated_at: new Date(),
                     })
                     .where(eq(b2c_orders.id, newOrder.id))
@@ -8985,6 +8998,7 @@ export const createB2CShipmentService = async (
                   .update(b2c_orders)
                   .set({
                     label: labelKey,
+                    label_generated_once: true,
                     updated_at: new Date(),
                   })
                   .where(eq(b2c_orders.id, newOrder.id))
@@ -9958,10 +9972,10 @@ export const getB2COrdersByUserService = async (
     }
   }
 
-  const hasGeneratedLabelCondition = sql`(
-    COALESCE(${b2c_orders.label_generated_once}, false) = true
-    OR NULLIF(BTRIM(COALESCE(${b2c_orders.label}, '')), '') IS NOT NULL
-  )`
+  const hasGeneratedLabelCondition = hasGeneratedLabelSql(
+    b2c_orders.label,
+    b2c_orders.label_generated_once,
+  )
 
   if (normalizedLabelGenerated === 'generated' || normalizedLabelGenerated === 'yes') {
     conditions.push(hasGeneratedLabelCondition)
@@ -10131,10 +10145,10 @@ export const getB2BOrdersByUserService = async (
   const conditions: any[] = [sql`${b2b_orders.user_id} = ${userId}::uuid`]
 
   // if (filters.status) conditions.push(eq(b2b_orders.order_status, filters.status))
-  const hasGeneratedLabelCondition = sql`(
-    COALESCE(${b2b_orders.label_generated_once}, false) = true
-    OR NULLIF(BTRIM(COALESCE(${b2b_orders.label}, '')), '') IS NOT NULL
-  )`
+  const hasGeneratedLabelCondition = hasGeneratedLabelSql(
+    b2b_orders.label,
+    b2b_orders.label_generated_once,
+  )
 
   if (normalizedLabelGenerated === 'generated' || normalizedLabelGenerated === 'yes') {
     conditions.push(hasGeneratedLabelCondition)
@@ -11343,6 +11357,7 @@ export const generateManifestService = async (params: {
           const normalizedLabel = normalizeToR2KeyOutsideTransaction(labelKey.trim())
           if (normalizedLabel) {
             updateDataDel.label = normalizedLabel
+            updateDataDel.label_generated_once = true
             console.log(`✅ [Delhivery] Normalized label key stored: ${normalizedLabel}`)
           } else {
             console.warn(`⚠️ [Delhivery] Could not normalize label, skipping: ${labelKey.trim()}`)
@@ -11355,6 +11370,7 @@ export const generateManifestService = async (params: {
           const normalizedLabel = normalizeToR2KeyOutsideTransaction(currentLabel.trim())
           if (normalizedLabel) {
             updateDataDel.label = normalizedLabel
+            updateDataDel.label_generated_once = true
           }
         }
 
@@ -12003,6 +12019,7 @@ export const generateManifestService = async (params: {
               const normalizedLabel = normalizeToR2Key(labelKey.trim())
               if (normalizedLabel) {
                 updateDataXpress.label = normalizedLabel
+                updateDataXpress.label_generated_once = true
               }
             }
 
@@ -13485,6 +13502,7 @@ export const generateManifestService = async (params: {
               const normalizedLabel = normalizeToR2Key(labelKey.trim())
               if (normalizedLabel) {
                 updateDataDel.label = normalizedLabel
+                updateDataDel.label_generated_once = true
                 console.log(`✅ [Delhivery] Normalized label key stored: ${normalizedLabel}`)
               } else {
                 console.warn(
@@ -13500,6 +13518,7 @@ export const generateManifestService = async (params: {
               const normalizedLabel = normalizeToR2Key(currentLabel.trim())
               if (normalizedLabel) {
                 updateDataDel.label = normalizedLabel
+                updateDataDel.label_generated_once = true
               }
             }
 
@@ -13801,6 +13820,7 @@ export const generateManifestService = async (params: {
                     .update(table)
                     .set({
                       label: normalizedLabelKey,
+                      label_generated_once: true,
                       updated_at: new Date(),
                     })
                     .where(eq(table.id, order.id))
@@ -13839,6 +13859,7 @@ export const generateManifestService = async (params: {
                 .update(table)
                 .set({
                   label: existingLabel.trim(),
+                  label_generated_once: true,
                   updated_at: new Date(),
                 })
                 .where(eq(table.id, order.id))

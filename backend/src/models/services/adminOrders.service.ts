@@ -329,7 +329,10 @@ export const regenerateOrderDocumentsServiceAdmin = async ({
   }
 
   const updates: Record<string, unknown> = { updated_at: new Date() }
-  if (newLabelKey) updates.label = newLabelKey
+  if (newLabelKey) {
+    updates.label = newLabelKey
+    updates.label_generated_once = true
+  }
   if (newInvoiceKey) updates.invoice_link = newInvoiceKey
   if (newInvoiceKey && generatedInvoiceData) {
     updates.invoice_number = generatedInvoiceData.number
