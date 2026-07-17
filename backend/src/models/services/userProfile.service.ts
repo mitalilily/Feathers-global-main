@@ -544,7 +544,7 @@ export async function changePassword(
   }
 
   // Strength check (8+ chars, upper, lower, number)
-  if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d]{8,}/.test(newPassword)) {
+  if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
     throw new Error('Password must be 8+ characters and include upper, lower, and a number')
   }
 

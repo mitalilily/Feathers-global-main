@@ -56,6 +56,7 @@ export default function PasswordResetDialog({
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   const isValidEmail = emailRegex.test(email.trim())
+  const isValidNewPassword = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)
 
   const requestResetCode = () => {
     const normalizedEmail = email.trim().toLowerCase()
@@ -110,9 +111,9 @@ export default function PasswordResetDialog({
       return
     }
 
-    if (newPassword.length < 8) {
+    if (!isValidNewPassword) {
       toast.open({
-        message: 'Use a stronger password with at least 8 characters.',
+        message: 'Use at least 8 characters with uppercase, lowercase, and a number.',
         severity: 'warning',
         position: { vertical: 'top', horizontal: 'center' },
       })
@@ -274,6 +275,10 @@ export default function PasswordResetDialog({
             required
             autoComplete="new-password"
           />
+
+          <Typography sx={{ color: muted, fontSize: 13.5, lineHeight: 1.55 }}>
+            Use at least 8 characters with uppercase, lowercase, and a number. Symbols are allowed.
+          </Typography>
 
           <CustomInput
             label="Confirm new password"

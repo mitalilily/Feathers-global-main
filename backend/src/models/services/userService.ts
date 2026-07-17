@@ -928,7 +928,7 @@ export const resetUserPassword = async (userId: string) => {
   return tempPassword
 }
 
-const PASSWORD_RESET_REGEX = /(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d]{8,}/
+const PASSWORD_RESET_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
 
 const ensureEmployeeIsActive = async (userId: string, role?: string | null) => {
   if (role !== 'employee') return
