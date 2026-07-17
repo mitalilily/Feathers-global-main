@@ -176,7 +176,13 @@ const isMarketplaceSourceOrder = (order: B2COrder) => {
   )
 }
 
+const isDraftOrder = (order: B2COrder) =>
+  String(order.order_status || '')
+    .trim()
+    .toLowerCase() === 'draft'
+
 export const statusColorMap: Record<string, 'success' | 'pending' | 'error' | 'info'> = {
+  draft: 'info',
   pending: 'pending',
   booked: 'info',
   manifest_failed: 'error',
@@ -1276,7 +1282,7 @@ const B2COrdersList = () => {
     const terminalStatuses = new Set(['cancelled', 'delivered', 'rto_delivered'])
 
     return (
-      isMarketplaceSourceOrder(row) &&
+      (isMarketplaceSourceOrder(row) || isDraftOrder(row)) &&
       !String(row.awb_number || '').trim() &&
       !terminalStatuses.has(status)
     )
@@ -1555,7 +1561,7 @@ const B2COrdersList = () => {
                 renderActionItem({
                   key: 'select-courier',
                   icon: <MdLocalShipping />,
-                  label: 'Select Courier',
+                  label: 'Assign Courier',
                   onClick: () => setCourierSelectionOrder(row),
                   disabled: isTrackingRow || isManifestingRow || isRetryingRow || isCancellingRow,
                 })}
@@ -1714,6 +1720,7 @@ const B2COrdersList = () => {
       label: 'Shipment Booking',
       stages: [
         { label: 'New', value: 'pending,manifest_failed' },
+        { label: 'Draft', value: 'draft' },
         { label: 'Courier Assigned', value: 'booked,shipment_created' },
         { label: 'Pickups & Manifests', value: 'pickup_initiated,manifest_generated' },
       ],

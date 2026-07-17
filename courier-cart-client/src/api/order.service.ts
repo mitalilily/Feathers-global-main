@@ -107,6 +107,19 @@ export const createShipment = async (
   }
 }
 
+export const createB2COrderDraft = async (
+  data: CreateShipmentParams,
+): Promise<CreateShipmentResponse> => {
+  try {
+    const res = await axiosInstance.post<CreateShipmentResponse>('/orders/b2c/draft', data)
+    return res.data
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error('Error saving B2C order draft:', error.response?.data || error.message)
+    throw error
+  }
+}
+
 export const bookExistingB2COrderCourier = async (
   orderId: string,
   data: Omit<CreateShipmentParams, 'order_number' | 'order_date'>,

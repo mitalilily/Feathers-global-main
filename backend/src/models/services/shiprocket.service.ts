@@ -5836,6 +5836,7 @@ export interface InsertB2COrderParams {
 
 type ExistingB2COrderBookingOptions = {
   existingOrderId?: string
+  forcePickupManifestStatus?: boolean
 }
 
 export async function createB2COrder({
@@ -6284,6 +6285,68 @@ async function updateExistingB2COrderWithShipment({
     .returning({ id: b2c_orders.id, order_number: b2c_orders.order_number })
 
   return updatedOrder
+}
+
+export const createB2COrderDraftService = async (
+  params: ShipmentParams,
+  userId: string,
+  is_external_api: boolean = false,
+) => {
+  await requireMerchantOrderReadiness(userId, { requireMinimumWalletBalance: false })
+
+  const orderItems = normalizeB2COrderItemsForBooking(params.order_items)
+  if (!orderItems.length) {
+    throw new HttpError(400, 'Add at least one product before saving the draft')
+  }
+
+  const pickupPincode = String(params.pickup?.pincode || params.pickup_location_id || '').trim()
+  if (!pickupPincode) {
+    throw new HttpError(400, 'Select a pickup warehouse before saving the draft')
+  }
+
+  const draftParams: ShipmentParams = {
+    ...params,
+    order_items: orderItems,
+    payment_type:
+      String(params.payment_type || '').toLowerCase() === 'cod' ? 'cod' : 'prepaid',
+    integration_type: 'draft',
+    courier_id: undefined,
+    courier_partner: undefined,
+    courier_option_key: undefined,
+    amazon_request_token: undefined,
+    amazon_rate_id: undefined,
+    amazon_service_id: undefined,
+    amazon_carrier_id: undefined,
+    shadowfax_forward_mode: undefined,
+    shadowfax_service_mode: undefined,
+  }
+
+  const draftOrder = await db.transaction(async (tx) =>
+    createB2COrder({
+      tx,
+      params: draftParams,
+      shipmentData: null,
+      userId,
+      shippingCharges: Number(params.shipping_charges ?? 0),
+      otherCharges: Number(params.other_charges ?? 0),
+      freightCharges: 0,
+      courierCost: null,
+      transactionFee: Number(params.transaction_fee ?? 0),
+      giftWrap: Number(params.gift_wrap ?? 0),
+      discount: Number(params.discount ?? 0),
+      status: 'draft',
+      pickupStatus: 'pending',
+      providerLastStatus: 'draft',
+      integration_type: 'draft',
+      is_external_api,
+      selectedMaxSlabWeight: params.selected_max_slab_weight ?? undefined,
+    }),
+  )
+
+  return {
+    order: draftOrder,
+    draft: true,
+  }
 }
 
 const syncShopifyAfterB2CBooking = async (
@@ -8668,7 +8731,17 @@ export const createB2CShipmentService = async (
         providerManifestStatus: shipmentMeta.provider_manifest_status,
         isReverse: isReverseShipment,
       })
-      const orderStatus = bookingLifecycle.orderStatus
+      const forcePickupManifestStatus =
+        options.forcePickupManifestStatus === true && !isReverseShipment
+      const orderStatus = forcePickupManifestStatus
+        ? 'pickup_initiated'
+        : bookingLifecycle.orderStatus
+      const pickupStatus = forcePickupManifestStatus
+        ? 'pickup_initiated'
+        : bookingLifecycle.pickupStatus
+      const providerLastStatus = forcePickupManifestStatus
+        ? bookingLifecycle.providerLastStatus || 'pickup_initiated'
+        : bookingLifecycle.providerLastStatus
       const manifestErrorMessage = null
 
       const finalWalletDebit = resolveGstInclusiveWalletDebit({
@@ -8711,8 +8784,8 @@ export const createB2CShipmentService = async (
         giftWrap,
         discount,
         status: orderStatus,
-        pickupStatus: bookingLifecycle.pickupStatus,
-        providerLastStatus: bookingLifecycle.providerLastStatus,
+        pickupStatus,
+        providerLastStatus,
         manifestError: manifestErrorMessage,
         integration_type: params?.integration_type!,
         is_external_api,
@@ -9339,6 +9412,7 @@ export const bookExistingB2COrderWithCourierService = async (
 
   const result = await createB2CShipmentService(shipmentParams, userId, false, {
     existingOrderId: existingOrder.id,
+    forcePickupManifestStatus: true,
   })
 
   const [updatedOrder] = await db

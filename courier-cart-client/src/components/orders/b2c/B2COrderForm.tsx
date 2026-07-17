@@ -1,20 +1,16 @@
-import { Alert, Box, Button, Grid, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { Box, Button, Grid, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
+import { useEffect } from 'react'
 import { Controller, FormProvider, useFieldArray, useForm } from 'react-hook-form'
 import { BiRupee } from 'react-icons/bi'
 import { FaBox, FaTruck, FaUser } from 'react-icons/fa'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { fetchAvailableCouriers } from '../../../api/courier'
 import { fetchLocations } from '../../../api/locations'
 import type { CreateShipmentParams } from '../../../api/order.service'
-import { useCreateShipment } from '../../../hooks/Orders/useOrders'
+import { useCreateB2COrderDraft } from '../../../hooks/Orders/useOrders'
 import { usePaymentOptions } from '../../../hooks/usePaymentOptions'
-import { toast } from '../../UI/Toast'
-import FormSectionAccordion from '../../UI/accordion/FormSectionAccordion'
 import DeliveryDetailsForm from '../DeliveryDetailsForm'
 import OrderDetailsForm from '../OrderDetailsForm'
 import PickupLocationForm from '../PickupLocationForm'
-import { SelectCourierForm } from '../SelectCourierForm'
 import PackageDetailsForm from './PackageDetailsForm'
 import PackageDimensionsForm from './PackageDimensionsForm'
 
@@ -97,11 +93,12 @@ export type B2CFormData = {
 }
 
 export default function B2COrderFormSteps({ onClose }: { onClose?: () => void }) {
-  const createShipmentMutation = useCreateShipment(onClose)
+  const createDraftMutation = useCreateB2COrderDraft(onClose)
+  const createShipmentMutation = createDraftMutation
   const navigate = useNavigate()
   const location = useLocation()
-  const [currentStep, setCurrentStep] = useState(0)
-  const steps = ['Order & Delivery', 'Courier Selection']
+  const currentStep = 0
+  const steps = ['Order Draft']
   const { data: paymentOptions } = usePaymentOptions()
 
   const defaultPickupDate = new Date().toISOString().split('T')[0]
@@ -140,7 +137,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
     handleSubmit,
     trigger,
     register,
-    formState: { errors },
   } = methods
   const { fields, append, remove } = useFieldArray({ control, name: 'products' })
 
@@ -194,91 +190,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         return
       }
 
-      if (!data.courierPartnerId) {
-        methods.setError('courierPartnerId', {
-          type: 'manual',
-          message: 'Please select a courier partner',
-        })
-        return
-      }
-
-      let amazonRequestToken = data.amazonRequestToken ?? undefined
-      let amazonRateId = data.amazonRateId ?? undefined
-      let amazonServiceId = data.amazonServiceId ?? undefined
-      let amazonCarrierId = data.amazonCarrierId ?? undefined
-
-      if (data.integrationType === 'amazon' && (!amazonRequestToken || !amazonRateId)) {
-        try {
-          const refreshedCouriers = await fetchAvailableCouriers({
-            origin: data.pickupLocationPincode,
-            destination: data.pincode,
-            pickupId: data.pickupLocationId,
-            pickupName: data.pickupLocationName,
-            pickupAddress: data.pickupAddress,
-            pickupCity: data.pickupCity,
-            pickupState: data.pickupState,
-            deliveryName: data.buyerName,
-            deliveryPhone: data.buyerPhone,
-            deliveryAddress: data.address,
-            deliveryCity: data.city,
-            deliveryState: data.state,
-            payment_type: data.orderType,
-            order_amount: subtotal,
-            cod: data.orderType === 'cod' ? 1 : 0,
-            weight: data.weight,
-            length: data.length,
-            breadth: data.breadth,
-            height: data.height,
-            shipment_type: 'b2c',
-            context: 'shipment_courier_selection',
-          })
-
-          const selectedCourierOptionKey = String(data.courierOptionKey ?? '')
-          const selectedCourierId = String(data.courierPartnerId ?? '')
-          const refreshedAmazonCourier = refreshedCouriers.find((courier) => {
-            const isAmazon = String(courier?.integration_type || '')
-              .trim()
-              .toLowerCase() === 'amazon'
-            if (!isAmazon || !courier?.amazon_request_token || !courier?.amazon_rate_id) {
-              return false
-            }
-
-            const courierOptionKey = String(
-              courier?.courier_option_key ?? courier?.id ?? courier?.courier_id ?? '',
-            )
-            return selectedCourierOptionKey
-              ? courierOptionKey === selectedCourierOptionKey
-              : String(courier?.id ?? courier?.courier_id ?? '') === selectedCourierId
-          })
-
-          if (refreshedAmazonCourier) {
-            amazonRequestToken = refreshedAmazonCourier.amazon_request_token
-            amazonRateId = refreshedAmazonCourier.amazon_rate_id
-            amazonServiceId = refreshedAmazonCourier.amazon_service_id ?? amazonServiceId
-            amazonCarrierId = refreshedAmazonCourier.amazon_carrier_id ?? amazonCarrierId
-
-            setValue('amazonRequestToken', amazonRequestToken)
-            setValue('amazonRateId', amazonRateId)
-            setValue('amazonServiceId', amazonServiceId ?? null)
-            setValue('amazonCarrierId', amazonCarrierId ?? null)
-          }
-        } catch (error) {
-          console.error('Failed to refresh Amazon rate token before booking:', error)
-        }
-
-        if (!amazonRequestToken || !amazonRateId) {
-          methods.setError('courierPartnerId', {
-            type: 'manual',
-            message: 'Amazon live rate is not available right now. Refresh courier rates and try again.',
-          })
-          toast.open({
-            message: 'Amazon live rate is not available right now. Refresh courier rates and try again.',
-            severity: 'error',
-          })
-          return
-        }
-      }
-
       const payload: CreateShipmentParams = {
         order_number: normalizedOrderId,
         payment_type: data.orderType,
@@ -295,7 +206,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         prepaid_amount: data?.prepaidAmount,
         is_rto_different: data?.isRtoSame ? 'no' : 'yes',
         discount: data.discount ?? 0,
-        integration_type: data?.integrationType,
         transaction_fee: data?.transactionFee,
         gift_wrap: data?.giftWrap,
         consignee: {
@@ -340,19 +250,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
           discount: p.discount ?? 0,
           tax_rate: p.taxRate ?? 0,
         })),
-        courier_id: Number(data.courierPartnerId),
-        courier_partner: data.courierPartner,
-        courier_option_key: data.courierOptionKey,
-        amazon_request_token: amazonRequestToken,
-        amazon_rate_id: amazonRateId,
-        amazon_service_id: amazonServiceId,
-        amazon_carrier_id: amazonCarrierId,
-        shadowfax_forward_mode: data.shadowfaxForwardMode,
-        shadowfax_service_mode: data.shadowfaxServiceMode,
-        selected_max_slab_weight:
-          data.selectedMaxSlabWeight !== undefined && data.selectedMaxSlabWeight !== null
-            ? Number(data.selectedMaxSlabWeight)
-            : undefined,
         pickup_date: data.pickupDate,
         pickup_time: data.pickupTime,
         delivery_location: data.zone,
@@ -360,10 +257,10 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         chargedWeight: data.chargeableWeight ?? undefined,
         volumetricWeight: data.volumetricWeight ?? undefined,
       }
-      createShipmentMutation.mutate(payload, {
+      createDraftMutation.mutate(payload, {
         onSuccess: () => {
           if (location.pathname === '/orders/create') {
-            navigate('/orders/list?status=pending')
+            navigate('/orders/list?status=draft')
           }
         },
       })
@@ -394,6 +291,8 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
         'length',
         'breadth',
         'height',
+        'pickupLocationId',
+        'pickupLocationPincode',
       ]
 
       const baseValid = await trigger(step1Fields)
@@ -419,27 +318,20 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
       return true
     }
 
-    if (currentStep === 1) {
-      return await trigger(['courierPartnerId'])
-    }
-
     return true
   }
 
   const nextStep = async () => {
     const valid = await validateStep()
-    if (valid) setCurrentStep((prev) => Math.min(prev + 1, 1))
+    if (valid) void handleSubmit(onSubmit)()
   }
-  const prevStep = () => setCurrentStep((prev) => Math.max(prev - 1, 0))
+  const prevStep = () => undefined
 
   useEffect(() => {
     setValue('orderAmount', totalCollectable, { shouldValidate: true })
   }, [totalCollectable])
 
   useEffect(() => {
-    register('courierPartnerId', {
-      required: 'Please select a courier partner',
-    })
     register('amazonRequestToken')
     register('amazonRateId')
     register('amazonServiceId')
@@ -892,19 +784,6 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
               </Stack>
             )}
 
-            {currentStep === 1 && (
-              <FormSectionAccordion title="Courier Selection" icon={<FaTruck />} defaultExpanded compact>
-                {errors.courierPartnerId && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {errors.courierPartnerId.message as string}
-                  </Alert>
-                )}
-                <SelectCourierForm shipment_type="b2c" />
-
-                {/* Error shown as Alert */}
-              </FormSectionAccordion>
-            )}
-
             {/* Sticky footer inside scroll */}
             <Box
               sx={{
@@ -929,7 +808,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
                 <Typography variant="body2" sx={{ color: TEXT_MUTED, fontWeight: 600 }}>
                   {steps[currentStep]}
                 </Typography>
-                {currentStep > 0 && (
+                {false && (
                   <Button
                     type="button" // ✅ no accidental submit
                     loading={createShipmentMutation?.isPending}
@@ -959,7 +838,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
                       background: ACCENT,
                     }}
                   >
-                    Next
+                    Save Draft
                   </Button>
                 ) : (
                   <Button
@@ -975,7 +854,7 @@ export default function B2COrderFormSteps({ onClose }: { onClose?: () => void })
                       background: ACCENT,
                     }}
                   >
-                    Create & Book Order
+                    Save Draft
                   </Button>
                 )}
               </Stack>

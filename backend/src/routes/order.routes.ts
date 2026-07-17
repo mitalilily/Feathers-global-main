@@ -4,6 +4,7 @@ import {
   createB2CBulkShipmentController,
   checkOrderNumberAvailabilityController,
   createB2BShipmentController,
+  createB2COrderDraftController,
   createB2CShipmentController,
   downloadBulkB2CLabelsController,
   generateManifestController,
@@ -20,6 +21,7 @@ const router = Router()
 
 // POST /b2c/shipment
 router.post('/b2c/create', requireAuth, createB2CShipmentController)
+router.post('/b2c/draft', requireAuth, createB2COrderDraftController)
 router.post('/b2c/bulk-create', requireAuth, createB2CBulkShipmentController)
 router.post('/b2c/:orderId/book-courier', requireAuth, bookExistingB2COrderController)
 router.post('/b2b/create', requireAuth, createB2BShipmentController)

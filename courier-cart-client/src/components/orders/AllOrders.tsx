@@ -151,6 +151,8 @@ const isMarketplaceSourceOrder = (order: Order) => {
   )
 }
 
+const isDraftOrder = (order: Order) => getOrderStatusKey(order) === 'draft'
+
 const getCourierDisplayName = (order: Order) =>
   String(order.courier_partner || order.integration_type || '').trim() || '-'
 
@@ -465,7 +467,7 @@ const AllOrders = () => {
 
   const canSelectCourierForOrder = (order: Order) => {
     if (!isB2COrder(order)) return false
-    if (!isMarketplaceSourceOrder(order)) return false
+    if (!isMarketplaceSourceOrder(order) && !isDraftOrder(order)) return false
     if (String(order.awb_number || '').trim()) return false
 
     const status = getOrderStatusKey(order)
@@ -1310,7 +1312,7 @@ const AllOrders = () => {
             renderActionItem({
               key: 'select-courier',
               icon: <MdLocalShipping />,
-              label: 'Select Courier',
+              label: 'Assign Courier',
               onClick: () => setCourierSelectionOrder(row),
               disabled: isTrackingRow || isManifestingRow || isRetryingRow || isCancellingRow,
             })}
@@ -1628,6 +1630,7 @@ const AllOrders = () => {
   const shipmentStageGroups = [
     { label: 'Shipment Booking', stages: [
       { label: 'New', value: 'pending,manifest_failed' },
+      { label: 'Draft', value: 'draft' },
       { label: 'Courier Assigned', value: 'booked,shipment_created' },
       { label: 'Pickups & Manifests', value: 'pickup_initiated,manifest_generated' },
     ] },

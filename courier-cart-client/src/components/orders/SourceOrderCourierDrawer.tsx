@@ -59,10 +59,28 @@ const getProductsSubtotal = (products: Product[], fallback: unknown) => {
   return subtotal > 0 ? subtotal : Number(fallback ?? 0)
 }
 
+const parseOrderLocationDetails = (value: unknown): Record<string, any> => {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return typeof value === 'object' ? (value as Record<string, any>) : {}
+}
+
 const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
   const products = normalizeProducts(order?.products)
   const subtotal = getProductsSubtotal(products, order?.order_amount)
   const orderType = String(order?.order_type || '').toLowerCase() === 'cod' ? 'cod' : 'prepaid'
+  const pickup = parseOrderLocationDetails(order?.pickup_details)
+  const rto = parseOrderLocationDetails(order?.rto_details)
+  const hasRtoDetails = Boolean(
+    rto?.warehouse_name || rto?.address || rto?.city || rto?.state || rto?.pincode,
+  )
 
   return {
     buyerName: order?.buyer_name || '',
@@ -93,7 +111,6 @@ const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
     otherCharges: 0,
     forwardCharges: 0,
     courierCost: null,
-    isRtoSame: true,
     orderAmount: subtotal,
     pickupDate: new Date().toISOString().slice(0, 10),
     pickupTime: '10:00',
@@ -102,6 +119,22 @@ const buildDefaultValues = (order: Record<string, any> | null): B2CFormData => {
     amazonRateId: null,
     amazonServiceId: null,
     amazonCarrierId: null,
+    pickupLocationId: order?.pickup_location_id || pickup?.pickup_location_id || '',
+    pickupLocationName: pickup?.warehouse_name || pickup?.name || '',
+    pickupAddress: pickup?.address || '',
+    pickupCity: pickup?.city || '',
+    pickupState: pickup?.state || '',
+    pickupLocationPincode: pickup?.pincode || '',
+    pickupLocationPOCName: pickup?.name || pickup?.warehouse_name || '',
+    pickupLocationPOCPhone: pickup?.phone || '',
+    isRtoSame: !hasRtoDetails,
+    rtoLocationName: rto?.warehouse_name || rto?.name || '',
+    rtoAddress: rto?.address || '',
+    rtoCity: rto?.city || '',
+    rtoState: rto?.state || '',
+    rtoLocationPincode: rto?.pincode || '',
+    rtoLocationPOCName: rto?.name || rto?.warehouse_name || '',
+    rtoLocationPOCPhone: rto?.phone || '',
   }
 }
 
@@ -295,7 +328,7 @@ export default function SourceOrderCourierDrawer({
     <CustomDrawer
       open={open}
       onClose={onClose}
-      title={order?.order_number ? `Select courier for ${order.order_number}` : 'Select courier'}
+      title={order?.order_number ? `Assign courier for ${order.order_number}` : 'Assign courier'}
       width="100vw"
     >
       <FormProvider {...methods}>

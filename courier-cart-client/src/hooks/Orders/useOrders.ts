@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   bookExistingB2COrderCourier,
+  createB2COrderDraft,
   createB2BShipment,
   createShipment,
   fetchAllOrders,
@@ -41,6 +42,27 @@ export const useCreateShipment = (onClose?: () => void) => {
       console.log('Shipment created successfully:', data)
       queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] })
       if (onClose) onClose() // ✅ Close modal/drawer after success
+    },
+  })
+}
+
+export const useCreateB2COrderDraft = (onClose?: () => void) => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateShipmentParams) => createB2COrderDraft(data),
+    onError: (error: any) => {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to save order draft. Please try again.'
+      toast.open({ message, severity: 'error' })
+      console.error('Failed to save order draft:', error.response?.data || error.message)
+    },
+    onSuccess: () => {
+      toast.open({ message: 'Order draft saved. Assign courier from Drafts.', severity: 'success' })
+      queryClient.invalidateQueries({ queryKey: ['b2cOrdersByUser'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      if (onClose) onClose()
     },
   })
 }

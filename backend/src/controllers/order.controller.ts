@@ -7,6 +7,7 @@ import {
   bookExistingB2COrderWithCourierService,
   checkMerchantOrderNumberAvailability,
   createB2BShipmentService,
+  createB2COrderDraftService,
   createB2CShipmentService,
   generateManifestService,
   getAllOrdersService,
@@ -145,6 +146,39 @@ export const createB2CShipmentController = async (req: any, res: Response) => {
         ? 'Order creation is taking longer than expected. Please try again or contact support if the issue persists.'
         : error.message || 'Failed to create order. Please try again.'
     res.status(statusCode).json({ success: false, message: errorMessage })
+  }
+}
+
+export const createB2COrderDraftController = async (req: any, res: Response) => {
+  try {
+    const id = getMerchantScopedUserId(req)
+    if (!id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
+
+    const draft = await createB2COrderDraftService(req.body, id, false)
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order draft saved successfully',
+      shipment: draft,
+    })
+  } catch (error: any) {
+    console.error('Error saving B2C order draft:', {
+      message: error?.message || 'Unknown error',
+      statusCode: error?.statusCode ?? error?.response?.status ?? 500,
+      code: error?.code ?? null,
+      stack: error?.stack || null,
+      request: {
+        order_number: req.body?.order_number,
+        payment_type: req.body?.payment_type,
+      },
+    })
+    const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500
+    return res.status(statusCode).json({
+      success: false,
+      message: error?.message || 'Failed to save order draft. Please try again.',
+    })
   }
 }
 
