@@ -73,6 +73,25 @@ const capitalizeWords = (value: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ')
 
+const STANDARD_ZONE_LABELS = {
+  A: 'Zone A',
+  B: 'Zone B',
+  C: 'Zone C',
+  D: 'Zone D',
+  E: 'Zone E',
+} as const
+
+const normalizeZoneToken = (value: unknown) =>
+  normalizeText(value)
+    .toUpperCase()
+    .replace(/&/g, ' AND ')
+    .replace(/\+/g, ' ')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+const zoneLabelFromCanonicalCode = (code: string) =>
+  STANDARD_ZONE_LABELS[code as keyof typeof STANDARD_ZONE_LABELS] || ''
+
 const daysBetween = (start: Date | null, end: Date | null) => {
   if (!start || !end) return null
   const diff = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)
@@ -80,13 +99,37 @@ const daysBetween = (start: Date | null, end: Date | null) => {
 }
 
 const canonicalZoneLabel = (zoneCode: string, zoneName: string, state?: string) => {
-  const source = `${zoneCode} ${zoneName} ${state ?? ''}`.toLowerCase()
-  if (/\bne\b/.test(zoneCode.toLowerCase()) || source.includes('north east')) return 'NE'
-  if (source.includes('west')) return 'West'
-  if (source.includes('south')) return 'South'
-  if (source.includes('north')) return 'North'
-  if (source.includes('east')) return 'East'
-  return capitalizeWords(zoneName || zoneCode || 'Unknown')
+  const token = normalizeZoneToken(`${zoneCode} ${zoneName} ${state ?? ''}`)
+  const directCode =
+    token.match(/(?:^|_)ZONE_?([A-E])(?:_|$)/)?.[1] ||
+    token.match(/(?:^|_)([A-E])(?:_B2[BC])?(?:_|$)/)?.[1] ||
+    ''
+
+  if (directCode) return zoneLabelFromCanonicalCode(directCode)
+
+  if (
+    token.includes('SPECIAL_ZONE') ||
+    token.includes('SPECIAL') ||
+    token.includes('NORTH_EAST') ||
+    token.includes('NORTHEAST') ||
+    token.includes('J_AND_K') ||
+    token.includes('JAMMU') ||
+    token.includes('KASHMIR')
+  ) {
+    return STANDARD_ZONE_LABELS.E
+  }
+
+  if (token.includes('WITHIN_CITY')) return STANDARD_ZONE_LABELS.A
+  if (token.includes('WITHIN_STATE')) return STANDARD_ZONE_LABELS.B
+  if (token.includes('METRO_TO_METRO')) return STANDARD_ZONE_LABELS.C
+  if (token.includes('ROI') || token.includes('REST_OF_INDIA') || token.includes('WITHIN_REGION')) {
+    return STANDARD_ZONE_LABELS.D
+  }
+  if (token.includes('WEST') || token.includes('SOUTH') || token.includes('NORTH') || token.includes('EAST')) {
+    return STANDARD_ZONE_LABELS.D
+  }
+
+  return zoneLabelFromCanonicalCode(normalizeText(zoneCode)) || STANDARD_ZONE_LABELS.D
 }
 
 const getCourierLabel = (value: unknown) => {
@@ -421,8 +464,8 @@ const pickZone = (row: any, zoneIndex: any) =>
   zoneFromSavedOrder(row) ||
   zoneIndex.pincodeMap.get(normalizeText(row.pincode).toLowerCase()) ||
   zoneIndex.stateMap.get(normalizeText(row.state).toLowerCase()) || {
-    label: 'Unmapped Zone',
-    zoneCode: 'Unmapped Zone',
+    label: STANDARD_ZONE_LABELS.D,
+    zoneCode: 'UNMAPPED',
     zoneName: 'Unmapped Zone',
   }
 
@@ -481,12 +524,12 @@ const collectProductTokens = (products: unknown) => {
 }
 
 const zoneOrderIndex = (value: string) => {
-  const label = value.toLowerCase()
-  if (label === 'west') return 1
-  if (label === 'south') return 2
-  if (label === 'north') return 3
-  if (label === 'east') return 4
-  if (label === 'ne') return 5
+  const label = normalizeZoneToken(value)
+  if (label === 'ZONE_A' || label === 'A') return 1
+  if (label === 'ZONE_B' || label === 'B') return 2
+  if (label === 'ZONE_C' || label === 'C') return 3
+  if (label === 'ZONE_D' || label === 'D') return 4
+  if (label === 'ZONE_E' || label === 'E') return 5
   return 99
 }
 

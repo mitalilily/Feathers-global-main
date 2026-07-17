@@ -49,6 +49,47 @@ const formatDays = (value?: number | null) => `${Number(value || 0).toFixed(1)} 
 const formatNumber = (value?: number | null) => Number(value || 0).toLocaleString('en-IN')
 
 const chartColors = ['#047b85', '#ff821c', '#1E88E5', '#8E24AA', '#E53935', '#43A047']
+const standardZoneLabels = ['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E'] as const
+
+const normalizeZoneToken = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/&/g, ' AND ')
+    .replace(/\+/g, ' ')
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+
+const formatDashboardZoneName = (value: unknown) => {
+  const token = normalizeZoneToken(value)
+  const directCode =
+    token.match(/(?:^|_)ZONE_?([A-E])(?:_|$)/)?.[1] ||
+    token.match(/(?:^|_)([A-E])(?:_B2[BC])?(?:_|$)/)?.[1] ||
+    ''
+
+  if (directCode) return `Zone ${directCode}`
+  if (
+    token.includes('SPECIAL_ZONE') ||
+    token.includes('SPECIAL') ||
+    token.includes('NORTH_EAST') ||
+    token.includes('NORTHEAST') ||
+    token.includes('J_AND_K') ||
+    token.includes('JAMMU') ||
+    token.includes('KASHMIR')
+  ) {
+    return 'Zone E'
+  }
+  if (token.includes('WITHIN_CITY')) return 'Zone A'
+  if (token.includes('WITHIN_STATE')) return 'Zone B'
+  if (token.includes('METRO_TO_METRO')) return 'Zone C'
+  return 'Zone D'
+}
+
+const zoneSortIndex = (value: unknown) => {
+  const label = formatDashboardZoneName(value)
+  const index = standardZoneLabels.indexOf(label as (typeof standardZoneLabels)[number])
+  return index === -1 ? standardZoneLabels.length : index
+}
 
 export default function OpsAnalyticsSection() {
   const theme = useTheme()
@@ -79,10 +120,48 @@ export default function OpsAnalyticsSection() {
 
   const analytics = data || ({} as MerchantOpsAnalyticsData)
   const summary = analytics.summary || {}
-  const zoneOverview = analytics.zoneOverview || []
-  const zoneMatrix = analytics.zoneCourierMatrix || { zones: [], couriers: [], rows: [] }
-  const zoneRtoAnalytics = analytics.zoneRtoAnalytics || []
-  const zoneSpeed = analytics.zoneSpeed || []
+  const zoneOverview = useMemo(
+    () =>
+      (analytics.zoneOverview || [])
+        .map((row) => {
+          const label = formatDashboardZoneName(row.label || row.zone)
+          return { ...row, zone: label, label }
+        })
+        .sort((a, b) => zoneSortIndex(a.label) - zoneSortIndex(b.label)),
+    [analytics.zoneOverview],
+  )
+  const zoneMatrix = useMemo(() => {
+    const matrix = analytics.zoneCourierMatrix || { zones: [], couriers: [], rows: [] }
+    const zones = Array.from(new Set((matrix.zones || []).map(formatDashboardZoneName))).sort(
+      (a, b) => zoneSortIndex(a) - zoneSortIndex(b),
+    )
+
+    return {
+      ...matrix,
+      zones,
+      rows: (matrix.rows || []).map((row) => ({
+        ...row,
+        zones: (row.zones || []).map((zone) => ({
+          ...zone,
+          zone: formatDashboardZoneName(zone.zone),
+        })),
+      })),
+    }
+  }, [analytics.zoneCourierMatrix])
+  const zoneRtoAnalytics = useMemo(
+    () =>
+      (analytics.zoneRtoAnalytics || [])
+        .map((row) => ({ ...row, zone: formatDashboardZoneName(row.zone) }))
+        .sort((a, b) => zoneSortIndex(a.zone) - zoneSortIndex(b.zone)),
+    [analytics.zoneRtoAnalytics],
+  )
+  const zoneSpeed = useMemo(
+    () =>
+      (analytics.zoneSpeed || [])
+        .map((row) => ({ ...row, zone: formatDashboardZoneName(row.zone) }))
+        .sort((a, b) => zoneSortIndex(a.zone) - zoneSortIndex(b.zone)),
+    [analytics.zoneSpeed],
+  )
   const ndrAnalytics = analytics.ndrAnalytics || []
   const courierPerformance = analytics.courierPerformance || []
   const highRiskPincodes = analytics.highRiskPincodes || []
@@ -317,7 +396,7 @@ export default function OpsAnalyticsSection() {
               <Grid size={{ xs: 12, md: 6, xl: 2 }}>
                 <TextField
                   label="Zone"
-                  placeholder="West"
+                  placeholder="Zone A"
                   fullWidth
                   value={draftFilters.zone || ''}
                   onChange={(event) =>
