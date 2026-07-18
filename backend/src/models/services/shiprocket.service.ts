@@ -7115,6 +7115,51 @@ export const createB2CShipmentService = async (
   params.payment_type = normalizedPaymentType as ShipmentParams['payment_type']
   const isReverseShipment = params.isReverse === true || normalizedPaymentType === 'reverse'
 
+  const buildPickupFromConsignee = (
+    consigneeAddress: ShipmentParams['consignee'],
+    fallbackWarehouseName = 'Return Warehouse',
+  ): ShipmentParams['pickup'] => ({
+    warehouse_name:
+      consigneeAddress?.company_name ||
+      consigneeAddress?.name ||
+      params.return_location_alias ||
+      fallbackWarehouseName,
+    name: consigneeAddress?.name || fallbackWarehouseName,
+    address: consigneeAddress?.address || '',
+    address_2: consigneeAddress?.address_2,
+    city: consigneeAddress?.city || '',
+    state: consigneeAddress?.state || '',
+    country: consigneeAddress?.country || 'India',
+    pincode: consigneeAddress?.pincode || '',
+    phone: consigneeAddress?.phone || '',
+    pickup_date: params.pickup_date,
+    pickup_time: params.pickup_time,
+  })
+
+  const buildConsigneeFromPickup = (
+    pickupAddress: ShipmentParams['pickup'],
+  ): ShipmentParams['consignee'] => ({
+    name: pickupAddress?.name || pickupAddress?.warehouse_name || 'Customer',
+    address: pickupAddress?.address || '',
+    address_2: pickupAddress?.address_2,
+    city: pickupAddress?.city || '',
+    state: pickupAddress?.state || '',
+    country: pickupAddress?.country || 'India',
+    pincode: pickupAddress?.pincode || '',
+    phone: pickupAddress?.phone || '',
+  })
+
+  const reversePickupAddress = params.pickup
+  const reverseReturnAddress = params.rto ?? buildPickupFromConsignee(params.consignee)
+  const reverseProviderParams: ShipmentParams = {
+    ...params,
+    // Reverse provider APIs expect consignee/address_attributes to be the collection address.
+    consignee: buildConsigneeFromPickup(reversePickupAddress),
+    // Their pickup/warehouse fields identify the seller return destination.
+    pickup: reverseReturnAddress,
+    rto: reverseReturnAddress,
+  }
+
   const orderAmount = Number(params.order_amount ?? 0)
   if (!isReverseShipment && (!orderAmount || Number.isNaN(orderAmount))) {
     throw new HttpError(
@@ -7234,9 +7279,19 @@ export const createB2CShipmentService = async (
   const giftWrap = Number(params?.gift_wrap ?? 0)
   const transactionFee = Number(params?.transaction_fee ?? 0)
   const prepaidAmt = Number(params?.prepaid_amount ?? 0)
-  const freightOriginPincode = isReverseShipment ? bookingDestinationPincode : bookingPickupPincode
+  const reversePickupPincode = normalizePincode(
+    reversePickupAddress?.pincode ?? bookingPickupPincode,
+  )
+  const reverseReturnPincode = normalizePincode(
+    reverseReturnAddress?.pincode ?? bookingDestinationPincode,
+  )
+  const reverseRoutePickupPincode = reversePickupPincode || bookingPickupPincode
+  const reverseRouteReturnPincode = reverseReturnPincode || bookingDestinationPincode
+  const freightOriginPincode = isReverseShipment
+    ? reverseRoutePickupPincode
+    : bookingPickupPincode
   const freightDestinationPincode = isReverseShipment
-    ? normalizePincode(params.rto?.pincode ?? params.pickup?.pincode ?? bookingPickupPincode)
+    ? reverseRouteReturnPincode
     : bookingDestinationPincode
 
   const courierIdForRate =
@@ -7599,9 +7654,9 @@ export const createB2CShipmentService = async (
         shipmentData = await delhivery.createReverseShipment({
           originalAwb: originalOrder?.awb_number || '',
           originalOrderId: originalOrder?.order_number || params.order_number,
-          consignee: params.consignee,
-          pickup: params.pickup,
-          rto: params.rto,
+          consignee: reverseProviderParams.consignee,
+          pickup: reverseProviderParams.pickup,
+          rto: reverseProviderParams.rto,
           order_amount: params.order_amount,
           package_weight: params.package_weight,
           package_length: params.package_length,
@@ -7671,11 +7726,8 @@ export const createB2CShipmentService = async (
       const ekart = new EkartService()
       await ensureEkartServiceable({
         ekart,
-        originPin: isReverseShipment ? bookingDestinationPincode : bookingPickupPincode,
-        destinationPin: isReverseShipment
-          ? normalizePincode(params.rto?.pincode ?? params.pickup?.pincode ?? bookingPickupPincode) ||
-            bookingPickupPincode
-          : bookingDestinationPincode,
+        originPin: isReverseShipment ? reverseRoutePickupPincode : bookingPickupPincode,
+        destinationPin: isReverseShipment ? reverseRouteReturnPincode : bookingDestinationPincode,
         paymentType: params.payment_type,
         orderAmount: Number(params.order_amount ?? 0),
         packageWeight: Number(params.package_weight ?? params.weight ?? 0),
@@ -7794,16 +7846,16 @@ export const createB2CShipmentService = async (
           order_id: originalOrder?.order_number || params.order_number,
           request_auto_pickup: params.request_auto_pickup || 'yes',
           consignee: {
-            name: xpressParams?.consignee?.name,
-            address: xpressParams?.consignee?.address,
-            address_2: xpressParams?.consignee?.address_2,
-            city: xpressParams?.consignee?.city,
-            state: xpressParams?.consignee?.state,
-            pincode: xpressParams?.consignee?.pincode,
-            phone: xpressParams?.consignee?.phone,
+            name: reverseProviderParams.consignee?.name,
+            address: reverseProviderParams.consignee?.address,
+            address_2: reverseProviderParams.consignee?.address_2,
+            city: reverseProviderParams.consignee?.city,
+            state: reverseProviderParams.consignee?.state,
+            pincode: reverseProviderParams.consignee?.pincode,
+            phone: reverseProviderParams.consignee?.phone,
             alternate_phone: xpressParams?.consignee?.alternate_phone,
           },
-          pickup: params.pickup,
+          pickup: reverseProviderParams.pickup,
           categories: xpressParams?.categories || 'General',
           product_name: xpressParams?.order_items?.[0]?.name || 'Return Item',
           product_qty: xpressParams?.order_items?.[0]?.qty || 1,
@@ -8107,10 +8159,8 @@ export const createB2CShipmentService = async (
       const shadowfax = new ShadowfaxService()
 
       if (isReverseShipment) {
-        const reverseOriginPin = bookingDestinationPincode
-        const reverseDestinationPin = String(
-          params.rto?.pincode || params.pickup?.pincode || bookingPickupPincode || '',
-        ).trim()
+        const reverseOriginPin = reverseRoutePickupPincode
+        const reverseDestinationPin = reverseRouteReturnPincode
         const serviceability = await shadowfax.checkReverseServiceability({
           origin: reverseOriginPin,
           destination: reverseDestinationPin,
@@ -8122,7 +8172,7 @@ export const createB2CShipmentService = async (
           )
         }
 
-        shipmentData = await shadowfax.createReverseShipment(params)
+        shipmentData = await shadowfax.createReverseShipment(reverseProviderParams)
         const reverseAwb =
           shipmentData?.client_request_id ??
           shipmentData?.awb_number ??
