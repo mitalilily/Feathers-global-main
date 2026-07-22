@@ -16,6 +16,7 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  TextField,
 } from '@mui/material'
 import { useState } from 'react'
 import { FaArrowDown, FaArrowUp } from 'react-icons/fa'
@@ -31,6 +32,7 @@ interface WalletFilter {
   type?: 'credit' | 'debit' | ''
   dateFrom?: string
   dateTo?: string
+  search?: string
 }
 
 interface PriceBreakupLine {
@@ -233,6 +235,7 @@ const WalletTransactions = () => {
     type: filters.type || undefined,
     dateFrom: filters.dateFrom || undefined,
     dateTo: filters.dateTo || undefined,
+    search: filters.search || undefined,
   })
 
   const transactions = data?.transactions ?? []
@@ -350,6 +353,23 @@ const WalletTransactions = () => {
             </Box>
           </Stack>
         </Stack>
+
+        <TextField
+          size="small"
+          fullWidth
+          value={filters.search || ''}
+          placeholder="Search by Order ID / Order Number / AWB"
+          onChange={(event) => {
+            setFilters((prev) => ({ ...prev, search: event.target.value }))
+            setPage(1)
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              backgroundColor: '#FFFFFF',
+            },
+          }}
+        />
 
         <TableContainer
           sx={{

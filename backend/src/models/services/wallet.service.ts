@@ -114,6 +114,69 @@ interface GetUserWalletTransactionsParams {
   type?: 'credit' | 'debit'
   dateFrom?: Date
   dateTo?: Date
+  search?: string
+}
+
+const buildWalletTransactionShipmentSearchFilter = (userId: string, search: string) => {
+  const pattern = `%${search.trim()}%`
+
+  return sql`(
+    ${walletTransactions.ref} ilike ${pattern}
+    or ${walletTransactions.reason} ilike ${pattern}
+    or coalesce(${walletTransactions.meta}::text, '') ilike ${pattern}
+    or exists (
+      select 1
+      from b2c_orders o
+      where o.user_id = ${userId}::uuid
+        and (
+          o.id::text ilike ${pattern}
+          or coalesce(o.order_id, '') ilike ${pattern}
+          or coalesce(o.order_number, '') ilike ${pattern}
+          or coalesce(o.awb_number, '') ilike ${pattern}
+        )
+        and (
+          coalesce(${walletTransactions.ref}, '') in (
+            o.id::text,
+            coalesce(o.order_id, ''),
+            coalesce(o.order_number, ''),
+            coalesce(o.awb_number, ''),
+            coalesce(o.shipment_id, ''),
+            coalesce(o.provider_reference, ''),
+            coalesce(o.provider_request_id, '')
+          )
+          or (o.awb_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.awb_number || '%'))
+          or (o.order_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_number || '%'))
+          or (o.order_id is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_id || '%'))
+          or coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.id::text || '%')
+        )
+    )
+    or exists (
+      select 1
+      from b2b_orders o
+      where o.user_id = ${userId}::uuid
+        and (
+          o.id::text ilike ${pattern}
+          or coalesce(o.order_id, '') ilike ${pattern}
+          or coalesce(o.order_number, '') ilike ${pattern}
+          or coalesce(o.awb_number, '') ilike ${pattern}
+        )
+        and (
+          coalesce(${walletTransactions.ref}, '') in (
+            o.id::text,
+            coalesce(o.order_id, ''),
+            coalesce(o.order_number, ''),
+            coalesce(o.awb_number, ''),
+            coalesce(o.shipment_id, ''),
+            coalesce(o.provider_reference, ''),
+            coalesce(o.provider_request_id, '')
+          )
+          or (o.awb_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.awb_number || '%'))
+          or (o.order_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_number || '%'))
+          or (o.order_id is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_id || '%'))
+          or coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.id::text || '%')
+        )
+    )
+  )`
 }
 
 /**
@@ -126,6 +189,7 @@ export const getUserWalletTransactions = async ({
   type,
   dateFrom,
   dateTo,
+  search,
 }: GetUserWalletTransactionsParams) => {
   // 1️⃣ Get wallet of the user
   const userWallet = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1)
@@ -133,14 +197,14 @@ export const getUserWalletTransactions = async ({
     throw new Error('Wallet not found for this user')
   }
   // 2️⃣ Build dynamic where clause
-  let filter: any = eq(walletTransactions.wallet_id, userWallet[0].id)
-  if (type || dateFrom || dateTo) {
-    const conditions: any[] = [eq(walletTransactions.wallet_id, userWallet[0].id)]
-    if (type) conditions.push(eq(walletTransactions.type, type))
-    if (dateFrom) conditions.push(gte(walletTransactions.created_at, dateFrom))
-    if (dateTo) conditions.push(lte(walletTransactions.created_at, dateTo))
-    filter = and(...conditions)
+  const conditions: any[] = [eq(walletTransactions.wallet_id, userWallet[0].id)]
+  if (type) conditions.push(eq(walletTransactions.type, type))
+  if (dateFrom) conditions.push(gte(walletTransactions.created_at, dateFrom))
+  if (dateTo) conditions.push(lte(walletTransactions.created_at, dateTo))
+  if (search?.trim()) {
+    conditions.push(buildWalletTransactionShipmentSearchFilter(userId, search))
   }
+  const filter = and(...conditions)
 
   // 3️⃣ Fetch transactions
   const transactions = await db

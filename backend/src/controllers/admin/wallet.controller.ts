@@ -154,6 +154,7 @@ export const getWalletTransactions = async (req: Request, res: Response): Promis
     const type = req.query.type as 'credit' | 'debit' | undefined
     const dateFrom = req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined
     const dateTo = req.query.dateTo ? new Date(req.query.dateTo as string) : undefined
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined
 
     const result = await getWalletTransactionsByUserId({
       userId,
@@ -162,6 +163,7 @@ export const getWalletTransactions = async (req: Request, res: Response): Promis
       type,
       dateFrom,
       dateTo,
+      search,
     })
 
     res.status(200).json({ success: true, ...result })

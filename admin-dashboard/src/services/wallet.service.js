@@ -11,8 +11,8 @@ export const getAdminWallet = async (userId) => {
   return data
 }
 
-export const getAdminWalletTransactions = async (userId, { page = 1, limit = 50, type, dateFrom, dateTo } = {}) => {
-  const params = { page, limit, type, dateFrom, dateTo }
+export const getAdminWalletTransactions = async (userId, { page = 1, limit = 50, type, dateFrom, dateTo, search } = {}) => {
+  const params = { page, limit, type, dateFrom, dateTo, search }
   const { data } = await apiClient.get(`/admin/wallets/${userId}/transactions`, { params })
   return data
 }

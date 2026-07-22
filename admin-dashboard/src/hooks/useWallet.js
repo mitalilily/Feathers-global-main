@@ -24,10 +24,10 @@ export function useAdminWallet(userId, enabled = true) {
 }
 
 export function useAdminWalletTransactions(userId, params, enabled = true) {
-  const { page = 1, limit = 50, type, dateFrom, dateTo } = params || {}
+  const { page = 1, limit = 50, type, dateFrom, dateTo, search } = params || {}
   return useQuery({
-    queryKey: ['admin-wallet-transactions', userId, page, limit, type, dateFrom, dateTo],
-    queryFn: () => getAdminWalletTransactions(userId, { page, limit, type, dateFrom, dateTo }),
+    queryKey: ['admin-wallet-transactions', userId, page, limit, type, dateFrom, dateTo, search],
+    queryFn: () => getAdminWalletTransactions(userId, { page, limit, type, dateFrom, dateTo, search }),
     enabled: enabled && !!userId,
     keepPreviousData: true,
   })

@@ -23,6 +23,7 @@ interface UseWalletTransactionsOptions {
   type?: 'credit' | 'debit'
   dateFrom?: string
   dateTo?: string
+  search?: string
   enabled?: boolean
   authScope?: string
 }
@@ -33,11 +34,12 @@ export const useWalletTransactions = ({
   type,
   dateFrom,
   dateTo,
+  search,
   enabled = true,
   authScope,
 }: UseWalletTransactionsOptions = {}) => {
   return useQuery({
-    queryKey: getWalletTransactionsQueryKey(page, limit, type, dateFrom, dateTo, authScope),
+    queryKey: getWalletTransactionsQueryKey(page, limit, type, dateFrom, dateTo, search, authScope),
     queryFn: () =>
       fetchWalletTransactions({
         limit,
@@ -45,6 +47,7 @@ export const useWalletTransactions = ({
         type,
         dateFrom,
         dateTo,
+        search,
       }),
     enabled,
   })

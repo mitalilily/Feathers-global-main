@@ -87,6 +87,7 @@ export default function AdminWallets() {
   const [transactionType, setTransactionType] = useState('')
   const [transactionDateFrom, setTransactionDateFrom] = useState(null)
   const [transactionDateTo, setTransactionDateTo] = useState(null)
+  const [transactionSearch, setTransactionSearch] = useState('')
   const [selectedTransaction, setSelectedTransaction] = useState(null)
   const [selectedTransactionOrder, setSelectedTransactionOrder] = useState(null)
 
@@ -114,6 +115,7 @@ export default function AdminWallets() {
       type: transactionType || undefined,
       dateFrom: transactionDateFrom,
       dateTo: transactionDateTo,
+      search: transactionSearch || undefined,
     },
     isTransactionsOpen && !!selectedUserId,
   )
@@ -140,6 +142,7 @@ export default function AdminWallets() {
     setTransactionType('')
     setTransactionDateFrom(null)
     setTransactionDateTo(null)
+    setTransactionSearch('')
     onTransactionsOpen()
   }
 
@@ -582,6 +585,17 @@ export default function AdminWallets() {
         <VStack spacing={4} align="stretch">
           {/* Filters */}
           <Flex gap={4} flexWrap="wrap">
+            <FormControl flex="2" minW="260px">
+              <FormLabel fontSize="sm">Search Order / AWB</FormLabel>
+              <Input
+                value={transactionSearch}
+                onChange={(e) => {
+                  setTransactionSearch(e.target.value)
+                  setTransactionsPage(1)
+                }}
+                placeholder="Order ID, Order Number, or AWB"
+              />
+            </FormControl>
             <FormControl flex="1" minW="200px">
               <FormLabel fontSize="sm">Transaction Type</FormLabel>
               <Select

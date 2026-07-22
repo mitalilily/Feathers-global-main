@@ -120,6 +120,7 @@ export const getWalletTransactionsByUserId = async ({
   type,
   dateFrom,
   dateTo,
+  search,
 }: {
   userId: string
   page?: number
@@ -127,6 +128,7 @@ export const getWalletTransactionsByUserId = async ({
   type?: 'credit' | 'debit'
   dateFrom?: Date
   dateTo?: Date
+  search?: string
 }) => {
   const offset = (page - 1) * limit
 
@@ -141,6 +143,66 @@ export const getWalletTransactionsByUserId = async ({
   if (type) conditions.push(eq(walletTransactions.type, type))
   if (dateFrom) conditions.push(gte(walletTransactions.created_at, dateFrom))
   if (dateTo) conditions.push(lte(walletTransactions.created_at, dateTo))
+  if (search?.trim()) {
+    const pattern = `%${search.trim()}%`
+    conditions.push(sql`(
+      ${walletTransactions.ref} ilike ${pattern}
+      or ${walletTransactions.reason} ilike ${pattern}
+      or coalesce(${walletTransactions.meta}::text, '') ilike ${pattern}
+      or exists (
+        select 1
+        from b2c_orders o
+        where o.user_id = ${userId}::uuid
+          and (
+            o.id::text ilike ${pattern}
+            or coalesce(o.order_id, '') ilike ${pattern}
+            or coalesce(o.order_number, '') ilike ${pattern}
+            or coalesce(o.awb_number, '') ilike ${pattern}
+          )
+          and (
+            coalesce(${walletTransactions.ref}, '') in (
+              o.id::text,
+              coalesce(o.order_id, ''),
+              coalesce(o.order_number, ''),
+              coalesce(o.awb_number, ''),
+              coalesce(o.shipment_id, ''),
+              coalesce(o.provider_reference, ''),
+              coalesce(o.provider_request_id, '')
+            )
+            or (o.awb_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.awb_number || '%'))
+            or (o.order_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_number || '%'))
+            or (o.order_id is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_id || '%'))
+            or coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.id::text || '%')
+          )
+      )
+      or exists (
+        select 1
+        from b2b_orders o
+        where o.user_id = ${userId}::uuid
+          and (
+            o.id::text ilike ${pattern}
+            or coalesce(o.order_id, '') ilike ${pattern}
+            or coalesce(o.order_number, '') ilike ${pattern}
+            or coalesce(o.awb_number, '') ilike ${pattern}
+          )
+          and (
+            coalesce(${walletTransactions.ref}, '') in (
+              o.id::text,
+              coalesce(o.order_id, ''),
+              coalesce(o.order_number, ''),
+              coalesce(o.awb_number, ''),
+              coalesce(o.shipment_id, ''),
+              coalesce(o.provider_reference, ''),
+              coalesce(o.provider_request_id, '')
+            )
+            or (o.awb_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.awb_number || '%'))
+            or (o.order_number is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_number || '%'))
+            or (o.order_id is not null and coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.order_id || '%'))
+            or coalesce(${walletTransactions.meta}::text, '') ilike ('%' || o.id::text || '%')
+          )
+      )
+    )`)
+  }
 
   const filter = and(...conditions)
 

@@ -52,6 +52,7 @@ export const getWalletTransactionsController = async (req: any, res: Response) =
       type, // 'credit' | 'debit'
       dateFrom, // ISO string
       dateTo, // ISO string
+      search,
     } = req.query
 
     const offset = (Number(page) - 1) * Number(limit)
@@ -63,6 +64,7 @@ export const getWalletTransactionsController = async (req: any, res: Response) =
       type: type as 'credit' | 'debit' | undefined,
       dateFrom: dateFrom ? new Date(dateFrom) : undefined,
       dateTo: dateTo ? new Date(dateTo) : undefined,
+      search: typeof search === 'string' ? search : undefined,
     })
 
     return res.status(200).json(transactions)

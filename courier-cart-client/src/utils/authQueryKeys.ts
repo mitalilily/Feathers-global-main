@@ -51,6 +51,7 @@ export const getWalletTransactionsQueryKey = (
   type?: 'credit' | 'debit',
   dateFrom?: string,
   dateTo?: string,
+  search?: string,
   scope?: string | null,
 ) =>
   [
@@ -61,4 +62,5 @@ export const getWalletTransactionsQueryKey = (
     type,
     dateFrom,
     dateTo,
+    search,
   ] as const

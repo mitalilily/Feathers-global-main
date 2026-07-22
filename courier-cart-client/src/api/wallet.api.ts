@@ -85,6 +85,7 @@ interface WalletTransactionsParams {
   type?: 'credit' | 'debit'
   dateFrom?: string
   dateTo?: string
+  search?: string
 }
 
 export const fetchWalletTransactions = async (
