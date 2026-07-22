@@ -19,6 +19,82 @@ const RATE_RESULT_STORAGE_KEY = "feather-rate-calculator-result";
 
 const normalizeAwb = (value = "") => String(value || "").trim().toUpperCase();
 
+const TRACKING_STORAGE_KEY = "feather-tracking-panel";
+const RECENT_TRACKING_STORAGE_KEY = "feather-tracking-recent-searches";
+
+const formatTrackingDateTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const getTrackingSearchType = (query, data) => {
+  const normalizedQuery = normalizeAwb(query);
+  if (!normalizedQuery) return "AWB";
+  const awbNumber = normalizeAwb(data?.awb_number);
+  const orderId = normalizeAwb(data?.order_id);
+  const orderNumber = normalizeAwb(data?.order_number);
+  if (awbNumber && normalizedQuery === awbNumber) return "AWB";
+  if ((orderId && normalizedQuery === orderId) || (orderNumber && normalizedQuery === orderNumber)) {
+    return "Order ID";
+  }
+  return normalizedQuery.replace(/[^0-9]/g, "").length >= 10 ? "AWB" : "Order ID";
+};
+
+const normalizeTrackingMode = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.includes("booking") || normalized.includes("order") || normalized === "container") return "Order ID";
+  return "AWB";
+};
+
+const getTrackingLatestUpdate = (data, fallback = "") => {
+  const latest = data?.history?.[0];
+  const message = latest?.message || latest?.status_code || data?.status || fallback || "No update available yet";
+  const location = latest?.location ? ` • ${latest.location}` : "";
+  return `${message}${location}`;
+};
+
+const getTimelineKey = (event) =>
+  [
+    normalizeAwb(event?.status_code || event?.title),
+    normalizeAwb(event?.message || event?.detail),
+    normalizeAwb(event?.location),
+    event?.event_time || event?.time || "",
+  ].join("|");
+
+const buildTrackingTimeline = (trackingData, previewTimeline) => {
+  if (!trackingData?.history?.length) return previewTimeline;
+
+  const seen = new Set();
+  return trackingData.history
+    .map((event) => ({
+      title: event.status_code || trackingData.status || "Tracking update",
+      detail: [event.message, event.location].filter(Boolean).join(" • ") || "Shipment scan recorded.",
+      location: event.location || "",
+      time: event.event_time,
+      complete: true,
+      active: false,
+      raw: event,
+    }))
+    .filter((event) => {
+      const key = getTimelineKey(event.raw || event);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8)
+    .map((event, index) => ({
+      ...event,
+      active: index === 0,
+    }));
+};
+
 function parseNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -727,25 +803,23 @@ export function TrackingPanel() {
   const location = useLocation();
   const urlParams = new URLSearchParams(location.search);
   const queryAwb = normalizeAwb(urlParams.get("awb"));
-  const storedTracking = readStoredValue("feather-tracking-panel", {
+  const storedTracking = readStoredValue(TRACKING_STORAGE_KEY, {
     awb: "SRX-2048127",
     searched: "SRX-2048127",
-    mode: "Container",
+    mode: "AWB",
   });
+  const storedRecentSearches = readStoredValue(RECENT_TRACKING_STORAGE_KEY, []);
   const initialQuery = queryAwb || location.state?.query || storedTracking.awb || "SRX-2048127";
-  const initialMode = queryAwb
-    ? "AWB Number"
-    : location.state?.mode === "booking"
-      ? "Booking Number"
-      : location.state?.mode
-        ? "Container"
-        : storedTracking.mode;
+  const initialMode = queryAwb ? "AWB" : normalizeTrackingMode(location.state?.mode || storedTracking.mode);
   const [awb, setAwb] = useState(initialQuery);
   const [searched, setSearched] = useState(queryAwb || location.state?.query || storedTracking.searched || initialQuery);
   const [mode, setMode] = useState(initialMode);
   const [trackingData, setTrackingData] = useState(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState("");
+  const [recentSearches, setRecentSearches] = useState(() =>
+    Array.isArray(storedRecentSearches) ? storedRecentSearches.slice(0, 5) : []
+  );
   const previewTimeline = useMemo(
     () =>
       trackingStatuses.map((status, index) => ({
@@ -755,16 +829,17 @@ export function TrackingPanel() {
       })),
     []
   );
-  const timeline =
-    trackingData?.history?.length > 0
-      ? trackingData.history.map((event) => ({
-          title: event.status_code || trackingData.status || "Tracking update",
-          detail: [event.message, event.location].filter(Boolean).join(" - ") || "Shipment scan recorded.",
-          time: event.event_time,
-          complete: true,
-          active: false,
-        }))
-      : previewTimeline;
+  const timeline = useMemo(() => buildTrackingTimeline(trackingData, previewTimeline), [trackingData, previewTimeline]);
+  const latestTimelineItem = timeline[0];
+  const activeLookupType = trackingData ? getTrackingSearchType(searched, trackingData) : mode;
+  const latestUpdateText = trackingData
+    ? getTrackingLatestUpdate(trackingData, trackingError)
+    : trackingLoading
+      ? "Fetching live tracking details..."
+      : trackingError || "Search with an AWB or Order ID to load the shipment journey.";
+  const latestUpdateTime = trackingData?.history?.[0]?.event_time
+    ? formatTrackingDateTime(trackingData.history[0].event_time)
+    : "";
 
   const loadTracking = async (nextAwb) => {
     const normalized = normalizeAwb(nextAwb);
@@ -780,8 +855,26 @@ export function TrackingPanel() {
         throw new Error(payload?.message || "Tracking details are not available for this AWB yet.");
       }
       setTrackingData(payload.data);
-      setSearched(payload.data.awb_number || normalized);
-      setMode("AWB Number");
+      const nextSearched = payload.data.awb_number || payload.data.order_id || payload.data.order_number || normalized;
+      const nextMode = getTrackingSearchType(normalized, payload.data);
+      const nextRecent = {
+        id: nextSearched,
+        type: nextMode,
+        awb: payload.data.awb_number || "",
+        orderId: payload.data.order_id || payload.data.order_number || "",
+        courier: payload.data.courier_name || "Courier",
+        status: payload.data.status || "Status updated",
+        latestUpdate: getTrackingLatestUpdate(payload.data),
+        updatedAt: payload.data.history?.[0]?.event_time || new Date().toISOString(),
+      };
+      setSearched(nextSearched);
+      setMode(nextMode);
+      setRecentSearches((previous) => {
+        const filtered = previous.filter(
+          (item) => normalizeAwb(item.awb || item.id) !== normalizeAwb(nextRecent.awb || nextRecent.id)
+        );
+        return [nextRecent, ...filtered].slice(0, 5);
+      });
     } catch (error) {
       setTrackingError(error?.message || "Tracking details are not available right now.");
       setSearched(normalized);
@@ -805,38 +898,53 @@ export function TrackingPanel() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("feather-tracking-panel", JSON.stringify({ awb, searched, mode }));
+      window.localStorage.setItem(TRACKING_STORAGE_KEY, JSON.stringify({ awb, searched, mode }));
     } catch {
       // Tracking still works without local storage.
     }
   }, [awb, searched, mode]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RECENT_TRACKING_STORAGE_KEY, JSON.stringify(recentSearches));
+    } catch {
+      // Tracking still works without local storage.
+    }
+  }, [recentSearches]);
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+    <div className="grid gap-5 xl:grid-cols-[0.92fr_1.08fr]">
       <Reveal delay={0.05}>
         <MotionForm
-          whileHover={{ y: -6, scale: 1.01 }}
           transition={{ duration: 0.25 }}
           onSubmit={handleSubmit}
-          className="surface-card rounded-[1.6rem] p-5 sm:rounded-[2rem] sm:p-6"
+          className="rounded-[1.6rem] border border-slate-200 bg-white p-5 shadow-[0_22px_70px_rgba(15,23,42,0.12)] sm:rounded-[2rem] sm:p-6"
         >
           <div className="flex items-start gap-4">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#073b4c] text-white shadow-lg shadow-sky-900/20">
               <Icon name="route" />
             </span>
             <div>
               <h3 className="font-display text-2xl text-slate-900">Shipment tracking</h3>
-              <p className="mt-1 text-sm text-slate-500">Enter a reference number to preview the tracking experience.</p>
+              <p className="mt-1 text-sm font-medium text-slate-600">
+                Search with an AWB or Order ID. Repeated scans are grouped so the latest movement is easier to read.
+              </p>
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-x-5 gap-y-3 text-sm text-slate-700">
-            {["AWB Number", "Booking Number"].map((option) => (
-              <label key={option} className="flex items-center gap-2">
+          <div className="mt-6 flex flex-wrap gap-x-3 gap-y-3 text-sm font-semibold text-slate-800">
+            {["AWB", "Order ID"].map((option) => (
+              <label
+                key={option}
+                className={[
+                  "flex cursor-pointer items-center gap-2 rounded-full border px-4 py-2 transition",
+                  mode === option ? "border-[#073b4c] bg-[#073b4c] text-white" : "border-slate-200 bg-slate-50 text-slate-700",
+                ].join(" ")}
+              >
                 <input
                   type="radio"
                   name="trackingType"
-                  className="h-4 w-4 accent-slate-900"
+                  className="h-4 w-4 accent-[#f47d21]"
                   checked={mode === option}
                   onChange={() => setMode(option)}
                 />
@@ -847,60 +955,132 @@ export function TrackingPanel() {
 
           <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_auto]">
             <Field
-              label="Tracking number"
+              label={mode === "Order ID" ? "Order ID" : "AWB number"}
               name="awb"
               value={awb}
               onChange={(event) => setAwb(event.target.value)}
-              placeholder="Enter container/billing number"
+              placeholder={mode === "Order ID" ? "Enter order id" : "Enter AWB number"}
             />
             <button
               type="submit"
-              className="mt-auto inline-flex h-[52px] items-center justify-center rounded-2xl bg-[#f3d971] px-6 text-sm font-semibold text-slate-900 transition hover:bg-[#efcf54]"
+              className="mt-auto inline-flex h-[52px] items-center justify-center rounded-2xl bg-[#f47d21] px-6 text-sm font-extrabold text-white shadow-lg shadow-orange-500/25 transition hover:bg-[#df6610]"
             >
               Search
             </button>
           </div>
 
-          <div className="mt-6 rounded-[1.75rem] bg-[linear-gradient(135deg,rgba(198,231,255,0.92),rgba(255,221,174,0.88))] px-5 py-5 text-slate-900 shadow-sm">
-            <p className="text-sm text-slate-600">Latest lookup</p>
-            <p className="mt-2 break-all font-display text-2xl sm:text-3xl">{searched}</p>
-            <p className="mt-1 text-xs uppercase tracking-[0.22em] text-slate-500">{mode}</p>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              {trackingLoading
-                ? "Fetching live tracking details..."
-                : trackingData
-                  ? `${trackingData.courier_name || "Courier"} - ${trackingData.status || "Status updated"}`
-                  : trackingError || "Enter an AWB to load the real tracking journey."}
+          <div className="mt-6 rounded-[1.75rem] border border-[#0f5063]/15 bg-[linear-gradient(135deg,#082f3f,#0f5063)] px-5 py-5 text-white shadow-xl shadow-slate-900/18">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white/78">Latest lookup</p>
+                <p className="mt-2 break-all font-display text-2xl sm:text-3xl">{searched}</p>
+                <p className="mt-1 text-xs font-extrabold uppercase tracking-[0.22em] text-[#ffd29f]">{activeLookupType}</p>
+              </div>
+              <span className="w-fit rounded-full bg-white/14 px-3 py-1 text-xs font-extrabold uppercase tracking-[0.18em] text-white">
+                {trackingData?.courier_name || "Courier"}
+              </span>
+            </div>
+            <p className="mt-4 text-sm font-semibold leading-6 text-white">
+              {trackingData ? `${trackingData.status || "Status updated"} — ${latestUpdateText}` : latestUpdateText}
             </p>
+            {latestUpdateTime ? <p className="mt-2 text-xs font-bold uppercase tracking-[0.2em] text-white/65">Last update {latestUpdateTime}</p> : null}
+          </div>
+
+          <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-slate-700">Recent searches</p>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[0.68rem] font-bold text-slate-500">AWB / Order ID</span>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {recentSearches.length ? (
+                recentSearches.map((item) => (
+                  <button
+                    type="button"
+                    key={`${item.awb || item.id}-${item.updatedAt}`}
+                    onClick={() => {
+                      setAwb(item.awb || item.orderId || item.id);
+                      setMode(item.type || "AWB");
+                      loadTracking(item.awb || item.orderId || item.id);
+                    }}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#f47d21] hover:shadow-md"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="break-all text-sm font-extrabold text-slate-900">{item.awb || item.orderId || item.id}</p>
+                      <span className="rounded-full bg-[#e8f6fa] px-2.5 py-1 text-[0.68rem] font-extrabold uppercase tracking-[0.16em] text-[#047b85]">
+                        {item.type || "AWB"}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-1 text-xs font-medium text-slate-600">
+                      {item.status} • {item.latestUpdate}
+                    </p>
+                    <p className="mt-1 text-[0.68rem] font-bold uppercase tracking-[0.16em] text-slate-400">
+                      {formatTrackingDateTime(item.updatedAt)}
+                    </p>
+                  </button>
+                ))
+              ) : (
+                <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm font-medium text-slate-500">
+                  Your latest AWB or Order ID searches will appear here with their last update.
+                </p>
+              )}
+            </div>
           </div>
         </MotionForm>
       </Reveal>
 
       <Reveal delay={0.12}>
         <MotionArticle
-          whileHover={{ y: -6, scale: 1.01 }}
           transition={{ duration: 0.25 }}
-          className="surface-card rounded-[1.6rem] p-5 sm:rounded-[2rem] sm:p-6"
+          className="relative overflow-hidden rounded-[1.6rem] border border-[#073b4c]/15 bg-white p-5 shadow-[0_26px_80px_rgba(15,23,42,0.16)] sm:rounded-[2rem] sm:p-6"
         >
+          <div className="absolute right-4 top-4 hidden rounded-full bg-[#fff4e8] px-4 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-[#c45508] shadow-sm sm:block">
+            Look here for updates →
+          </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Tracking timeline</p>
+              <p className="text-xs font-extrabold uppercase tracking-[0.24em] text-[#047b85]">Tracking timeline</p>
               <h3 className="mt-2 font-display text-2xl text-slate-900">
-                {trackingData ? "Live shipment scans" : "Delivery journey snapshot"}
+                {trackingData ? "Latest movement first" : "Delivery journey snapshot"}
               </h3>
+              <p className="mt-2 max-w-xl text-sm font-medium leading-6 text-slate-600">
+                The newest scan is highlighted below. Duplicate scans with the same status, place, and time are hidden.
+              </p>
             </div>
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            <span className="w-fit rounded-full bg-[#073b4c] px-4 py-2 text-xs font-extrabold uppercase tracking-[0.16em] text-white">
               {trackingData?.status || (trackingLoading ? "Loading" : "Preview")}
             </span>
           </div>
 
-          <div className="mt-6 grid gap-4">
+          <div className="mt-6 rounded-[1.5rem] border border-[#f47d21]/30 bg-[#fff8f1] p-4">
+            <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-[#b64b05]">Latest update</p>
+            <p className="mt-2 text-base font-extrabold text-slate-950">{latestTimelineItem?.title || trackingData?.status || "No update yet"}</p>
+            <p className="mt-1 text-sm font-medium leading-6 text-slate-700">{latestTimelineItem?.detail || latestUpdateText}</p>
+            {latestTimelineItem?.time ? (
+              <p className="mt-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                {formatTrackingDateTime(latestTimelineItem.time)}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="mt-5 grid gap-4">
             {timeline.map((item, index) => (
-              <div key={item.title} className="flex gap-4 rounded-[1.5rem] border border-slate-100 bg-white px-4 py-4 shadow-sm">
+              <div
+                key={`${item.title}-${item.time || index}`}
+                className={[
+                  "flex gap-4 rounded-[1.5rem] border px-4 py-4 shadow-sm",
+                  item.active
+                    ? "border-[#f47d21]/45 bg-[#fff8f1] shadow-orange-100"
+                    : "border-slate-200 bg-white",
+                ].join(" ")}
+              >
                 <span
                   className={[
                     "mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
-                    item.complete ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500",
+                    item.active
+                      ? "bg-[#f47d21] text-white"
+                      : item.complete
+                        ? "bg-[#e8f6fa] text-[#047b85]"
+                        : "bg-slate-100 text-slate-500",
                   ].join(" ")}
                 >
                   <Icon name={item.complete ? "shield" : "route"} className="h-5 w-5" />
@@ -909,14 +1089,14 @@ export function TrackingPanel() {
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                     {item.active ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-amber-700">
-                        Active
+                      <span className="rounded-full bg-[#f47d21] px-2 py-0.5 text-[0.65rem] font-extrabold uppercase tracking-[0.2em] text-white">
+                        Latest
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{item.detail}</p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.22em] text-slate-400">
-                    {item.time ? new Date(item.time).toLocaleString("en-IN") : `Step 0${index + 1}`}
+                  <p className="mt-2 text-sm font-medium leading-6 text-slate-700">{item.detail}</p>
+                  <p className="mt-2 text-xs font-bold uppercase tracking-[0.22em] text-slate-500">
+                    {item.time ? formatTrackingDateTime(item.time) : `Step 0${index + 1}`}
                   </p>
                 </div>
               </div>
