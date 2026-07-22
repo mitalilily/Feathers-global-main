@@ -66,7 +66,6 @@ const resolveLabelDownloadUrl = async (labelReference: string) => {
   const signed = await presignDownload(trimmedReference, {
     disposition: 'inline',
     contentType: 'application/pdf',
-    checkExists: true,
   })
   return Array.isArray(signed) ? signed[0] : signed
 }

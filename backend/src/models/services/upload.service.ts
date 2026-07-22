@@ -31,6 +31,15 @@ interface DirectUploadTokenPayload extends UploadStorageTarget {
   originalName: string
 }
 
+interface DirectDownloadTokenPayload {
+  sub: 'download'
+  bucket: string
+  key: string
+  downloadName?: string
+  disposition?: 'inline' | 'attachment'
+  contentType?: string
+}
+
 const PRESIGN_DOWNLOAD_EXPIRES_IN_SECONDS = 60 * 60 * 24 // 24h
 const PRESIGN_CACHE_SAFETY_BUFFER_MS = 60 * 1000 // refresh 1 min before expiry
 const R2_UPLOAD_TIMEOUT_MS = Number(process.env.R2_UPLOAD_TIMEOUT_MS || 30000)
@@ -124,6 +133,29 @@ export const createDirectUploadToken = ({
 
 export const verifyDirectUploadToken = (token: string) =>
   jwt.verify(token, DIRECT_UPLOAD_TOKEN_SECRET) as DirectUploadTokenPayload
+
+export const createDirectDownloadToken = ({
+  bucket,
+  key,
+  downloadName,
+  disposition = 'attachment',
+  contentType,
+}: Omit<DirectDownloadTokenPayload, 'sub'>) =>
+  jwt.sign(
+    {
+      sub: 'download',
+      bucket,
+      key,
+      downloadName,
+      disposition,
+      contentType,
+    } satisfies DirectDownloadTokenPayload,
+    DIRECT_UPLOAD_TOKEN_SECRET,
+    { expiresIn: '24h' },
+  )
+
+export const verifyDirectDownloadToken = (token: string) =>
+  jwt.verify(token, DIRECT_UPLOAD_TOKEN_SECRET) as DirectDownloadTokenPayload
 
 const presignCacheKey = (
   bucket: string,
@@ -348,6 +380,48 @@ const extractKeyFromUrl = (url: string, bucket: string): string | null => {
   }
 }
 
+const resolveStoredDownloadTarget = (rawValue: string) => {
+  const value = String(rawValue || '').trim()
+  const bucket = resolveBucketForStoredValue(value)
+  let key = value
+
+  if (/^https?:\/\//i.test(value)) {
+    const extractedKey = extractKeyFromUrl(value, bucket)
+    if (extractedKey) key = extractedKey
+  }
+
+  return { bucket, key }
+}
+
+export const createBackendDownloadUrl = (
+  keyOrUrl: string,
+  options?: {
+    downloadName?: string
+    disposition?: 'inline' | 'attachment'
+    contentType?: string
+  },
+) => {
+  const value = String(keyOrUrl || '').trim()
+  if (!value) return null
+  if (/^data:/i.test(value)) return value
+
+  const { bucket, key } = resolveStoredDownloadTarget(value)
+  const token = createDirectDownloadToken({
+    bucket,
+    key,
+    downloadName: options?.downloadName,
+    disposition: options?.disposition || 'attachment',
+    contentType: options?.contentType,
+  })
+  const apiBaseUrl = String(
+    process.env.API_URL || process.env.PUBLIC_API_URL || 'https://api.fgship.in',
+  )
+    .trim()
+    .replace(/\/+$/, '')
+
+  return `${apiBaseUrl}/api/uploads/download?token=${encodeURIComponent(token)}`
+}
+
 const isMissingObjectError = (error: any) =>
   error?.name === 'NotFound' ||
   error?.name === 'NoSuchKey' ||
@@ -371,6 +445,16 @@ const ensureObjectExists = async (bucket: string, key: string) => {
     if (isMissingObjectError(error)) {
       console.warn('⚠️ File missing in R2 storage:', { bucket, key })
       return false
+    }
+
+    if (error?.$metadata?.httpStatusCode === 403 || error?.name === 'UnknownError') {
+      console.warn('Storage HEAD check was not permitted; continuing with download URL generation:', {
+        bucket,
+        key,
+        statusCode: error?.$metadata?.httpStatusCode,
+        error: error?.message || error,
+      })
+      return true
     }
 
     throw error

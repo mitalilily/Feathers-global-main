@@ -1146,6 +1146,27 @@ const B2COrdersList = () => {
         await downloadFile(signedUrl, getDownloadFileName(order, type, keyValue))
         return
       } catch (error) {
+        if (type === 'label') {
+          try {
+            const result = await regenerateDocuments({
+              orderId: String(order.id),
+              regenerateLabel: true,
+              regenerateInvoice: false,
+            })
+            const regeneratedLabel = String(result?.data?.label || result?.label || '').trim()
+            if (regeneratedLabel) {
+              const urls = await presignDownloads({ keys: [regeneratedLabel] })
+              const signedUrl = Array.isArray(urls) ? urls[0] : urls
+              if (signedUrl) {
+                await downloadFile(signedUrl, getDownloadFileName(order, type, regeneratedLabel))
+                toast.open({ message: 'Label regenerated and downloaded.', severity: 'success' })
+                return
+              }
+            }
+          } catch (regenerateError) {
+            console.warn(`Failed to regenerate label for ${order.order_number || order.id}:`, regenerateError)
+          }
+        }
         toast.open({
           message: getActionableErrorMessage(error, `Unable to download ${type}.`),
           severity: 'error',

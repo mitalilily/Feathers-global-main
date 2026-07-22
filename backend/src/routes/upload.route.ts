@@ -2,6 +2,7 @@ import express from "express";
 import { Router } from "express";
 import {
   createPresignedUrl,
+  downloadWithToken,
   getPresignedDownloadUrl,
   uploadDirectWithToken,
   uploadFileThroughBackend,
@@ -13,6 +14,7 @@ const router = Router();
 
 router.post("/presign", requireAuth, createPresignedUrl);
 router.put("/direct", express.raw({ type: "*/*", limit: "10mb" }), uploadDirectWithToken);
+router.get("/download", downloadWithToken);
 router.post("/file", requireAuth, upload.single('file'), uploadFileThroughBackend);
 router.post("/kyc/pdf", requireAuth, upload.single('file'), uploadFileThroughBackend);
 router.post("/presign-download-url", requireAuth, getPresignedDownloadUrl);

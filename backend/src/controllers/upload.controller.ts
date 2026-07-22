@@ -1,17 +1,33 @@
 import { Request, Response } from "express";
 import {
+  createBackendDownloadUrl,
   createDirectUploadToken,
-  presignDownload,
   presignUpload,
   uploadBufferToStorage,
   uploadBufferToStorageTarget,
   shouldProxyBrowserUpload,
+  verifyDirectDownloadToken,
   verifyDirectUploadToken,
 } from "../models/services/upload.service";
 import { getBucketName } from "../utils/functions";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { r2 } from "../config/r2Client";
+
+const streamBodyToBuffer = async (body: any): Promise<Buffer> => {
+  if (!body) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof Uint8Array) return Buffer.from(body);
+  if (typeof body.transformToByteArray === "function") {
+    return Buffer.from(await body.transformToByteArray());
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of body) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+};
 
 export const createPresignedUrl = async (
   req: any,
@@ -106,6 +122,52 @@ export const uploadDirectWithToken = async (
   }
 };
 
+export const downloadWithToken = async (
+  req: Request,
+  res: Response,
+): Promise<any> => {
+  const token = String(req.query?.token || "").trim();
+
+  if (!token) {
+    return res.status(400).json({ message: "token is required" });
+  }
+
+  try {
+    const payload = verifyDirectDownloadToken(token);
+    const result = await r2.send(
+      new GetObjectCommand({
+        Bucket: payload.bucket,
+        Key: payload.key,
+      }),
+    );
+    const buffer = await streamBodyToBuffer(result.Body);
+    const downloadName =
+      payload.downloadName ||
+      String(payload.key || "download.pdf").split("/").filter(Boolean).pop() ||
+      "download.pdf";
+    const disposition = payload.disposition || "attachment";
+
+    res.setHeader("Content-Type", payload.contentType || result.ContentType || "application/pdf");
+    res.setHeader("Content-Disposition", `${disposition}; filename="${downloadName.replace(/"/g, "")}"`);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.status(200).send(buffer);
+  } catch (err: any) {
+    const statusCode = [403, 404].includes(Number(err?.$metadata?.httpStatusCode))
+      ? 404
+      : 401;
+    console.error("Download proxy failed:", {
+      statusCode,
+      message: err?.message || err,
+    });
+    return res.status(statusCode).json({
+      message:
+        statusCode === 404
+          ? "This file is not available yet. It may still be generating or may need to be regenerated."
+          : "Download token is invalid or expired",
+    });
+  }
+};
+
 export const uploadFileThroughBackend = async (
   req: any,
   res: Response
@@ -159,11 +221,13 @@ export const getPresignedDownloadUrl = async (
         .json({ message: "'keys' must be a string or string[]" });
     }
 
-    // Generate signed URL(s)
-    const result = await presignDownload(keys, { checkExists: true });
-
     if (Array.isArray(keys)) {
-      const urls = Array.isArray(result) ? result : [];
+      const urls = keys.map((key) =>
+        createBackendDownloadUrl(String(key || ""), {
+          disposition: "attachment",
+          contentType: "application/pdf",
+        }),
+      );
       const missingFiles = keys.filter((_, index) => !urls[index]);
       const foundCount = urls.filter(Boolean).length;
       const missingCount = missingFiles.length;
@@ -187,6 +251,10 @@ export const getPresignedDownloadUrl = async (
         message,
       });
     } else {
+      const result = createBackendDownloadUrl(String(keys), {
+        disposition: "attachment",
+        contentType: "application/pdf",
+      });
       if (!result || result === null) {
         return res.status(404).json({ 
           message: "This file is not available yet. It may still be generating or may need to be regenerated.",
