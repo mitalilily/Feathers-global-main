@@ -1,4 +1,8 @@
 import { Request, Response } from 'express'
+import { eq, or } from 'drizzle-orm'
+import { db } from '../models/client'
+import { b2b_orders } from '../models/schema/b2bOrders'
+import { b2c_orders } from '../models/schema/b2cOrders'
 import {
   fetchAvailableCouriersWithRates,
   trackByAwbService,
@@ -6,6 +10,38 @@ import {
 } from '../models/services/shiprocket.service'
 import { getOpaqueProviderCode } from '../utils/externalApiHelpers'
 import { extractOrderAmountFromBody } from '../utils/orderAmount'
+
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+
+const findPublicOrderByIdentifier = async (identifier: string) => {
+  const normalized = String(identifier || '').trim()
+  if (!normalized) return null
+
+  const b2cConditions = [
+    eq(b2c_orders.order_number, normalized),
+    eq(b2c_orders.order_id, normalized),
+    ...(isUuid(normalized) ? [eq(b2c_orders.id, normalized)] : []),
+  ]
+  const [b2cOrder] = await db
+    .select()
+    .from(b2c_orders)
+    .where(or(...b2cConditions))
+    .limit(1)
+  if (b2cOrder) return b2cOrder
+
+  const b2bConditions = [
+    eq(b2b_orders.order_number, normalized),
+    eq(b2b_orders.order_id, normalized),
+    ...(isUuid(normalized) ? [eq(b2b_orders.id, normalized)] : []),
+  ]
+  const [b2bOrder] = await db
+    .select()
+    .from(b2b_orders)
+    .where(or(...b2bConditions))
+    .limit(1)
+  return b2bOrder || null
+}
 
 const mapPublicRates = (couriers: any[]) =>
   (couriers ?? []).map((courier: any) => ({
@@ -33,9 +69,28 @@ const mapPublicRates = (couriers: any[]) =>
 
 export const getPublicTrackingController = async (req: Request, res: Response) => {
   try {
-    const { awb, orderNumber, contact } = req.query
+    const { awb, orderId, orderNumber, contact } = req.query
 
     let awbNumber: string | undefined = awb ? String(awb) : undefined
+    const publicOrderIdentifier = String(orderId || orderNumber || '').trim()
+
+    if (!awbNumber && publicOrderIdentifier && !contact) {
+      const order = await findPublicOrderByIdentifier(publicOrderIdentifier)
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: `No order found for Order ID: ${publicOrderIdentifier}`,
+        })
+      }
+
+      awbNumber = String(order.awb_number || '').trim()
+      if (!awbNumber) {
+        return res.status(404).json({
+          success: false,
+          message: 'AWB number is not available for this order yet',
+        })
+      }
+    }
 
     if (!awbNumber && orderNumber && contact) {
       const contactStr = String(contact).trim()

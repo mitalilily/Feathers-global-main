@@ -803,16 +803,17 @@ export function TrackingPanel() {
   const location = useLocation();
   const urlParams = new URLSearchParams(location.search);
   const queryAwb = normalizeAwb(urlParams.get("awb"));
+  const queryOrderId = normalizeAwb(urlParams.get("orderId") || urlParams.get("order_id") || urlParams.get("orderNumber"));
   const storedTracking = readStoredValue(TRACKING_STORAGE_KEY, {
     awb: "SRX-2048127",
     searched: "SRX-2048127",
     mode: "AWB",
   });
   const storedRecentSearches = readStoredValue(RECENT_TRACKING_STORAGE_KEY, []);
-  const initialQuery = queryAwb || location.state?.query || storedTracking.awb || "SRX-2048127";
-  const initialMode = queryAwb ? "AWB" : normalizeTrackingMode(location.state?.mode || storedTracking.mode);
+  const initialQuery = queryAwb || queryOrderId || location.state?.query || storedTracking.awb || "SRX-2048127";
+  const initialMode = queryAwb ? "AWB" : queryOrderId ? "Order ID" : normalizeTrackingMode(location.state?.mode || storedTracking.mode);
   const [awb, setAwb] = useState(initialQuery);
-  const [searched, setSearched] = useState(queryAwb || location.state?.query || storedTracking.searched || initialQuery);
+  const [searched, setSearched] = useState(queryAwb || queryOrderId || location.state?.query || storedTracking.searched || initialQuery);
   const [mode, setMode] = useState(initialMode);
   const [trackingData, setTrackingData] = useState(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
@@ -841,18 +842,20 @@ export function TrackingPanel() {
     ? formatTrackingDateTime(trackingData.history[0].event_time)
     : "";
 
-  const loadTracking = async (nextAwb) => {
+  const loadTracking = async (nextAwb, lookupMode = mode) => {
     const normalized = normalizeAwb(nextAwb);
     if (!normalized) return;
+    const isOrderLookup = normalizeTrackingMode(lookupMode) === "Order ID";
+    const queryKey = isOrderLookup ? "orderId" : "awb";
 
     setTrackingLoading(true);
     setTrackingError("");
     setTrackingData(null);
     try {
-      const response = await fetch(`${COURIER_CART_API}/public/tracking?awb=${encodeURIComponent(normalized)}`);
+      const response = await fetch(`${COURIER_CART_API}/public/tracking?${queryKey}=${encodeURIComponent(normalized)}`);
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload?.success || !payload?.data) {
-        throw new Error(payload?.message || "Tracking details are not available for this AWB yet.");
+        throw new Error(payload?.message || `Tracking details are not available for this ${isOrderLookup ? "Order ID" : "AWB"} yet.`);
       }
       setTrackingData(payload.data);
       const nextSearched = payload.data.awb_number || payload.data.order_id || payload.data.order_number || normalized;
@@ -885,16 +888,21 @@ export function TrackingPanel() {
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    loadTracking(awb || "SRX-2048127");
+    loadTracking(awb || "SRX-2048127", mode);
   };
 
   useEffect(() => {
     if (queryAwb) {
       setAwb(queryAwb);
-      loadTracking(queryAwb);
+      setMode("AWB");
+      loadTracking(queryAwb, "AWB");
+    } else if (queryOrderId) {
+      setAwb(queryOrderId);
+      setMode("Order ID");
+      loadTracking(queryOrderId, "Order ID");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryAwb]);
+  }, [queryAwb, queryOrderId]);
 
   useEffect(() => {
     try {
@@ -998,9 +1006,10 @@ export function TrackingPanel() {
                     type="button"
                     key={`${item.awb || item.id}-${item.updatedAt}`}
                     onClick={() => {
+                      const nextMode = item.type || "AWB";
                       setAwb(item.awb || item.orderId || item.id);
-                      setMode(item.type || "AWB");
-                      loadTracking(item.awb || item.orderId || item.id);
+                      setMode(nextMode);
+                      loadTracking(item.awb || item.orderId || item.id, nextMode);
                     }}
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-[#f47d21] hover:shadow-md"
                   >
