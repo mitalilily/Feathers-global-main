@@ -7151,6 +7151,9 @@ export const createB2CShipmentService = async (
 
   const reversePickupAddress = params.pickup
   const reverseReturnAddress = params.rto ?? buildPickupFromConsignee(params.consignee)
+  if (isReverseShipment && !params.rto) {
+    params.rto = reverseReturnAddress
+  }
   const reverseProviderParams: ShipmentParams = {
     ...params,
     // Reverse provider APIs expect consignee/address_attributes to be the collection address.
@@ -7842,20 +7845,29 @@ export const createB2CShipmentService = async (
           }
         }
 
+        const xpressbeesReverseParams: ShipmentParams = {
+          ...params,
+          consignee: params.consignee,
+          pickup: reversePickupAddress,
+          rto: reverseReturnAddress,
+        }
+
         shipmentData = await xpressbees.createReverseShipment({
           order_id: originalOrder?.order_number || params.order_number,
           request_auto_pickup: params.request_auto_pickup || 'yes',
           consignee: {
-            name: reverseProviderParams.consignee?.name,
-            address: reverseProviderParams.consignee?.address,
-            address_2: reverseProviderParams.consignee?.address_2,
-            city: reverseProviderParams.consignee?.city,
-            state: reverseProviderParams.consignee?.state,
-            pincode: reverseProviderParams.consignee?.pincode,
-            phone: reverseProviderParams.consignee?.phone,
+            name: xpressbeesReverseParams.consignee?.name,
+            address: xpressbeesReverseParams.consignee?.address,
+            address_2: xpressbeesReverseParams.consignee?.address_2,
+            city: xpressbeesReverseParams.consignee?.city,
+            state: xpressbeesReverseParams.consignee?.state,
+            pincode: xpressbeesReverseParams.consignee?.pincode,
+            phone: xpressbeesReverseParams.consignee?.phone,
             alternate_phone: xpressParams?.consignee?.alternate_phone,
           },
-          pickup: reverseProviderParams.pickup,
+          pickup: xpressbeesReverseParams.pickup,
+          rto: xpressbeesReverseParams.rto,
+          is_rto_different: 'yes',
           categories: xpressParams?.categories || 'General',
           product_name: xpressParams?.order_items?.[0]?.name || 'Return Item',
           product_qty: xpressParams?.order_items?.[0]?.qty || 1,

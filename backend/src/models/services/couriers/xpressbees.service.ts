@@ -2236,6 +2236,21 @@ export class XpressbeesService {
         pincode: String(payload?.pickup?.pincode || ''),
         phone: String(payload?.pickup?.phone || ''),
       },
+      is_rto_different: payload?.is_rto_different || (payload?.rto ? 'yes' : 'no'),
+      ...(payload?.rto
+        ? {
+            rto: {
+              warehouse_name: payload.rto.warehouse_name,
+              name: payload.rto.name,
+              address: payload.rto.address,
+              address_2: payload.rto.address_2 || '',
+              city: payload.rto.city,
+              state: payload.rto.state,
+              pincode: String(payload.rto.pincode || ''),
+              phone: String(payload.rto.phone || ''),
+            },
+          }
+        : {}),
       categories: payload?.categories || 'General',
       product_name: payload?.product_name || 'Return Item',
       product_qty: String(payload?.product_qty ?? 1),
