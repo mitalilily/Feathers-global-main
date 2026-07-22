@@ -1379,6 +1379,19 @@ const shouldAttemptFulfillment = (orderStatus: unknown, trigger: unknown) => {
   return orderLevel >= triggerPriority[normalizedTrigger]
 }
 
+const getEffectiveFulfillTriggerForStatusSync = (settings: any): FulfillTrigger => {
+  const configuredTrigger = normalizeFulfillTrigger(settings?.fulfillTrigger)
+
+  // Older frontend defaults saved "do_not_fulfill" even when shipment-status
+  // auto-sync was enabled. Shopify fulfillment events need a fulfillment object,
+  // so status sync must create/update fulfillment once tracking exists.
+  if (settings?.autoUpdateShipmentStatus && configuredTrigger === 'do_not_fulfill') {
+    return 'order_booked'
+  }
+
+  return configuredTrigger
+}
+
 const shouldNotifyCustomerOnFulfill = (settings: any) => {
   const value = String(
     settings?.customerNotifyOnFulfill ?? settings?.notifyCustomerOnFulfill ?? settings?.notifyOnFulfill ?? '',
@@ -2887,7 +2900,15 @@ export const syncShopifyStatusForLocalOrder = async (
       return { attempted: true, success: false, channel: 'shopify', reason: 'remote_order_not_found' }
     }
 
-    if (shouldAttemptFulfillment(orderStatus, settings?.fulfillTrigger)) {
+    const effectiveFulfillTrigger = getEffectiveFulfillTriggerForStatusSync(settings)
+    if (
+      effectiveFulfillTrigger !== normalizeFulfillTrigger(settings?.fulfillTrigger) &&
+      trackingNumber
+    ) {
+      actions.push(`fulfill_trigger_normalized:${effectiveFulfillTrigger}`)
+    }
+
+    if (shouldAttemptFulfillment(orderStatus, effectiveFulfillTrigger)) {
       const isAlreadyFulfilled = String(remoteOrder.displayFulfillmentStatus || '').toUpperCase() === 'FULFILLED'
       const openFulfillmentOrders = (remoteOrder.fulfillmentOrders?.nodes || []).filter((fo: any) => {
         const foStatus = String(fo?.status || '').toUpperCase()

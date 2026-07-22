@@ -164,8 +164,9 @@ const UserConnectedChannels = () => {
 
   const handleUpdateShopify = () => {
     const settings = {
-      fulfillTrigger: 'do_not_fulfill',
+      fulfillTrigger: 'order_booked',
       customerNotifyOnFulfill: 'do_not_notify',
+      autoUpdateShipmentStatus: true,
       ...(details as ShopifyForm)?.settings,
     }
 

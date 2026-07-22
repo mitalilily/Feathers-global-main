@@ -75,8 +75,9 @@ export default function ShopifyIntegration({
     userId: "",
     status: "active",
     settings: {
-      fulfillTrigger: "do_not_fulfill",
+      fulfillTrigger: "order_booked",
       customerNotifyOnFulfill: "do_not_notify",
+      autoUpdateShipmentStatus: true,
     },
   });
 

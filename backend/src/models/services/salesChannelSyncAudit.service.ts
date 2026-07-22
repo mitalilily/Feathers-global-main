@@ -33,6 +33,17 @@ export const detectSalesChannel = (order: any): SalesChannel | null => {
   const localOrderId = String(order?.order_id || '').trim()
   if (localOrderId.startsWith('shopify_')) return 'shopify'
   if (localOrderId.startsWith('woo_')) return 'woocommerce'
+
+  const providerMeta =
+    order?.provider_meta && typeof order.provider_meta === 'object' && !Array.isArray(order.provider_meta)
+      ? order.provider_meta
+      : {}
+  const source = String(providerMeta.source || order?.integration_type || '').trim().toLowerCase()
+  if (source === 'shopify' || String(providerMeta.shopify_order_id || '').trim()) return 'shopify'
+  if (source === 'woocommerce' || source === 'woo' || String(providerMeta.woocommerce_order_id || '').trim()) {
+    return 'woocommerce'
+  }
+
   return null
 }
 
@@ -116,15 +127,42 @@ export const getSalesChannelSyncCandidates = async ({
     .from(b2c_orders)
     .where(
       and(
-        or(like(b2c_orders.order_id, 'shopify_%'), like(b2c_orders.order_id, 'woo_%')),
+        or(
+          like(b2c_orders.order_id, 'shopify_%'),
+          like(b2c_orders.order_id, 'woo_%'),
+          sql`${b2c_orders.provider_meta}->>'source' in ('shopify', 'woocommerce', 'woo')`,
+          sql`coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''`,
+          sql`coalesce(${b2c_orders.provider_meta}->>'woocommerce_order_id', '') <> ''`,
+        ),
         sql`
           lower(coalesce(${b2c_orders.order_status}, '')) in (
             'booked',
+            'shipment_created',
+            'manifested',
+            'manifest_generated',
+            'label_printed',
+            'label_purchased',
             'pickup_initiated',
+            'pickup_scheduled',
+            'pickup_requested',
+            'pickup_completed',
+            'picked',
+            'picked_up',
+            'carrier_picked_up',
             'in_transit',
             'out_for_delivery',
+            'ndr',
+            'undelivered',
+            'delivery_attempted',
+            'attempted_delivery',
+            'delayed',
+            'lost',
+            'rto',
+            'rto_in_transit',
             'delivered',
+            'rto_delivered',
             'cancelled',
+            'canceled',
             'cancellation_requested'
           )
         `,
