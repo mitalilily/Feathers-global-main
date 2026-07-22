@@ -1,10 +1,12 @@
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import { Response } from 'express'
 import { db } from '../models/client'
 import { b2b_orders } from '../models/schema/b2bOrders'
 import { b2c_orders } from '../models/schema/b2cOrders'
 import { codRemittances } from '../models/schema/codRemittance'
+import { locations } from '../models/schema/locations'
 import { ndr_events } from '../models/schema/ndr'
+import { b2bPincodes, zones } from '../models/schema/zones'
 import { buildCsv } from '../utils/csv'
 
 type SectionKey = 'orders' | 'shipment' | 'ndr'
@@ -122,13 +124,263 @@ const extractSkuIds = (products: unknown, packages: unknown) => {
   return Array.from(seen).join(' | ')
 }
 
-const getZoneName = (order: any) =>
-  order.zone_name ||
-  order.zoneName ||
-  order.delivery_location ||
-  order.zone ||
-  order.zone_code ||
-  ''
+const parseObject = (value: unknown): Record<string, any> => {
+  if (!value) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>
+  if (typeof value !== 'string') return {}
+
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, any>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+type ReportZoneMeta = {
+  code: string
+  name: string
+}
+
+type ReportLocationMeta = {
+  pincode: string
+  city: string | null
+  state: string | null
+  tags: unknown
+}
+
+const getCleanString = (value: unknown) => String(value ?? '').trim()
+
+const normalizePincode = (value: unknown) => {
+  const raw = getCleanString(value).replace(/\D/g, '')
+  return raw || ''
+}
+
+const normalizeZoneCode = (value: unknown) => {
+  const raw = getCleanString(value)
+  if (!raw) return ''
+
+  const upper = raw.toUpperCase().replace(/\s+/g, '_')
+  const zoneLetter = upper.match(/^ZONE_?([A-Z])$/)?.[1]
+  if (zoneLetter) return zoneLetter
+
+  const suffixedLetter = upper.match(/^([A-Z])_(?:B2C|B2B)$/)?.[1]
+  if (suffixedLetter) return suffixedLetter
+
+  return upper
+}
+
+const formatZoneName = (code: unknown, fallbackName?: unknown) => {
+  const normalizedCode = normalizeZoneCode(code)
+  const fallback = getCleanString(fallbackName)
+
+  if (/^[A-Z]$/.test(normalizedCode)) return `Zone ${normalizedCode}`
+  if (fallback) {
+    const fallbackCode = normalizeZoneCode(fallback)
+    if (/^[A-Z]$/.test(fallbackCode)) return `Zone ${fallbackCode}`
+    return fallback
+  }
+  return normalizedCode ? normalizedCode.replace(/_/g, ' ') : ''
+}
+
+const makeZoneMeta = (code: unknown, name?: unknown): ReportZoneMeta | null => {
+  const normalizedCode = normalizeZoneCode(code || name)
+  const zoneName = formatZoneName(normalizedCode, name)
+  if (!normalizedCode && !zoneName) return null
+
+  return {
+    code: normalizedCode || zoneName,
+    name: zoneName || normalizedCode,
+  }
+}
+
+const getTagList = (tags: unknown): string[] => {
+  if (Array.isArray(tags)) return tags.map((tag) => getCleanString(tag).toLowerCase()).filter(Boolean)
+  if (typeof tags === 'string') {
+    try {
+      const parsed = JSON.parse(tags)
+      if (Array.isArray(parsed)) {
+        return parsed.map((tag) => getCleanString(tag).toLowerCase()).filter(Boolean)
+      }
+    } catch {
+      return tags
+        .split(',')
+        .map((tag) => tag.trim().toLowerCase())
+        .filter(Boolean)
+    }
+  }
+  return []
+}
+
+const hasTag = (location: ReportLocationMeta | null | undefined, tag: string) =>
+  getTagList(location?.tags).includes(tag.toLowerCase())
+
+const determineB2CZoneKey = (
+  origin: ReportLocationMeta | null,
+  destination: ReportLocationMeta | null,
+) => {
+  if (!origin || !destination) return 'ROI'
+
+  if (
+    hasTag(origin, 'special_zones') ||
+    hasTag(origin, 'special_zone') ||
+    hasTag(destination, 'special_zones') ||
+    hasTag(destination, 'special_zone') ||
+    hasTag(origin, 'special') ||
+    hasTag(destination, 'special')
+  ) {
+    return 'SPECIAL_ZONE'
+  }
+
+  const originCity = getCleanString(origin.city).toLowerCase()
+  const destinationCity = getCleanString(destination.city).toLowerCase()
+  const originState = getCleanString(origin.state).toLowerCase()
+  const destinationState = getCleanString(destination.state).toLowerCase()
+
+  if (originCity && destinationCity && originState && destinationState && originCity === destinationCity && originState === destinationState) {
+    return 'WITHIN_CITY'
+  }
+
+  if (originState && destinationState && originState === destinationState && originCity !== destinationCity) {
+    return 'WITHIN_STATE'
+  }
+
+  if (hasTag(origin, 'metros') && hasTag(destination, 'metros') && originCity !== destinationCity) {
+    return 'METRO_TO_METRO'
+  }
+
+  for (const region of ['north', 'south', 'east', 'west']) {
+    if (hasTag(origin, region) && hasTag(destination, region)) return 'WITHIN_REGION'
+  }
+
+  return 'ROI'
+}
+
+const B2C_ZONE_CANDIDATES: Record<string, string[]> = {
+  METRO_TO_METRO: ['METRO_TO_METRO', 'A_B2C', 'A', 'ZONE_A', 'ZONE A'],
+  WITHIN_CITY: ['WITHIN_CITY', 'A_B2C', 'A', 'ZONE_A', 'ZONE A'],
+  WITHIN_STATE: ['WITHIN_STATE', 'B_B2C', 'B', 'ZONE_B', 'ZONE B'],
+  WITHIN_REGION: ['WITHIN_REGION', 'C_B2C', 'C', 'ZONE_C', 'ZONE C'],
+  ROI: ['ROI', 'D_B2C', 'E_B2C', 'D', 'E', 'ZONE_D', 'ZONE_E', 'ZONE D', 'ZONE E'],
+  SPECIAL_ZONE: ['SPECIAL_ZONE', 'SPECIAL_B2C', 'SPECIAL', 'E_B2C', 'E', 'ZONE_E', 'ZONE E'],
+}
+
+const getFallbackZoneFromOrder = (order: any): ReportZoneMeta | null =>
+  makeZoneMeta(
+    order.zone_code || order.zone || order.provider_meta?.zone_code || order.provider_meta?.zone,
+    order.zone_name || order.zoneName || order.delivery_location || order.provider_meta?.zone_name,
+  )
+
+const buildReportZoneResolver = async (b2cRows: any[], b2bRows: any[]) => {
+  const pickupPincodes = new Set<string>()
+  const destinationPincodes = new Set<string>()
+
+  for (const order of b2cRows) {
+    const pickupDetails = parseObject(order.pickup_details)
+    const pickupPincode = normalizePincode(
+      pickupDetails.pincode || pickupDetails.pickup_pincode || pickupDetails.source_pincode,
+    )
+    const destinationPincode = normalizePincode(order.pincode)
+    if (pickupPincode) pickupPincodes.add(pickupPincode)
+    if (destinationPincode) destinationPincodes.add(destinationPincode)
+  }
+
+  for (const order of b2bRows) {
+    const destinationPincode = normalizePincode(order.pincode)
+    if (destinationPincode) destinationPincodes.add(destinationPincode)
+  }
+
+  const allLocationPincodes = Array.from(new Set([...pickupPincodes, ...destinationPincodes]))
+  const [locationRows, b2cZoneRows, b2bZoneRows] = await Promise.all([
+    allLocationPincodes.length
+      ? db
+          .select({
+            pincode: locations.pincode,
+            city: locations.city,
+            state: locations.state,
+            tags: locations.tags,
+          })
+          .from(locations)
+          .where(inArray(locations.pincode, allLocationPincodes))
+      : Promise.resolve([] as any[]),
+    db
+      .select({ id: zones.id, code: zones.code, name: zones.name })
+      .from(zones)
+      .where(sql`upper(${zones.business_type}) = 'B2C'`),
+    destinationPincodes.size
+      ? db
+          .select({
+            pincode: b2bPincodes.pincode,
+            code: zones.code,
+            name: zones.name,
+          })
+          .from(b2bPincodes)
+          .leftJoin(zones, eq(b2bPincodes.zone_id, zones.id))
+          .where(inArray(b2bPincodes.pincode, Array.from(destinationPincodes)))
+      : Promise.resolve([] as any[]),
+  ])
+
+  const locationByPincode = new Map<string, ReportLocationMeta>()
+  for (const row of locationRows) {
+    const pincode = normalizePincode(row.pincode)
+    if (!pincode || locationByPincode.has(pincode)) continue
+    locationByPincode.set(pincode, {
+      pincode,
+      city: row.city || null,
+      state: row.state || null,
+      tags: row.tags,
+    })
+  }
+
+  const b2cZoneByCandidate = new Map<string, ReportZoneMeta>()
+  for (const row of b2cZoneRows) {
+    const meta = makeZoneMeta(row.code, row.name)
+    if (!meta) continue
+    for (const candidate of [row.code, row.name, meta.code, meta.name]) {
+      const key = normalizeZoneCode(candidate)
+      if (key && !b2cZoneByCandidate.has(key)) b2cZoneByCandidate.set(key, meta)
+    }
+  }
+
+  const b2bZoneByPincode = new Map<string, ReportZoneMeta>()
+  for (const row of b2bZoneRows) {
+    const pincode = normalizePincode(row.pincode)
+    const meta = makeZoneMeta(row.code, row.name)
+    if (pincode && meta && !b2bZoneByPincode.has(pincode)) {
+      b2bZoneByPincode.set(pincode, meta)
+    }
+  }
+
+  const getB2CZone = (order: any): ReportZoneMeta | null => {
+    const fallback = getFallbackZoneFromOrder(order)
+    const pickupDetails = parseObject(order.pickup_details)
+    const pickupPincode = normalizePincode(
+      pickupDetails.pincode || pickupDetails.pickup_pincode || pickupDetails.source_pincode,
+    )
+    const destinationPincode = normalizePincode(order.pincode)
+    const originLocation = locationByPincode.get(pickupPincode) || null
+    const destinationLocation = locationByPincode.get(destinationPincode) || null
+    if (!originLocation || !destinationLocation) return fallback
+
+    const zoneKey = determineB2CZoneKey(originLocation, destinationLocation)
+
+    for (const candidate of B2C_ZONE_CANDIDATES[zoneKey] || []) {
+      const meta = b2cZoneByCandidate.get(normalizeZoneCode(candidate))
+      if (meta) return meta
+    }
+
+    return fallback
+  }
+
+  const getB2BZone = (order: any): ReportZoneMeta | null => {
+    const pincode = normalizePincode(order.pincode)
+    return b2bZoneByPincode.get(pincode) || getFallbackZoneFromOrder(order)
+  }
+
+  return (order: any): ReportZoneMeta | null => (order._type === 'b2b' ? getB2BZone(order) : getB2CZone(order))
+}
 
 const stringifyDate = (v: unknown) => {
   if (!v) return ''
@@ -244,6 +496,8 @@ export const exportCustomReportCsvController = async (req: any, res: Response) =
       remMap.set(`${rem.orderType}:${rem.orderId}`, rem.id)
     }
 
+    const resolveReportZone = await buildReportZoneResolver(b2cRows, b2bRows)
+
     const unifiedRows = [
       ...b2cRows.map((o) => ({ ...o, _type: 'b2c' as const })),
       ...b2bRows.map((o) => ({ ...o, _type: 'b2b' as const })),
@@ -262,6 +516,7 @@ export const exportCustomReportCsvController = async (req: any, res: Response) =
       const shipmentDate = stringifyDate(order.created_at)
       const freightCharges = toNumber(order.freight_charges)
       const gstAmount = toNumber(order.gst_amount)
+      const zoneMeta = resolveReportZone(order)
       const storedWalletDebit = toPositiveNumber(order.wallet_debit_amount)
       const totalDeducted =
         storedWalletDebit ||
@@ -301,8 +556,8 @@ export const exportCustomReportCsvController = async (req: any, res: Response) =
         pickup_time: pickupTimeFromDetails || '',
         delivered_time: deliveredTime,
         charged_weight: toNumber(order.charged_weight || order.weight).toFixed(3),
-        zone: getZoneName(order),
-        zone_name: getZoneName(order),
+        zone: zoneMeta?.code || '',
+        zone_name: zoneMeta?.name || '',
         last_status_updated: stringifyDate(order.updated_at || order.created_at),
         ndr_attempts_info: ndrInfo,
       }
