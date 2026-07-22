@@ -3294,6 +3294,42 @@ function parseEddToDays(edd: string | null | undefined): number {
   return Infinity
 }
 
+type ExpectedDeliveryFromTat = {
+  days: number
+  date: string
+  label: string
+}
+
+const formatExpectedDeliveryDate = (date: Date): string =>
+  date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  })
+
+const buildExpectedDeliveryFromTat = (tatDays: unknown): ExpectedDeliveryFromTat | null => {
+  const days = Math.ceil(Number(tatDays))
+  if (!Number.isFinite(days) || days <= 0) return null
+
+  const expectedDate = new Date()
+  expectedDate.setDate(expectedDate.getDate() + days)
+
+  const date = expectedDate.toISOString().slice(0, 10)
+  return {
+    days,
+    date,
+    label: `${formatExpectedDeliveryDate(expectedDate)} (${days} day${days === 1 ? '' : 's'})`,
+  }
+}
+
+const getDelhiveryMotForMode = (mode: unknown): 'E' | 'S' => {
+  const normalized = String(mode || '')
+    .trim()
+    .toLowerCase()
+  return normalized === 'express' || normalized === 'air' || normalized === 'e' ? 'E' : 'S'
+}
+
 /**
  * Filter couriers by business_type
  * Only returns couriers that have the specified business type in their business_type array
@@ -3803,6 +3839,9 @@ export const fetchAvailableCouriersWithRates = async (
       codAvailable: boolean
       prepaidAvailable: boolean
       edd: string
+      eddDays?: number | null
+      expectedDeliveryDate?: string | null
+      expectedDeliveryDateLabel?: string | null
       raw: any
       matchedCourierIds: Set<number>
     }
@@ -4015,6 +4054,7 @@ export const fetchAvailableCouriersWithRates = async (
     let delhiveryOriginServiceable = false
     let delhiveryDestinationServiceable = false
     let delhiveryEDD = '3-5 Days'
+    let delhiveryExpectedDelivery: ExpectedDeliveryFromTat | null = null
     let delhiveryResp: any = null
     const normalizedPaymentType = String(params.payment_type || 'prepaid')
       .trim()
@@ -4076,8 +4116,10 @@ export const fetchAvailableCouriersWithRates = async (
               'S',
               'B2C',
             )
-            if (tatResp && Number.isFinite(Number(tatResp)) && Number(tatResp) > 0) {
-              delhiveryEDD = `${Number(tatResp)} Days`
+            const expectedDelivery = buildExpectedDeliveryFromTat(tatResp)
+            if (expectedDelivery) {
+              delhiveryExpectedDelivery = expectedDelivery
+              delhiveryEDD = expectedDelivery.label
             }
             console.log('[Serviceability] Delhivery TAT evaluated', {
               mode: 'standard',
@@ -4085,6 +4127,7 @@ export const fetchAvailableCouriersWithRates = async (
               destination: destinationPincode,
               tat: tatResp,
               edd: delhiveryEDD,
+              expected_delivery_date: delhiveryExpectedDelivery?.date ?? null,
             })
           }
         } catch (err: any) {
@@ -4109,6 +4152,11 @@ export const fetchAvailableCouriersWithRates = async (
         codAvailable: delhiveryResp?.delivery_codes?.[0]?.postal_code?.cod === 'Y',
         prepaidAvailable: delhiveryResp?.delivery_codes?.[0]?.postal_code?.pre_paid === 'Y',
         edd: delhiveryEDD,
+        eddDays: delhiveryExpectedDelivery?.days ?? null,
+        expectedDeliveryDate: delhiveryExpectedDelivery?.date ?? null,
+        expectedDeliveryDateLabel: delhiveryExpectedDelivery
+          ? formatExpectedDeliveryDate(new Date(`${delhiveryExpectedDelivery.date}T00:00:00+05:30`))
+          : null,
         raw: delhiveryResp,
       })
     }
@@ -4716,6 +4764,18 @@ export const fetchAvailableCouriersWithRates = async (
           providerKey === 'delhivery' && delhiveryShippingMode
             ? getDelhiveryCourierDisplayName(delhiveryShippingMode)
             : courier.name
+        const delhiveryRecord =
+          providerKey === 'delhivery'
+            ? {
+                serviceable: true,
+                booking_available: bookingAvailable,
+                shipping_mode: delhiveryShippingMode,
+                service_mode: delhiveryShippingMode,
+                edd: providerMeta.edd,
+                expected_delivery_date: providerMeta.expectedDeliveryDate ?? null,
+                expected_delivery_days: providerMeta.eddDays ?? null,
+              }
+            : null
         combinedCouriers.push({
           id: courier.id,
           name: courierDisplayName,
@@ -4726,6 +4786,11 @@ export const fetchAvailableCouriersWithRates = async (
           cod: providerMeta.codAvailable,
           prepaid: providerMeta.prepaidAvailable,
           edd: providerMeta.edd,
+          edd_days: providerMeta.eddDays ?? null,
+          expected_delivery_days: providerMeta.eddDays ?? null,
+          expected_delivery_date: providerMeta.expectedDeliveryDate ?? null,
+          expectedDeliveryDate: providerMeta.expectedDeliveryDate ?? null,
+          expected_delivery_date_label: providerMeta.expectedDeliveryDateLabel ?? null,
           approxZone: null,
           booking_available: bookingAvailable,
           can_book: bookingAvailable,
@@ -4746,7 +4811,8 @@ export const fetchAvailableCouriersWithRates = async (
             amazonRecord?.charge ?? xpressbeesRecord?.total_charges ?? shadowfaxRecord?.rate ?? null,
           chargeable_weight:
             xpressbeesRecord?.chargeable_weight ?? Number(params.weight ?? 0) ?? null,
-          provider_serviceability: xpressbeesRecord ?? shadowfaxRecord ?? amazonRecord ?? null,
+          provider_serviceability:
+            xpressbeesRecord ?? shadowfaxRecord ?? amazonRecord ?? delhiveryRecord ?? null,
           amazon_request_token: amazonRecord?.requestToken ?? null,
           amazon_rate_id: amazonRecord?.rateId ?? null,
           amazon_service_id: amazonRecord?.serviceId ?? null,
@@ -5384,6 +5450,39 @@ export const fetchAvailableCouriersWithRatesB2B = async (
       destinationZoneId,
     })
 
+    let delhiveryB2BExpectedDelivery: ExpectedDeliveryFromTat | null | undefined = undefined
+    const resolveDelhiveryB2BExpectedDelivery = async () => {
+      if (delhiveryB2BExpectedDelivery !== undefined) return delhiveryB2BExpectedDelivery
+      delhiveryB2BExpectedDelivery = null
+
+      if (!originPincode || !destinationPincode) return delhiveryB2BExpectedDelivery
+
+      try {
+        const tatResp = await new DelhiveryService().getExpectedTAT(
+          originPincode,
+          destinationPincode,
+          'S',
+          'B2B',
+        )
+        delhiveryB2BExpectedDelivery = buildExpectedDeliveryFromTat(tatResp)
+        console.log('[B2B Serviceability] Delhivery expected delivery evaluated', {
+          origin: originPincode,
+          destination: destinationPincode,
+          tat: tatResp,
+          edd: delhiveryB2BExpectedDelivery?.label ?? null,
+          expected_delivery_date: delhiveryB2BExpectedDelivery?.date ?? null,
+        })
+      } catch (err: any) {
+        console.warn('[B2B Serviceability] Delhivery expected delivery unavailable:', {
+          origin: originPincode,
+          destination: destinationPincode,
+          message: err?.response?.data || err?.message || err,
+        })
+      }
+
+      return delhiveryB2BExpectedDelivery
+    }
+
     // Step 4: Get active plan (similar to B2C flow)
     let activePlanId: string | null | undefined = planIdOverride ?? null
 
@@ -5550,6 +5649,9 @@ export const fetchAvailableCouriersWithRatesB2B = async (
     combined = await Promise.all(
       combined.map(async (courier: any) => {
         try {
+          const providerKey = normalizeProviderKey(courier.integration_type ?? courier.serviceProvider)
+          const delhiveryExpectedDelivery =
+            providerKey === 'delhivery' ? await resolveDelhiveryB2BExpectedDelivery() : null
           const rateResult = await calculateB2BRate({
             originPincode: originPincode || '',
             destinationPincode: destinationPincode || '',
@@ -5571,6 +5673,19 @@ export const fetchAvailableCouriersWithRatesB2B = async (
 
           return {
             ...courier,
+            edd: delhiveryExpectedDelivery?.label ?? courier.edd ?? null,
+            edd_days: delhiveryExpectedDelivery?.days ?? courier.edd_days ?? null,
+            expected_delivery_days:
+              delhiveryExpectedDelivery?.days ?? courier.expected_delivery_days ?? null,
+            expected_delivery_date:
+              delhiveryExpectedDelivery?.date ?? courier.expected_delivery_date ?? null,
+            expectedDeliveryDate:
+              delhiveryExpectedDelivery?.date ?? courier.expectedDeliveryDate ?? null,
+            expected_delivery_date_label: delhiveryExpectedDelivery
+              ? formatExpectedDeliveryDate(
+                  new Date(`${delhiveryExpectedDelivery.date}T00:00:00+05:30`),
+                )
+              : courier.expected_delivery_date_label ?? null,
             rate: rateResult?.charges?.total ?? courier.rate ?? null,
             rateEstimate: rateResult?.charges?.total ?? courier.rateEstimate ?? null,
             courier_cost_estimate: courier.courier_cost_estimate ?? null,
@@ -5587,6 +5702,18 @@ export const fetchAvailableCouriersWithRatesB2B = async (
                 volumetricWeight: rateResult?.calculation?.volumetricWeight ?? null,
               },
             },
+            provider_serviceability:
+              providerKey === 'delhivery'
+                ? {
+                    ...(courier.provider_serviceability || {}),
+                    serviceable: true,
+                    edd: delhiveryExpectedDelivery?.label ?? courier.edd ?? null,
+                    expected_delivery_date:
+                      delhiveryExpectedDelivery?.date ?? courier.expected_delivery_date ?? null,
+                    expected_delivery_days:
+                      delhiveryExpectedDelivery?.days ?? courier.expected_delivery_days ?? null,
+                  }
+                : courier.provider_serviceability,
           }
         } catch (rateErr) {
           console.warn('⚠️ Failed to compute B2B courier estimate:', {
@@ -5789,6 +5916,9 @@ export interface ShipmentParams {
   is_insurance?: 0 | 1
   gift_wrap?: string
   tags?: string
+  edd?: string | null
+  expected_delivery_date?: string | null
+  expectedDeliveryDate?: string | null
   original_order_id?: string
   order_id?: string
 }
@@ -5822,6 +5952,7 @@ export interface InsertB2COrderParams {
   shippingMode?: string | null
   selectedMaxSlabWeight?: number | null
   manifestError?: string | null
+  edd?: string | null
 }
 
 type ExistingB2COrderBookingOptions = {
@@ -5863,6 +5994,7 @@ export async function createB2COrder({
   shippingMode,
   selectedMaxSlabWeight,
   manifestError,
+  edd,
 }: InsertB2COrderParams) {
   const orderAmount = Number(params.order_amount ?? 0)
   const normalizedOrderNumber = await ensureUniqueMerchantOrderNumber(
@@ -5938,6 +6070,13 @@ export async function createB2COrder({
         params.shadowfax_service_mode ??
         '',
     ).trim() || null
+  const expectedDelivery =
+    edd ??
+    params.edd ??
+    shipmentData?.edd ??
+    shipmentData?.expected_delivery_date ??
+    shipmentData?.expectedDeliveryDate ??
+    null
   const tagParts = String(params.tags || '')
     .split(',')
     .map((tag) => tag.trim())
@@ -6041,6 +6180,7 @@ export async function createB2COrder({
         provider_service: providerService,
         provider_last_status: providerLastStatus ?? status ?? 'booked',
         provider_meta: shipmentData ?? null,
+        edd: expectedDelivery,
         awb_number: shipmentData?.awb_number ?? null,
         // Store courier-provided label key/identifier if available
         label: typeof shipmentData?.label === 'string' ? shipmentData.label : null,
@@ -6114,6 +6254,7 @@ async function updateExistingB2COrderWithShipment({
   shippingMode,
   selectedMaxSlabWeight,
   manifestError,
+  edd,
 }: InsertB2COrderParams & { existingOrderId: string }) {
   const [existingOrder] = await tx
     .select()
@@ -6196,6 +6337,14 @@ async function updateExistingB2COrderWithShipment({
         params.shadowfax_service_mode ??
         '',
     ).trim() || null
+  const expectedDelivery =
+    edd ??
+    params.edd ??
+    shipmentData?.edd ??
+    shipmentData?.expected_delivery_date ??
+    shipmentData?.expectedDeliveryDate ??
+    existingOrder.edd ??
+    null
   const tagParts = Array.from(
     new Set(
       [existingOrder.tags, params.tags]
@@ -6264,6 +6413,7 @@ async function updateExistingB2COrderWithShipment({
       provider_service: providerService,
       provider_last_status: providerLastStatus ?? status ?? 'booked',
       provider_meta: shipmentData ?? existingOrder.provider_meta,
+      edd: expectedDelivery,
       awb_number: shipmentData?.awb_number ?? existingOrder.awb_number,
       label: typeof shipmentData?.label === 'string' ? shipmentData.label : existingOrder.label,
       label_generated_once:
@@ -7545,6 +7695,9 @@ export const createB2CShipmentService = async (
     provider_manifest_status?: string
     provider_manifested_at?: string
     pickup_vendor_code?: string
+    edd?: string | null
+    expected_delivery_date?: string | null
+    expected_delivery_days?: number | null
     manifest_attempts?: any
     xpressbees?: any
     amazon_rate_id?: string
@@ -7556,6 +7709,7 @@ export const createB2CShipmentService = async (
   } = {}
 
   const rollbackActions: Array<() => Promise<void>> = []
+  let bookingExpectedDelivery: ExpectedDeliveryFromTat | null = null
 
   // Check if this is a reverse shipment
   const originalOrderId = params.original_order_id || params.order_id
@@ -7583,9 +7737,42 @@ export const createB2CShipmentService = async (
           ? 'Ekart Logistics'
           : integrationType === 'xpressbees'
             ? 'Xpressbees'
-            : integrationType === 'shadowfax'
-              ? 'Shadowfax'
-              : 'Amazon Shipping'
+          : integrationType === 'shadowfax'
+            ? 'Shadowfax'
+            : 'Amazon Shipping'
+
+    if (integrationType === 'delhivery' && freightOriginPincode && freightDestinationPincode) {
+      try {
+        const tatResp = await new DelhiveryService().getExpectedTAT(
+          freightOriginPincode,
+          freightDestinationPincode,
+          getDelhiveryMotForMode(selectedDelhiveryShippingMode),
+          'B2C',
+        )
+        bookingExpectedDelivery = buildExpectedDeliveryFromTat(tatResp)
+        if (bookingExpectedDelivery) {
+          params.edd = bookingExpectedDelivery.label
+          params.expected_delivery_date = bookingExpectedDelivery.date
+          params.expectedDeliveryDate = bookingExpectedDelivery.date
+        }
+        console.log('[Delhivery] Booking expected delivery evaluated', {
+          order_number: params.order_number,
+          is_reverse: isReverseShipment,
+          origin: freightOriginPincode,
+          destination: freightDestinationPincode,
+          tat: tatResp,
+          edd: bookingExpectedDelivery?.label ?? null,
+          expected_delivery_date: bookingExpectedDelivery?.date ?? null,
+        })
+      } catch (err: any) {
+        console.warn('[Delhivery] Booking expected delivery unavailable:', {
+          order_number: params.order_number,
+          origin: freightOriginPincode,
+          destination: freightDestinationPincode,
+          message: err?.response?.data || err?.message || err,
+        })
+      }
+    }
 
     if (!isReverseShipment) {
       const orderDateRaw =
@@ -7713,6 +7900,10 @@ export const createB2CShipmentService = async (
         courier_cost: providerCourierCost,
         sort_code: providerSortCode,
         provider_reference: shipmentData.upload_wbn ?? shipmentData.shipment_id ?? undefined,
+        edd: bookingExpectedDelivery?.label ?? params.edd ?? null,
+        expected_delivery_date:
+          bookingExpectedDelivery?.date ?? params.expected_delivery_date ?? params.expectedDeliveryDate ?? null,
+        expected_delivery_days: bookingExpectedDelivery?.days ?? null,
       }
     } else if (integrationType === 'ekart') {
       console.log('→ Using Ekart API...')
@@ -8866,6 +9057,7 @@ export const createB2CShipmentService = async (
             ? resolveShadowfaxServiceMode() || resolveShadowfaxForwardMode()
             : null),
         selectedMaxSlabWeight,
+        edd: shipmentMeta.edd ?? params.edd ?? null,
       }
 
       const newOrder = options.existingOrderId
