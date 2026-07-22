@@ -8366,27 +8366,80 @@ export const createB2CShipmentService = async (
         }
 
         shipmentData = await shadowfax.createReverseShipment(reverseProviderParams)
+        const shadowfaxReverseData = Array.isArray(shipmentData?.data)
+          ? shipmentData.data[0] || {}
+          : shipmentData?.data && typeof shipmentData.data === 'object'
+            ? shipmentData.data
+            : shipmentData || {}
+        const reverseRequestId = String(
+          shadowfaxReverseData?.client_request_id ??
+            shadowfaxReverseData?.request_id ??
+            shadowfaxReverseData?.provider_request_id ??
+            shadowfaxReverseData?.return_request_id ??
+            shadowfaxReverseData?.reverse_request_id ??
+            shipmentData?.client_request_id ??
+            shipmentData?.request_id ??
+            shipmentData?.provider_request_id ??
+            shipmentData?.return_request_id ??
+            shipmentData?.reverse_request_id ??
+            '',
+        ).trim()
+        const shadowfaxReverseAwbCandidates = [
+          shadowfaxReverseData?.pickup_awb_number,
+          shadowfaxReverseData?.pickup_awb,
+          shadowfaxReverseData?.reverse_awb_number,
+          shadowfaxReverseData?.reverse_awb,
+          shadowfaxReverseData?.awb_number,
+          shadowfaxReverseData?.awb,
+          shadowfaxReverseData?.AWB,
+          shadowfaxReverseData?.awb_no,
+          shadowfaxReverseData?.awbNo,
+          shadowfaxReverseData?.waybill,
+          shadowfaxReverseData?.waybill_number,
+          shadowfaxReverseData?.tracking_number,
+          shadowfaxReverseData?.tracking_id,
+          shipmentData?.pickup_awb_number,
+          shipmentData?.pickup_awb,
+          shipmentData?.reverse_awb_number,
+          shipmentData?.reverse_awb,
+          shipmentData?.awb_number,
+          shipmentData?.awb,
+          shipmentData?.AWB,
+          shipmentData?.awb_no,
+          shipmentData?.awbNo,
+          shipmentData?.waybill,
+          shipmentData?.waybill_number,
+          shipmentData?.tracking_number,
+          shipmentData?.tracking_id,
+        ]
         const reverseAwb =
-          shipmentData?.client_request_id ??
-          shipmentData?.awb_number ??
-          shipmentData?.data?.client_request_id ??
-          shipmentData?.data?.awb_number ??
-          null
+          shadowfaxReverseAwbCandidates
+            .map((value) => String(value ?? '').trim())
+            .find(
+              (value) =>
+                value &&
+                value !== reverseRequestId &&
+                value !== String(params.order_number ?? '').trim() &&
+                value !== String(params.order_id ?? '').trim(),
+            ) || null
 
-        if (!reverseAwb) {
+        if (!reverseRequestId && !reverseAwb) {
           console.error('❌ Invalid Shadowfax reverse shipment:', shipmentData)
           throw new HttpError(500, 'Shadowfax reverse shipment creation failed')
         }
 
         shipmentMeta = {
-          shipment_id: reverseAwb,
-          awb_number: reverseAwb,
+          shipment_id: reverseRequestId || reverseAwb || undefined,
+          awb_number: reverseAwb || undefined,
           courier_name: 'Shadowfax',
           courier_id: params.courier_id ? Number(params.courier_id) : null,
           label: undefined,
           manifest: undefined,
           courier_cost: params?.courier_cost ? Number(params.courier_cost) : null,
           sort_code: null,
+          provider_reference: reverseRequestId || reverseAwb || undefined,
+          provider_request_id: reverseRequestId || undefined,
+          provider_flow: 'reverse',
         }
       } else {
         const forwardMode = resolveShadowfaxForwardMode()

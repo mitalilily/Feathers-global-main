@@ -395,33 +395,87 @@ const normalizeForwardShipmentResponse = (payload: any) => {
   return payload
 }
 
+const extractReversePickupAwbNumber = (candidate: any, request: any) =>
+  firstNonEmptyString(
+    candidate?.pickup_awb_number,
+    candidate?.pickup_awb,
+    candidate?.reverse_awb_number,
+    candidate?.reverse_awb,
+    candidate?.awb_number,
+    candidate?.awb,
+    candidate?.AWB,
+    candidate?.awb_no,
+    candidate?.awbNo,
+    candidate?.waybill,
+    candidate?.waybill_number,
+    candidate?.tracking_number,
+    candidate?.tracking_id,
+    request?.pickup_awb_number,
+    request?.pickup_awb,
+    request?.reverse_awb_number,
+    request?.reverse_awb,
+    request?.awb_number,
+    request?.awb,
+    request?.AWB,
+    request?.awb_no,
+    request?.awbNo,
+    request?.waybill,
+    request?.waybill_number,
+    request?.tracking_number,
+    request?.tracking_id,
+  )
+
 const normalizeReverseShipmentResponse = (payload: any) => {
   const candidate = getObjectCandidate(payload)
   const request = candidate?.request || candidate?.shipment || candidate?.data || {}
   const requestId = firstNonEmptyString(
     candidate?.client_request_id,
     candidate?.request_id,
-    candidate?.awb_number,
-    candidate?.awb,
-    candidate?.AWB,
+    candidate?.return_request_id,
+    candidate?.reverse_request_id,
+    candidate?.shipment_id,
+    candidate?.id,
     request?.client_request_id,
     request?.request_id,
-    request?.awb_number,
-    request?.awb,
-    request?.AWB,
+    request?.return_request_id,
+    request?.reverse_request_id,
+    request?.shipment_id,
+    request?.id,
   )
+  const pickupAwbNumber = extractReversePickupAwbNumber(candidate, request)
 
-  if (!requestId || !payload || typeof payload !== 'object') return payload
-  payload.client_request_id = payload.client_request_id || requestId
-  payload.awb_number = payload.awb_number || requestId
+  if (!payload || typeof payload !== 'object') return payload
+  if (requestId) {
+    payload.client_request_id = payload.client_request_id || requestId
+    payload.request_id = payload.request_id || requestId
+    payload.provider_request_id = payload.provider_request_id || requestId
+  }
+  if (pickupAwbNumber) {
+    payload.awb_number = payload.awb_number || pickupAwbNumber
+    payload.pickup_awb_number = payload.pickup_awb_number || pickupAwbNumber
+  }
 
   if (Array.isArray(payload.data) && payload.data[0] && typeof payload.data[0] === 'object') {
-    payload.data[0].client_request_id = payload.data[0].client_request_id || requestId
-    payload.data[0].awb_number = payload.data[0].awb_number || requestId
+    if (requestId) {
+      payload.data[0].client_request_id = payload.data[0].client_request_id || requestId
+      payload.data[0].request_id = payload.data[0].request_id || requestId
+      payload.data[0].provider_request_id = payload.data[0].provider_request_id || requestId
+    }
+    if (pickupAwbNumber) {
+      payload.data[0].awb_number = payload.data[0].awb_number || pickupAwbNumber
+      payload.data[0].pickup_awb_number = payload.data[0].pickup_awb_number || pickupAwbNumber
+    }
     payload.data[0].provider_mode = payload.data[0].provider_mode || 'warehouse'
   } else if (payload.data && typeof payload.data === 'object') {
-    payload.data.client_request_id = payload.data.client_request_id || requestId
-    payload.data.awb_number = payload.data.awb_number || requestId
+    if (requestId) {
+      payload.data.client_request_id = payload.data.client_request_id || requestId
+      payload.data.request_id = payload.data.request_id || requestId
+      payload.data.provider_request_id = payload.data.provider_request_id || requestId
+    }
+    if (pickupAwbNumber) {
+      payload.data.awb_number = payload.data.awb_number || pickupAwbNumber
+      payload.data.pickup_awb_number = payload.data.pickup_awb_number || pickupAwbNumber
+    }
     payload.data.provider_mode = payload.data.provider_mode || 'warehouse'
   }
 

@@ -109,6 +109,23 @@ const hasNdrSignal = (...parts: unknown[]) => {
 
 const normalizeComparableText = (value: unknown) => String(value || '').trim().toLowerCase()
 
+const isSameComparableText = (left: unknown, right: unknown) => {
+  const normalizedLeft = normalizeComparableText(left)
+  const normalizedRight = normalizeComparableText(right)
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight)
+}
+
+const isShadowfaxReferenceValue = (value: unknown, order: any, ...extraRefs: unknown[]) => {
+  if (!normalizeComparableText(value)) return false
+  return [
+    order?.order_number,
+    order?.order_id,
+    order?.provider_reference,
+    order?.provider_request_id,
+    ...extraRefs,
+  ].some((candidate) => isSameComparableText(value, candidate))
+}
+
 const pickWebhookText = (...values: unknown[]) => {
   for (const value of values) {
     if (value === null || value === undefined) continue
@@ -3190,23 +3207,35 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     event?.waybill,
     event?.tracking_id,
     event?.trackingId,
-    event?.client_request_id,
-    event?.request_id,
-    event?.return_request_id,
-    event?.reverse_request_id,
-    event?.shipment_id,
-    event?.order_id,
+    event?.pickup_awb_number,
+    event?.pickup_awb,
+    event?.reverse_awb_number,
+    event?.reverse_awb,
+    event?.waybill_number,
+    event?.tracking_number,
     payload?.awb_number,
     payload?.awb,
     payload?.waybill,
     payload?.tracking_id,
     payload?.trackingId,
+    payload?.pickup_awb_number,
+    payload?.pickup_awb,
+    payload?.reverse_awb_number,
+    payload?.reverse_awb,
+    payload?.waybill_number,
+    payload?.tracking_number,
+  )
+  const shadowfaxProviderReference = pickWebhookText(
+    event?.client_request_id,
+    event?.request_id,
+    event?.return_request_id,
+    event?.reverse_request_id,
+    event?.shipment_id,
     payload?.client_request_id,
     payload?.request_id,
     payload?.return_request_id,
     payload?.reverse_request_id,
     payload?.shipment_id,
-    payload?.order_id,
   )
   const orderRef = pickWebhookText(
     event?.order_id,
@@ -3267,6 +3296,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
 
   console.log('🔄 processShadowfaxWebhook:start', {
     awb: awb || null,
+    providerReference: shadowfaxProviderReference || null,
     orderRef: orderRef || null,
     statusRaw: String(statusRaw || ''),
     eventTimestamp:
@@ -3278,24 +3308,26 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     payloadKeys: Object.keys(event || {}),
   })
 
-  if (!awb && !orderRef) return { success: false, reason: 'missing_awb' }
+  if (!awb && !shadowfaxProviderReference && !orderRef) {
+    return { success: false, reason: 'missing_awb' }
+  }
 
   let order: any
   let orderType: 'b2c' | 'b2b' = 'b2c'
   if (awb) {
     ;[order] = await tx.select().from(b2c_orders).where(eq(b2c_orders.awb_number, String(awb)))
   }
-  if (!order && awb) {
+  if (!order && shadowfaxProviderReference) {
     ;[order] = await tx
       .select()
       .from(b2c_orders)
-      .where(eq(b2c_orders.provider_reference, String(awb)))
+      .where(eq(b2c_orders.provider_reference, String(shadowfaxProviderReference)))
   }
-  if (!order && awb) {
+  if (!order && shadowfaxProviderReference) {
     ;[order] = await tx
       .select()
       .from(b2c_orders)
-      .where(eq(b2c_orders.provider_request_id, String(awb)))
+      .where(eq(b2c_orders.provider_request_id, String(shadowfaxProviderReference)))
   }
   if (!order && orderRef) {
     ;[order] = await tx
@@ -3313,18 +3345,18 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
       .where(eq(b2b_orders.awb_number, String(awb)))
     if (order) orderType = 'b2b'
   }
-  if (!order && awb) {
+  if (!order && shadowfaxProviderReference) {
     ;[order] = await tx
       .select()
       .from(b2b_orders)
-      .where(eq(b2b_orders.provider_reference, String(awb)))
+      .where(eq(b2b_orders.provider_reference, String(shadowfaxProviderReference)))
     if (order) orderType = 'b2b'
   }
-  if (!order && awb) {
+  if (!order && shadowfaxProviderReference) {
     ;[order] = await tx
       .select()
       .from(b2b_orders)
-      .where(eq(b2b_orders.provider_request_id, String(awb)))
+      .where(eq(b2b_orders.provider_request_id, String(shadowfaxProviderReference)))
     if (order) orderType = 'b2b'
   }
   if (!order && orderRef) {
@@ -3355,6 +3387,24 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     provider_meta: payload,
     updated_at: new Date(),
   }
+  const incomingShadowfaxAwb = String(awb || '').trim()
+  const hasRealIncomingShadowfaxAwb =
+    Boolean(incomingShadowfaxAwb) &&
+    !isShadowfaxReferenceValue(incomingShadowfaxAwb, order, shadowfaxProviderReference, orderRef)
+  const currentAwbLooksLikeReference = isShadowfaxReferenceValue(
+    order.awb_number,
+    order,
+    shadowfaxProviderReference,
+    orderRef,
+  )
+  if (hasRealIncomingShadowfaxAwb && (!order.awb_number || currentAwbLooksLikeReference)) {
+    updateData.awb_number = incomingShadowfaxAwb
+  }
+  const effectiveAwb =
+    updateData.awb_number ||
+    (!currentAwbLooksLikeReference ? order.awb_number : '') ||
+    (hasRealIncomingShadowfaxAwb ? incomingShadowfaxAwb : '') ||
+    ''
 
   if (internalStatus === 'pickup_initiated') {
     updateData.pickup_status = 'pickup_initiated'
@@ -3377,7 +3427,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     orderType,
     orderId: order.id,
     orderNumber: order.order_number,
-    awb: order.awb_number || awb || null,
+    awb: effectiveAwb || null,
     previousStatus: String(order.order_status || ''),
     internalStatus,
     declaredWeight,
@@ -3387,7 +3437,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
 
   console.log('⚖️ Shadowfax webhook weight snapshot', {
     orderNumber: order.order_number,
-    awb: order.awb_number || awb || null,
+    awb: effectiveAwb || null,
     declaredWeight,
     actualWeight: shadowfaxWeight.actualWeight ?? null,
     volumetricWeight: shadowfaxWeight.volumetricWeight ?? null,
@@ -3411,7 +3461,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
         orderId: order.id,
         userId: order.user_id,
         orderNumber: order.order_number,
-        awbNumber: order.awb_number || String(awb || '') || undefined,
+        awbNumber: effectiveAwb || undefined,
         courierPartner: 'Shadowfax',
         declaredWeight,
         actualWeight: shadowfaxWeight.actualWeight,
@@ -3438,7 +3488,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
 
   console.log('🔄 processShadowfaxWebhook:updateData', {
     orderNumber: order.order_number,
-    awb: order.awb_number || awb || null,
+    awb: effectiveAwb || null,
     orderType,
     updateData,
   })
@@ -3461,7 +3511,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
         await logTrackingEvent({
           orderId: order.id,
           userId: order.user_id,
-          awbNumber: order.awb_number || String(awb || ''),
+          awbNumber: effectiveAwb,
           courier: 'Shadowfax',
           statusCode: String(statusRaw || internalStatus),
           statusText: String(event?.status || statusRaw || internalStatus),
@@ -3485,14 +3535,14 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
   })
 
   await sendWebhookEvent(order.user_id, 'tracking.updated', {
-    awb_number: order.awb_number || String(awb || ''),
+    awb_number: effectiveAwb,
     order_id: order.id,
     order_number: order.order_number,
     status: internalStatus,
     raw_status: statusRaw,
     courier_partner: order.courier_partner || 'Shadowfax',
-    provider_reference: order.provider_reference || awb || null,
-    provider_request_id: order.provider_request_id || awb || null,
+    provider_reference: order.provider_reference || shadowfaxProviderReference || null,
+    provider_request_id: order.provider_request_id || shadowfaxProviderReference || null,
     location,
     remarks,
   }).catch((err) => {
@@ -3507,12 +3557,12 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     await sendWebhookEvent(order.user_id, shadowfaxWebhookEventForStatus(internalStatus) as any, {
       order_id: order.id,
       order_number: order.order_number,
-      awb_number: order.awb_number || String(awb || ''),
+      awb_number: effectiveAwb,
       status: internalStatus,
       raw_status: statusRaw,
       courier_partner: order.courier_partner || 'Shadowfax',
-      provider_reference: order.provider_reference || awb || null,
-      provider_request_id: order.provider_request_id || awb || null,
+      provider_reference: order.provider_reference || shadowfaxProviderReference || null,
+      provider_request_id: order.provider_request_id || shadowfaxProviderReference || null,
       location,
       remarks,
       order_type: orderType,
@@ -3529,7 +3579,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
       try {
         await captureNdrEventFromWebhook({
           order,
-          awbNumber: order.awb_number || String(awb || ''),
+          awbNumber: effectiveAwb,
           status: internalStatus,
           reason: remarks || null,
           remarks: String(event?.status || statusRaw || internalStatus),
@@ -3548,7 +3598,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
         await recordRtoEvent({
           orderId: order.id,
           userId: order.user_id,
-          awbNumber: order.awb_number || String(awb || ''),
+          awbNumber: effectiveAwb,
           status: internalStatus,
           reason: remarks || null,
           remarks: String(event?.status || statusRaw || internalStatus),
@@ -3578,7 +3628,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
           orderType: 'b2c',
           userId: order.user_id,
           orderNumber: order.order_number,
-          awbNumber: order.awb_number || String(awb || ''),
+          awbNumber: effectiveAwb,
           courierPartner: 'Shadowfax',
           codAmount: Number(order.order_amount ?? 0),
           codCharges: Number(order.cod_charges ?? 0),
@@ -3605,7 +3655,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     orderType,
     orderId: order.id,
     orderNumber: order.order_number,
-    awb: order.awb_number || awb || null,
+    awb: effectiveAwb || null,
     finalStatus: internalStatus,
   })
   return { success: true, orderType }
