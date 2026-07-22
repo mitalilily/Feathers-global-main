@@ -171,19 +171,15 @@ const getOptionalNumber = (value: unknown): number | undefined => {
 const getActiveB2CLocalRate = (courier: any, isReverse: boolean) => {
   if (!courier?.localRates) return null
   if (isReverse) {
-    return (
-      courier.localRates.reverse_pickup ??
-      courier.localRates.rto ??
-      courier.localRates.forward ??
-      null
-    )
+    return courier.localRates.reverse_pickup ?? null
   }
   return courier.localRates.forward ?? null
 }
 
 const getCourierBillingBaseAmount = (courier: any, paymentType?: string) => {
   const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
-  const activeRate = getActiveB2CLocalRate(courier, isReverse) ?? {}
+  const activeRate = getActiveB2CLocalRate(courier, isReverse)
+  if (isReverse && !activeRate) return 0
   const explicitTotal = getOptionalNumber(activeRate.total_charges ?? courier?.total_charges)
   if (explicitTotal !== undefined) return Math.max(0, explicitTotal)
 
@@ -207,12 +203,13 @@ const applyGstToB2CCouriers = async (couriers: any[], paymentType?: string) => {
   return couriers.map((courier) => {
     const isReverse = String(paymentType || '').toLowerCase() === 'reverse'
     const activeRate = getActiveB2CLocalRate(courier, isReverse)
-    const activeRateKey =
-      isReverse && courier?.localRates?.reverse_pickup ? 'reverse_pickup' : isReverse ? 'rto' : 'forward'
+    const activeRateKey = isReverse ? 'reverse_pickup' : 'forward'
+    const fallbackRate = isReverse ? undefined : courier?.rate ?? courier?.freight_charges
+    const fallbackOtherCharges = isReverse ? undefined : courier?.other_charges
     const breakup = calculateBookingWalletDebit({
       paymentType,
-      freightCharges: getOptionalNumber(activeRate?.rate ?? courier?.rate ?? courier?.freight_charges) ?? 0,
-      otherCharges: getOptionalNumber(activeRate?.other_charges ?? courier?.other_charges) ?? 0,
+      freightCharges: getOptionalNumber(activeRate?.rate ?? fallbackRate) ?? 0,
+      otherCharges: getOptionalNumber(activeRate?.other_charges ?? fallbackOtherCharges) ?? 0,
       codCharges:
         String(paymentType || '').toLowerCase() === 'cod'
           ? getOptionalNumber(activeRate?.cod_charges ?? courier?.cod_charges) ?? 0
@@ -393,7 +390,7 @@ const buildLastResortB2CCouriersFromRateCards = async (
   userId?: string,
 ) => {
   const isReverse = serviceParams?.isReverse === true || serviceParams?.payment_type === 'reverse'
-  const preferredRateTypes = isReverse ? ['reverse_pickup', 'rto', 'forward'] : ['forward']
+  const preferredRateTypes = isReverse ? ['reverse_pickup'] : ['forward']
   const planIds = await fetchB2CFallbackPlanIds(userId)
   let rateRows: Array<typeof shippingRates.$inferSelect> = []
 

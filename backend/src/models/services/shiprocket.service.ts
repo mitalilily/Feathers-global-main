@@ -316,7 +316,7 @@ const firstNonEmptyText = (...values: unknown[]): string => {
   return ''
 }
 
-const REVERSE_B2C_RATE_TYPES = ['reverse_pickup', 'rto'] as const
+const REVERSE_B2C_RATE_TYPES = ['reverse_pickup'] as const
 const FORWARD_B2C_RATE_TYPES = ['forward'] as const
 
 const getPreferredB2CRateTypes = (isReverse: boolean) =>
@@ -325,12 +325,7 @@ const getPreferredB2CRateTypes = (isReverse: boolean) =>
 const getActiveB2CLocalRateForShipment = (courier: any, isReverse: boolean) => {
   if (!courier?.localRates) return null
   if (isReverse) {
-    return (
-      courier.localRates.reverse_pickup ??
-      courier.localRates.rto ??
-      courier.localRates.forward ??
-      null
-    )
+    return courier.localRates.reverse_pickup ?? null
   }
   return courier.localRates.forward ?? null
 }
@@ -5121,12 +5116,7 @@ export const fetchAvailableCouriersWithRates = async (
     combined = combined.map((courier: any) => {
       const activeRate = getActiveB2CLocalRateForShipment(courier, isReverseShipment)
       if (!activeRate) return courier
-      const activeLocalRateKey =
-        isReverseShipment && courier?.localRates?.reverse_pickup
-          ? 'reverse_pickup'
-          : isReverseShipment
-            ? 'rto'
-            : 'forward'
+      const activeLocalRateKey = isReverseShipment ? 'reverse_pickup' : 'forward'
 
       return {
         ...courier,
