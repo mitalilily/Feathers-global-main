@@ -713,7 +713,8 @@ export async function generateLabelForOrder(
       images.awbBarcode
         ? {
             image: 'awbBarcode',
-            fit: [220, 42],
+            width: 250,
+            height: 42,
             alignment: 'center',
             margin: [0, 0, 0, 0],
           }
