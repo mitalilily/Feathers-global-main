@@ -44,6 +44,8 @@ import {
   ORIGINAL_WALLET_DEBIT_REASONS,
 } from './shiprocket.service'
 
+const RTO_COD_REFUND_REASON_PREFIX = 'RTO COD service charge refund'
+
 const normalizeWebhookText = (...parts: unknown[]) =>
   parts
     .map((part) => String(part || '').trim().toLowerCase())
@@ -566,6 +568,27 @@ async function applyRtoChargeOnce(
     const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, order.user_id))
     if (!wallet) throw new Error(`Wallet not found for user ${order.user_id}`)
 
+    const rtoReasonPrefix = `RTO freight - ${courierLabel}`
+    const [existingWalletDebit] = await tx
+      .select({ id: walletTransactions.id })
+      .from(walletTransactions)
+      .where(
+        and(
+          eq(walletTransactions.wallet_id, wallet.id),
+          eq(walletTransactions.type, 'debit'),
+          eq(walletTransactions.ref, order.id),
+          sql`${walletTransactions.reason} ilike ${`${rtoReasonPrefix}%`}`,
+        ),
+      )
+      .limit(1)
+
+    if (existingWalletDebit) {
+      console.log(
+        `ℹ️ RTO freight wallet debit already exists for ${order.order_number}; skipping duplicate debit`,
+      )
+      return null
+    }
+
     await createWalletTransaction({
       walletId: wallet.id,
       amount,
@@ -585,6 +608,102 @@ async function applyRtoChargeOnce(
   }
 
   return amount
+}
+
+const getRtoCodRefundReason = (orderNumber: string | null | undefined) =>
+  `${RTO_COD_REFUND_REASON_PREFIX} (${String(orderNumber || '').trim() || 'unknown'})`
+
+const toMoney = (value: unknown) => {
+  const amount = Number(value ?? 0)
+  return Number.isFinite(amount) && amount > 0 ? amount : 0
+}
+
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+
+const resolveCodRtoRefundAmountFromDebitMeta = (transaction: any) => {
+  const meta = transaction?.meta || {}
+  const totalWalletDebit = toMoney(meta.total_wallet_debit) || toMoney(transaction?.amount)
+  const freightCharges = toMoney(meta.freight_charges)
+  const otherCharges = toMoney(meta.other_charges)
+  const gstPercent = toMoney(meta.gst_percent)
+  const forwardFreightWithGst = roundMoney((freightCharges + otherCharges) * (1 + gstPercent / 100))
+  const codComponentFromTotal =
+    totalWalletDebit > 0 && forwardFreightWithGst > 0
+      ? roundMoney(totalWalletDebit - forwardFreightWithGst)
+      : 0
+  if (codComponentFromTotal > 0) return codComponentFromTotal
+
+  const codCharges = toMoney(meta.cod_charges)
+  const razorpayCharge = toMoney(meta.razorpay_charge_amount)
+  const codBase = codCharges + razorpayCharge
+  return codBase > 0 ? roundMoney(codBase * (1 + gstPercent / 100)) : 0
+}
+
+async function applyRtoCodRefundOnce(tx: any, order: any, source: string): Promise<number> {
+  if (String(order.order_type || '').toLowerCase() !== 'cod') return 0
+
+  const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, order.user_id)).limit(1)
+  if (!wallet) throw new Error(`Wallet not found for user ${order.user_id}`)
+
+  const refundReason = getRtoCodRefundReason(order.order_number)
+  const [existingRefund] = await tx
+    .select({ id: walletTransactions.id })
+    .from(walletTransactions)
+    .where(
+      and(
+        eq(walletTransactions.wallet_id, wallet.id),
+        eq(walletTransactions.type, 'credit'),
+        eq(walletTransactions.ref, order.id),
+        eq(walletTransactions.reason, refundReason),
+      ),
+    )
+    .limit(1)
+
+  if (existingRefund) return 0
+
+  const originalDebitTransactions = await tx
+    .select({
+      amount: walletTransactions.amount,
+      reason: walletTransactions.reason,
+      meta: walletTransactions.meta,
+    })
+    .from(walletTransactions)
+    .where(
+      and(
+        eq(walletTransactions.wallet_id, wallet.id),
+        eq(walletTransactions.type, 'debit'),
+        eq(walletTransactions.ref, order.id),
+      ),
+    )
+
+  const codDebit = originalDebitTransactions.find(
+    (transaction: any) => String(transaction.reason || '') === 'B2C COD Service Charges',
+  )
+  if (!codDebit) return 0
+
+  const refundAmount = resolveCodRtoRefundAmountFromDebitMeta(codDebit)
+  if (refundAmount <= 0) return 0
+
+  await createWalletTransaction({
+    walletId: wallet.id,
+    amount: refundAmount,
+    type: 'credit',
+    ref: order.id,
+    reason: refundReason,
+    currency: wallet.currency ?? 'INR',
+    meta: {
+      source,
+      order_id: order.id,
+      order_number: order.order_number,
+      awb_number: order.awb_number,
+      original_debit_reason: codDebit.reason,
+      original_debit_amount: Number(codDebit.amount ?? 0),
+      original_debit_meta: codDebit.meta || null,
+    },
+    tx: tx as any,
+  })
+
+  return refundAmount
 }
 
 export async function applyCancellationRefundOnce(
@@ -1267,6 +1386,7 @@ export async function processDelhiveryWebhook(payload: any, tx = db) {
     if (isRto) {
       try {
         const rtoCharge = await applyRtoChargeOnce(innerTx, order, 'Delhivery')
+        await applyRtoCodRefundOnce(innerTx, order, 'delhivery_rto_webhook')
         await recordRtoEvent({
           orderId: order.id,
           userId: order.user_id,
@@ -2171,6 +2291,7 @@ export async function processEkartWebhook(payload: any, tx = db) {
   if (statusLower.startsWith('rto') && internalStatus !== previousStatus) {
     try {
       const rtoCharge = await applyRtoChargeOnce(tx, order, 'Ekart')
+      await applyRtoCodRefundOnce(tx, order, 'ekart_rto_webhook')
       await recordRtoEvent({
         orderId: order.id,
         userId: order.user_id,
@@ -2502,6 +2623,7 @@ export async function processXpressbeesWebhook(payload: any, tx = db) {
   if (statusLower.includes('rto')) {
     try {
       const rtoCharge = await applyRtoChargeOnce(tx, order, 'Xpressbees')
+      await applyRtoCodRefundOnce(tx, order, 'xpressbees_rto_webhook')
       await recordRtoEvent({
         orderId: order.id,
         userId: order.user_id,
@@ -3002,6 +3124,7 @@ export async function processAmazonShippingTrackingWebhook(payload: any, tx = db
     if (internalStatus.startsWith('rto') && internalStatus !== previousStatus) {
       try {
         const rtoCharge = await applyRtoChargeOnce(tx, order, 'Amazon Shipping')
+        await applyRtoCodRefundOnce(tx, order, 'amazon_shipping_rto_webhook')
         await recordRtoEvent({
           orderId: order.id,
           userId: order.user_id,
@@ -3611,6 +3734,7 @@ export async function processShadowfaxWebhook(payload: any, tx = db) {
     if (internalStatus.startsWith('rto') && internalStatus !== previousStatus) {
       try {
         const rtoCharge = await applyRtoChargeOnce(tx, order, 'Shadowfax')
+        await applyRtoCodRefundOnce(tx, order, 'shadowfax_rto_webhook')
         await recordRtoEvent({
           orderId: order.id,
           userId: order.user_id,
