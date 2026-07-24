@@ -810,8 +810,8 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
     }
 
     // Eligibility checks: NSL or attempts >= 3 → skip with reason
-    const eligible: Array<{ awb: string; provider?: string; action: string; data?: any }>[] =
-      [] as any
+    const eligible: Array<{ awb: string; provider?: string; action: string; data?: any }> =
+      []
     const ineligible: Array<{ awb: string; reason: string }> = []
 
     for (const it of items) {
@@ -840,12 +840,13 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
     }
 
     const grouped: Record<string, Array<{ awb: string; action: string; data?: any }>> = {}
-    for (const it of eligible as any) {
+    for (const it of eligible) {
       let key = String(it.provider || '').toLowerCase()
       if (!key && it.awb) {
         const [order] = await db.select().from(b2c_orders).where(eq(b2c_orders.awb_number, it.awb))
         key = String(order?.integration_type || '').toLowerCase()
       }
+      if (key === 'delhivyery') key = 'delhivery'
       if (!grouped[key]) grouped[key] = []
       grouped[key].push({ awb: it.awb, action: it.action, data: it.data })
     }
@@ -871,6 +872,41 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
       throw lastErr
     }
 
+    const recordBulkNdrAction = async (params: {
+      awb: string
+      provider: string
+      action: string
+      response?: any
+      request?: any
+    }) => {
+      try {
+        const [order] = await db
+          .select()
+          .from(b2c_orders)
+          .where(eq(b2c_orders.awb_number, params.awb))
+          .limit(1)
+
+        if (!order) return
+
+        await recordNdrEvent({
+          orderId: order.id,
+          userId: order.user_id,
+          awbNumber: order.awb_number || params.awb,
+          status: 'ndr_action',
+          remarks: 'reattempt',
+          payload: {
+            provider: params.provider,
+            action: params.action,
+            request: params.request,
+            response: params.response,
+            source: 'bulk_ndr_action',
+          },
+        })
+      } catch (error) {
+        console.warn('Failed to record bulk NDR action:', error)
+      }
+    }
+
     // Batching for providers with approximate limits (e.g. 50 per request)
     // Delhivery batching (limit ~100 per request)
     if (grouped['delhivery']?.length) {
@@ -893,6 +929,17 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
           throw new Error('Delhivery did not accept one or more bulk NDR actions')
         }
         results['delhivery'].push(resp)
+        await Promise.all(
+          chunk.map((item) =>
+            recordBulkNdrAction({
+              awb: item.awb,
+              provider: 'delhivery',
+              action: item.action,
+              request: item,
+              response: resp,
+            }),
+          ),
+        )
         await new Promise((r) => setTimeout(r, 400))
       }
     }
@@ -949,6 +996,17 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
           throw new Error('Xpressbees did not accept one or more bulk NDR actions')
         }
         results['xpressbees'].push(resp)
+        await Promise.all(
+          chunk.map((item) =>
+            recordBulkNdrAction({
+              awb: item.awb,
+              provider: 'xpressbees',
+              action: item.action,
+              request: item,
+              response: resp,
+            }),
+          ),
+        )
         await new Promise((r) => setTimeout(r, 400))
       }
     }
@@ -1023,6 +1081,15 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
             success: hasShadowfaxActionAccepted(resp),
             response: resp,
           })
+          if (hasShadowfaxActionAccepted(resp)) {
+            await recordBulkNdrAction({
+              awb: item.awb,
+              provider: 'shadowfax',
+              action: item.action,
+              request: payload,
+              response: resp,
+            })
+          }
           await new Promise((r) => setTimeout(r, 250))
         } catch (error: any) {
           results['shadowfax'].push({
@@ -1044,7 +1111,7 @@ export const ndrBulkActionController = async (req: Request, res: Response) => {
           awb: item.awb,
           action: item.action,
           success: false,
-          message: 'Bulk NDR actions are currently supported only for Delhivery and Xpressbees.',
+          message: 'Bulk NDR actions are currently supported only for Delhivery, Xpressbees, and Shadowfax.',
         }))
       }
     }

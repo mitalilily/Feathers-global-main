@@ -1,7 +1,7 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Typography, Box } from '@mui/material'
+import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, Typography } from '@mui/material'
 import CustomInput from '../../components/UI/inputs/CustomInput'
 import { useEffect, useMemo, useState } from 'react'
-import { fetchMyNdr, submitNdrReattempt, fetchMyNdrTimeline, submitNdrChangePhone, submitNdrChangeAddress } from '../../api/ndr'
+import { fetchMyNdr, submitNdrReattempt, fetchMyNdrTimeline, submitNdrChangePhone, submitNdrChangeAddress, submitNdrBulkAction } from '../../api/ndr'
 import { FilterBar, type FilterField } from '../../components/FilterBar'
 import DataTable, { type Column } from '../../components/UI/table/DataTable'
 import { toast } from '../../components/UI/Toast'
@@ -22,6 +22,13 @@ type NdrRow = {
 }
 type TableRow = NdrRow & { id: string | number }
 
+const supportsBulkReattempt = (row: NdrRow) => {
+  const provider = String(row.integration_type || row.courier_partner || '').toLowerCase()
+  return ['delhivery', 'shadowfax', 'xpressbees'].some((supportedProvider) =>
+    provider.includes(supportedProvider),
+  )
+}
+
 export default function NdrList() {
   const [rows, setRows] = useState<NdrRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -35,6 +42,11 @@ export default function NdrList() {
   const [nextAttemptDate, setNextAttemptDate] = useState<string>('')
   const [comments, setComments] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [selectedRowIds, setSelectedRowIds] = useState<Array<string | number>>([])
+  const [bulkReattemptOpen, setBulkReattemptOpen] = useState(false)
+  const [bulkNextAttemptDate, setBulkNextAttemptDate] = useState('')
+  const [bulkComments, setBulkComments] = useState('')
   const [timeline, setTimeline] = useState<{ events?: Array<{ at?: string; status?: string; remarks?: string }> } | null>(null)
   const [changePhoneOpen, setChangePhoneOpen] = useState(false)
   const [changeAddressOpen, setChangeAddressOpen] = useState(false)
@@ -43,6 +55,8 @@ export default function NdrList() {
   const [address1, setAddress1] = useState('')
   const [address2, setAddress2] = useState('')
   const [pincode, setPincode] = useState('')
+
+  const reloadNdrList = () => setRefreshKey((current) => current + 1)
 
   useEffect(() => {
     ;(async () => {
@@ -65,7 +79,7 @@ export default function NdrList() {
         setLoading(false)
       }
     })()
-  }, [page, rowsPerPage, filters])
+  }, [page, rowsPerPage, filters, refreshKey])
 
   const columns: Column<TableRow>[] = useMemo(
     () => [
@@ -193,8 +207,29 @@ export default function NdrList() {
     [rows],
   )
 
+  const selectedRows = useMemo(
+    () => tableRows.filter((row) => selectedRowIds.includes(row.id)),
+    [selectedRowIds, tableRows],
+  )
+
+  const bulkEligibleRows = useMemo(
+    () =>
+      selectedRows.filter((row) => {
+        const isNSL = String(row.status || '').toLowerCase().includes('nsl')
+        const attempts = row.attempt_no ? parseInt(String(row.attempt_no), 10) || 0 : 0
+        return Boolean(row.awb_number) && !isNSL && attempts < 3 && supportsBulkReattempt(row)
+      }),
+    [selectedRows],
+  )
+
   const controls = (
-    <Box sx={{ px: 2 }}>
+    <Stack
+      direction={{ xs: 'column', sm: 'row' }}
+      alignItems={{ xs: 'stretch', sm: 'center' }}
+      justifyContent="space-between"
+      spacing={1.5}
+      sx={{ px: 2 }}
+    >
       <FilterBar
         fields={filterFields}
         defaultValues={filters}
@@ -206,7 +241,18 @@ export default function NdrList() {
         buttonLabel="Filters"
         appliedCount={Object.values(filters).filter(Boolean).length}
       />
-    </Box>
+      <Button
+        variant="contained"
+        disabled={!bulkEligibleRows.length || submitting}
+        onClick={() => {
+          setBulkNextAttemptDate('')
+          setBulkComments('')
+          setBulkReattemptOpen(true)
+        }}
+      >
+        Bulk Reattempt ({bulkEligibleRows.length})
+      </Button>
+    </Stack>
   )
 
   const table = (
@@ -218,6 +264,9 @@ export default function NdrList() {
           rows={tableRows}
           columns={columns}
           title="NDR Events"
+          selectable
+          selectedRowIds={selectedRowIds}
+          onSelectRows={setSelectedRowIds}
           pagination
           currentPage={page}
           onPageChange={setPage}
@@ -302,8 +351,8 @@ export default function NdrList() {
                 await submitNdrReattempt({ awb: selectedAwb || undefined, nextAttemptDate, comments })
                 toast.open({ message: 'Reattempt requested successfully', severity: 'success' })
                 setReattemptOpen(false)
-                // refresh
                 setPage(1)
+                reloadNdrList()
               } catch (err: unknown) {
                 const error = err as { response?: { data?: { message?: string } }; message?: string }
                 const msg = error?.response?.data?.message || error?.message || 'Failed to request reattempt'
@@ -314,6 +363,81 @@ export default function NdrList() {
             }}
           >
             Submit
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={bulkReattemptOpen} onClose={() => setBulkReattemptOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Bulk Reattempt</DialogTitle>
+        <DialogContent>
+          <Stack gap={2} mt={1}>
+            <Alert severity="info">
+              {bulkEligibleRows.length} selected NDR shipment{bulkEligibleRows.length === 1 ? '' : 's'} will be sent for reattempt.
+              NSL shipments, rows without AWB, rows with 3+ attempts, and unsupported couriers are skipped.
+            </Alert>
+            <CustomInput
+              label="Next Attempt Date"
+              type="date"
+              value={bulkNextAttemptDate}
+              onChange={(e) => setBulkNextAttemptDate((e.target as HTMLInputElement).value)}
+            />
+            <CustomInput
+              label="Comments"
+              value={bulkComments}
+              placeholder="Add a note for all selected shipments (optional)"
+              onChange={(e) => setBulkComments((e.target as HTMLInputElement).value)}
+            />
+            {selectedRows.length !== bulkEligibleRows.length && (
+              <Typography variant="caption" color="warning.main">
+                {selectedRows.length - bulkEligibleRows.length} selected row
+                {selectedRows.length - bulkEligibleRows.length === 1 ? '' : 's'} will be skipped because they are not eligible.
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkReattemptOpen(false)} disabled={submitting}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!bulkEligibleRows.length || !bulkNextAttemptDate || submitting}
+            onClick={async () => {
+              try {
+                setSubmitting(true)
+                const response = await submitNdrBulkAction({
+                  items: bulkEligibleRows.map((row) => ({
+                    awb: String(row.awb_number),
+                    provider: row.integration_type || row.courier_partner,
+                    action: 'RE-ATTEMPT',
+                    data: {
+                      next_attempt_date: bulkNextAttemptDate,
+                      re_attempt_date: bulkNextAttemptDate,
+                      ...(bulkComments ? { comments: bulkComments } : {}),
+                    },
+                  })),
+                })
+
+                const ineligibleCount = Array.isArray(response?.ineligible) ? response.ineligible.length : 0
+                toast.open({
+                  message:
+                    ineligibleCount > 0
+                      ? `Bulk reattempt submitted. ${ineligibleCount} shipment${ineligibleCount === 1 ? '' : 's'} skipped.`
+                      : 'Bulk reattempt submitted successfully',
+                  severity: ineligibleCount > 0 ? 'warning' : 'success',
+                })
+                setBulkReattemptOpen(false)
+                setSelectedRowIds([])
+                setPage(1)
+                reloadNdrList()
+              } catch (err: unknown) {
+                const error = err as { response?: { data?: { message?: string } }; message?: string }
+                const msg = error?.response?.data?.message || error?.message || 'Failed to submit bulk reattempt'
+                toast.open({ message: msg, severity: 'error' })
+              } finally {
+                setSubmitting(false)
+              }
+            }}
+          >
+            Submit Bulk Reattempt
           </Button>
         </DialogActions>
       </Dialog>
@@ -339,6 +463,7 @@ export default function NdrList() {
                 toast.open({ message: 'Phone update submitted', severity: 'success' })
                 setChangePhoneOpen(false)
                 setPage(1)
+                reloadNdrList()
               } catch (err: unknown) {
                 const error = err as { response?: { data?: { message?: string } }; message?: string }
                 const msg = error?.response?.data?.message || error?.message || 'Failed to update phone'
@@ -377,6 +502,7 @@ export default function NdrList() {
                 toast.open({ message: 'Address update submitted', severity: 'success' })
                 setChangeAddressOpen(false)
                 setPage(1)
+                reloadNdrList()
               } catch (err: unknown) {
                 const error = err as { response?: { data?: { message?: string } }; message?: string }
                 const msg = error?.response?.data?.message || error?.message || 'Failed to update address'

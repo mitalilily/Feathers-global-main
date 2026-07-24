@@ -20,6 +20,22 @@ export async function submitNdrReattempt(payload: {
   return res.data
 }
 
+export async function submitNdrBulkAction(payload: {
+  items: Array<{
+    awb: string
+    provider?: string
+    action: 'RE-ATTEMPT'
+    data?: {
+      next_attempt_date?: string
+      re_attempt_date?: string
+      comments?: string
+    }
+  }>
+}) {
+  const res = await axiosInstance.post(`/ndr/bulk`, payload)
+  return res.data
+}
+
 export async function submitNdrChangePhone(payload: { awb?: string; orderId?: string; phone: string }) {
   const res = await axiosInstance.post(`/ndr/change-phone`, payload)
   return res.data
