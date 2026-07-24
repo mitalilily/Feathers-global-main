@@ -14478,6 +14478,7 @@ type ProviderNormalizedTracking = {
   edd?: string | null
   courier_name?: string | null
   shipment_info?: string | null
+  awb_number?: string | null
 }
 
 type OrderSummary = {
@@ -14507,6 +14508,80 @@ const sanitizeString = (value: unknown, fallback = ''): string => {
   if (value === null || value === undefined) return fallback
   const str = String(value).trim()
   return str || fallback
+}
+
+const normalizeComparableTrackingText = (value: unknown) => sanitizeString(value).toLowerCase()
+
+const isSameComparableTrackingText = (left: unknown, right: unknown) => {
+  const normalizedLeft = normalizeComparableTrackingText(left)
+  const normalizedRight = normalizeComparableTrackingText(right)
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight)
+}
+
+const isShadowfaxStoredReferenceValue = (
+  value: unknown,
+  order: Partial<OrderSummary> | null | undefined,
+  ...extraRefs: unknown[]
+) => {
+  if (!normalizeComparableTrackingText(value)) return false
+  return [
+    order?.order_number,
+    order?.order_id,
+    order?.provider_reference,
+    order?.provider_request_id,
+    order?.shipment_id,
+    ...extraRefs,
+  ].some((candidate) => isSameComparableTrackingText(value, candidate))
+}
+
+const isShadowfaxReverseOrder = (order: Partial<OrderSummary>, lookupValue?: unknown) => {
+  const orderType = normalizeComparableTrackingText(order.order_type)
+  const providerFlow = normalizeComparableTrackingText(order.provider_meta?.provider_flow)
+  const metaProviderFlow = normalizeComparableTrackingText(order.provider_meta?.provider?.flow)
+  const lookup = sanitizeString(lookupValue)
+  return (
+    orderType === 'reverse' ||
+    providerFlow === 'reverse' ||
+    metaProviderFlow === 'reverse' ||
+    lookup.toUpperCase().startsWith('R') ||
+    lookup.toUpperCase().endsWith('-R')
+  )
+}
+
+const collectShadowfaxAwbCandidates = (value: unknown, depth = 0): string[] => {
+  if (depth > 4 || value === null || value === undefined) return []
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => collectShadowfaxAwbCandidates(entry, depth + 1))
+  }
+  if (typeof value !== 'object') return []
+
+  const candidates: string[] = []
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    const normalizedKey = key.toLowerCase()
+    if (
+      normalizedKey.includes('awb') ||
+      normalizedKey.includes('waybill') ||
+      normalizedKey.includes('tracking_number') ||
+      normalizedKey.includes('tracking_id')
+    ) {
+      const text = sanitizeString(nestedValue)
+      if (text) candidates.push(text)
+    }
+    candidates.push(...collectShadowfaxAwbCandidates(nestedValue, depth + 1))
+  }
+  return candidates
+}
+
+const extractRealShadowfaxAwb = (raw: unknown, order: Partial<OrderSummary>, ...extraRefs: unknown[]) => {
+  const candidates = collectShadowfaxAwbCandidates(raw)
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate &&
+        !candidate.startsWith('#') &&
+        !isShadowfaxStoredReferenceValue(candidate, order, ...extraRefs),
+    ) || null
+  )
 }
 
 const formatTrackingLocation = (value: unknown): string => {
@@ -14641,6 +14716,7 @@ const mapShadowfaxTracking = (raw: any, order: OrderSummary): ProviderNormalized
   const history: TrackingHistoryItem[] = []
   const payload = raw?.data || raw
   const orderDetails = payload?.order_details || raw?.order_details || {}
+  const awbNumber = extractRealShadowfaxAwb(raw, order, payload?.request_id, payload?.client_request_id)
   const normalizeHistoryRows = (value: unknown): any[] => {
     if (Array.isArray(value)) return value
     if (value && typeof value === 'object') return [value]
@@ -14687,6 +14763,7 @@ const mapShadowfaxTracking = (raw: any, order: OrderSummary): ProviderNormalized
     history,
     status: currentStatus,
     courier_name: 'Shadowfax',
+    awb_number: awbNumber,
     shipment_info:
       sanitizeString(
         payload?.message ||
@@ -15697,6 +15774,15 @@ const persistLiveTrackingStatus = async (
     provider_last_status: rawStatus.slice(0, 80) || nextStatus,
     updated_at: new Date(),
   }
+  const realProviderAwb = extractRealShadowfaxAwb(
+    { awb_number: tracking.awb_number, tracking },
+    order,
+    tracking.awb_number,
+  )
+  const effectiveAwb = realProviderAwb || sanitizeString(order.awb_number)
+  if (order.source_type === 'b2c' && realProviderAwb && !sanitizeString(order.awb_number)) {
+    updateData.awb_number = realProviderAwb.slice(0, 100)
+  }
   if (deliveryLocation) updateData.delivery_location = deliveryLocation.slice(0, 100)
   if (
     deliveryMessage &&
@@ -15760,7 +15846,7 @@ const persistLiveTrackingStatus = async (
       await logTrackingEvent({
         orderId: order.id,
         userId: order.user_id,
-        awbNumber: order.awb_number.slice(0, 100),
+        awbNumber: (effectiveAwb || order.provider_request_id || order.provider_reference || order.order_number).slice(0, 100),
         courier: sanitizeString(tracking.courier_name || order.courier_partner || order.integration_type).slice(0, 60),
         statusCode: sanitizeString(latest?.status_code || rawStatus || nextStatus).slice(0, 80),
         statusText: sanitizeString(latest?.message || rawStatus || nextStatus).slice(0, 200),
@@ -15787,7 +15873,7 @@ const persistLiveTrackingStatus = async (
   })
 
   await sendWebhookEvent(order.user_id, 'tracking.updated', {
-    awb_number: order.awb_number,
+    awb_number: effectiveAwb,
     order_id: order.id,
     order_number: order.order_number,
     status: nextStatus,
@@ -15806,7 +15892,7 @@ const persistLiveTrackingStatus = async (
     await sendWebhookEvent(order.user_id, trackingWebhookEventForStatus(nextStatus) as any, {
       order_id: order.id,
       order_number: order.order_number,
-      awb_number: order.awb_number,
+      awb_number: effectiveAwb,
       status: nextStatus,
       raw_status: rawStatus,
       courier_partner: tracking.courier_name || order.courier_partner,
@@ -15863,7 +15949,7 @@ const buildTrackingResponse = (
     user_id: order.user_id,
     order_id: order.order_id ?? order.id,
     order_number: order.order_number,
-    awb_number: order.awb_number,
+    awb_number: providerData.awb_number || order.awb_number,
     courier_name: courierName,
     status,
     edd: eddValue || null,
@@ -16005,7 +16091,7 @@ const findOrderByAwb = async (awb: string): Promise<OrderSummary | null> => {
       provider_request_id: b2c.provider_request_id,
       provider_service: b2c.provider_service,
       provider_meta: b2c.provider_meta,
-      awb_number: b2c.awb_number ?? awb,
+      awb_number: b2c.awb_number ?? '',
       order_status: b2c.order_status,
       edd: b2c.edd,
       order_type: b2c.order_type,
@@ -16062,7 +16148,7 @@ const findOrderByAwb = async (awb: string): Promise<OrderSummary | null> => {
       provider_request_id: b2b.provider_request_id,
       provider_service: b2b.provider_service,
       provider_meta: b2b.provider_meta,
-      awb_number: b2b.awb_number ?? awb,
+      awb_number: b2b.awb_number ?? '',
       order_status: b2b.order_status,
       edd: null,
       order_type: b2b.order_type,
@@ -16128,7 +16214,11 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
       const raw = await delhiveryService.trackShipment(awb)
       providerData = mapDelhiveryTracking(raw, order)
     } else if (providerKey === 'shadowfax') {
-      const isReverseShadowfax = awb.toUpperCase().startsWith('R')
+      const isReverseShadowfax = isShadowfaxReverseOrder(order, awb)
+      const shadowfaxTrackingReference =
+        isReverseShadowfax
+          ? sanitizeString(order.provider_request_id || order.provider_reference || order.shipment_id || awb)
+          : sanitizeString(order.awb_number || awb)
 
       if (!isReverseShadowfax && isAfterShipTrackingConfigured()) {
         try {
@@ -16146,8 +16236,8 @@ export const trackByAwbService = async (awb: string): Promise<TrackingServiceRes
       if (!providerData) {
         const shadowfaxService = new ShadowfaxService()
         const raw = isReverseShadowfax
-          ? await shadowfaxService.trackReverseShipment(awb)
-          : await shadowfaxService.trackShipment(awb)
+          ? await shadowfaxService.trackReverseShipment(shadowfaxTrackingReference)
+          : await shadowfaxService.trackShipment(shadowfaxTrackingReference)
         providerData = mapShadowfaxTracking(raw, order)
       }
     } else if (providerKey === 'amazon') {

@@ -1,4 +1,4 @@
-import { and, asc, ilike, inArray, isNotNull, isNull, notInArray, or } from 'drizzle-orm'
+import { and, asc, eq, ilike, inArray, isNotNull, isNull, notInArray, or } from 'drizzle-orm'
 import { db } from '../models/client'
 import { b2b_orders } from '../models/schema/b2bOrders'
 import { b2c_orders } from '../models/schema/b2cOrders'
@@ -20,6 +20,8 @@ type PollableOrder = {
   id: string
   order_number: string | null
   awb_number: string | null
+  provider_reference?: string | null
+  provider_request_id?: string | null
   integration_type: string | null
   courier_partner: string | null
   updated_at: Date | null
@@ -79,6 +81,8 @@ export async function pollCourierTracking({
       id: b2c_orders.id,
       order_number: b2c_orders.order_number,
       awb_number: b2c_orders.awb_number,
+      provider_reference: b2c_orders.provider_reference,
+      provider_request_id: b2c_orders.provider_request_id,
       integration_type: b2c_orders.integration_type,
       courier_partner: b2c_orders.courier_partner,
       updated_at: b2c_orders.updated_at,
@@ -87,7 +91,17 @@ export async function pollCourierTracking({
     .where(
       and(
         providerScope(b2c_orders, providerFilter),
-        isNotNull(b2c_orders.awb_number),
+        or(
+          isNotNull(b2c_orders.awb_number),
+          and(
+            providerScope(b2c_orders, ['shadowfax']),
+            eq(b2c_orders.order_type, 'reverse'),
+            or(
+              isNotNull(b2c_orders.provider_request_id),
+              isNotNull(b2c_orders.provider_reference),
+            ),
+          ),
+        ),
         or(notInArray(b2c_orders.order_status, terminalStatuses), isNull(b2c_orders.order_status)),
       ),
     )
@@ -99,6 +113,8 @@ export async function pollCourierTracking({
       id: b2b_orders.id,
       order_number: b2b_orders.order_number,
       awb_number: b2b_orders.awb_number,
+      provider_reference: b2b_orders.provider_reference,
+      provider_request_id: b2b_orders.provider_request_id,
       integration_type: b2b_orders.integration_type,
       courier_partner: b2b_orders.courier_partner,
       updated_at: b2b_orders.updated_at,
@@ -129,7 +145,9 @@ export async function pollCourierTracking({
   let failed = 0
 
   for (const order of pending) {
-    const awb = String(order.awb_number || '').trim()
+    const awb = String(
+      order.awb_number || order.provider_request_id || order.provider_reference || '',
+    ).trim()
     if (!awb) continue
 
     try {
