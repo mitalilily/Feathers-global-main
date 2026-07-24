@@ -53,6 +53,13 @@ const normalizeTrackingMode = (value) => {
   return "AWB";
 };
 
+const looksLikeOrderIdentifier = (value) => {
+  const normalized = normalizeAwb(value);
+  if (!normalized) return false;
+  if (normalized.startsWith("#")) return true;
+  return /^(ORDER|ORD|DF|FG|B2C|B2B|SHOPIFY|WOO)[-_#]?[A-Z0-9-]+$/.test(normalized);
+};
+
 const getTrackingLatestUpdate = (data, fallback = "") => {
   const latest = data?.history?.[0];
   const message = latest?.message || latest?.status_code || data?.status || fallback || "No update available yet";
@@ -845,7 +852,7 @@ export function TrackingPanel() {
   const loadTracking = async (nextAwb, lookupMode = mode) => {
     const normalized = normalizeAwb(nextAwb);
     if (!normalized) return;
-    const isOrderLookup = normalizeTrackingMode(lookupMode) === "Order ID";
+    const isOrderLookup = normalizeTrackingMode(lookupMode) === "Order ID" || looksLikeOrderIdentifier(normalized);
     const queryKey = isOrderLookup ? "orderId" : "awb";
 
     setTrackingLoading(true);

@@ -14,6 +14,14 @@ import { extractOrderAmountFromBody } from '../utils/orderAmount'
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
+const looksLikePublicOrderIdentifier = (value: string) => {
+  const normalized = String(value || '').trim()
+  if (!normalized) return false
+  if (isUuid(normalized)) return true
+  if (normalized.startsWith('#')) return true
+  return /^(?:order|ord|df|fg|b2c|b2b|shopify|woo)[-_#]?[a-z0-9-]+$/i.test(normalized)
+}
+
 const findPublicOrderByIdentifier = async (identifier: string) => {
   const normalized = String(identifier || '').trim()
   if (!normalized) return null
@@ -72,9 +80,14 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
     const { awb, orderId, orderNumber, contact } = req.query
 
     let awbNumber: string | undefined = awb ? String(awb) : undefined
-    const publicOrderIdentifier = String(orderId || orderNumber || '').trim()
+    const awbLooksLikeOrderIdentifier = awbNumber
+      ? looksLikePublicOrderIdentifier(awbNumber)
+      : false
+    const publicOrderIdentifier = String(
+      orderId || orderNumber || (awbLooksLikeOrderIdentifier ? awbNumber : ''),
+    ).trim()
 
-    if (!awbNumber && publicOrderIdentifier && !contact) {
+    if (publicOrderIdentifier && !contact) {
       const order = await findPublicOrderByIdentifier(publicOrderIdentifier)
       if (!order) {
         return res.status(404).json({
@@ -83,7 +96,13 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
         })
       }
 
-      awbNumber = String(order.awb_number || '').trim()
+      awbNumber = String(
+        order.awb_number ||
+          (order as any).provider_request_id ||
+          (order as any).provider_reference ||
+          (order as any).shipment_id ||
+          '',
+      ).trim()
       if (!awbNumber) {
         return res.status(404).json({
           success: false,
