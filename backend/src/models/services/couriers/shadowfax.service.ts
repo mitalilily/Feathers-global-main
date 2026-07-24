@@ -1250,7 +1250,22 @@ export class ShadowfaxService {
   }
 
   async trackReverseShipment(requestId: string) {
-    return this.get(`/v4/clients/requests/${encodeURIComponent(requestId)}`)
+    try {
+      return await this.get(`/v4/clients/requests/${encodeURIComponent(requestId)}`)
+    } catch (err: any) {
+      const status = err?.status ?? err?.response?.status
+      if (status !== 404) throw err
+
+      const bulkResponse = await this.bulkTrackReverseShipments([requestId])
+      const keyedRows = Array.isArray(bulkResponse?.[requestId])
+        ? bulkResponse[requestId]
+        : Array.isArray(bulkResponse?.data?.[requestId])
+          ? bulkResponse.data[requestId]
+          : null
+      const row = keyedRows?.[0] || (Array.isArray(bulkResponse?.data) ? bulkResponse.data[0] : null)
+      if (!row) throw err
+      return { data: row }
+    }
   }
 
   async bulkTrackReverseShipments(requestIds: string[]) {
