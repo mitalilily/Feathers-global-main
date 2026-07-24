@@ -109,43 +109,39 @@ publish_courier_client_build() {
 }
 
 publish_admin_dashboard_build() {
-  local staged_build_relative staged_build previous_build
+  local previous_build
 
-  staged_build_relative=".build-staged-$(date +%s)"
-  staged_build="$APP_ROOT/admin-dashboard/${staged_build_relative}"
   previous_build="$APP_ROOT/admin-dashboard/build.previous"
 
   sudo rm -rf "$previous_build"
-  rm -rf "$staged_build"
-
-  BUILD_PATH="$staged_build_relative" npm run build
-
-  if [ ! -f "$staged_build/index.html" ]; then
-    echo "admin-dashboard build did not produce index.html" >&2
-    rm -rf "$staged_build"
-    return 1
-  fi
-
-  if [ ! -d "$staged_build/static" ]; then
-    echo "admin-dashboard build did not produce static/" >&2
-    rm -rf "$staged_build"
-    return 1
-  fi
-
-  if [ -d build/static ]; then
-    rsync -a --ignore-existing build/static/ "$staged_build/static/"
-  fi
 
   if [ -e build ]; then
     sudo chown -R "$(id -u):$(id -g)" build || true
     mv build "$previous_build"
   fi
 
-  if ! mv "$staged_build" build; then
+  if ! npm run build; then
     if [ -e "$previous_build" ] && [ ! -e build ]; then
       mv "$previous_build" build
     fi
-    rm -rf "$staged_build"
+    return 1
+  fi
+
+  if [ ! -f build/index.html ]; then
+    echo "admin-dashboard build did not produce index.html" >&2
+    rm -rf build
+    if [ -e "$previous_build" ]; then
+      mv "$previous_build" build
+    fi
+    return 1
+  fi
+
+  if [ ! -d build/static ]; then
+    echo "admin-dashboard build did not produce static/" >&2
+    rm -rf build
+    if [ -e "$previous_build" ]; then
+      mv "$previous_build" build
+    fi
     return 1
   fi
 
