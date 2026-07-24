@@ -16,6 +16,10 @@ export interface CreateShipmentParams {
   other_charges?: number
   freight_charges?: number // What platform charges seller (based on rate card)
   courier_cost?: number // Estimated courier cost from serviceability (what platform pays courier - can be updated via webhook)
+  edd?: string | null
+  expected_delivery_date?: string | null
+  expectedDeliveryDate?: string | null
+  expected_delivery_days?: number | null
   cod_charges?: number
   discount?: number
   order_date: string

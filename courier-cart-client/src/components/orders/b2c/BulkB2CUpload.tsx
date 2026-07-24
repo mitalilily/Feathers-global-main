@@ -137,6 +137,9 @@ type CourierSelection = {
   rate?: number | null
   courierCostEstimate?: number | null
   displayPrice?: number | null
+  edd?: string | null
+  expectedDeliveryDate?: string | null
+  expectedDeliveryDays?: number | null
   codCharges?: number | null
   otherCharges?: number | null
   chargeableWeight?: number | null
@@ -382,6 +385,24 @@ const getCourierForwardRate = (courier: Courier & Record<string, unknown>) =>
     0,
   )
 
+const getCourierEddLabel = (courier: Courier & Record<string, unknown>) => {
+  const expectedDays = parseNumber(
+    (courier.expected_delivery_days ?? courier.edd_days) as number | string | undefined,
+    0,
+  )
+  const candidates = [
+    courier.expected_delivery_date_label,
+    courier.edd,
+    courier.expected_delivery_date,
+    courier.expectedDeliveryDate,
+    (courier as { estimated_delivery_date?: string }).estimated_delivery_date,
+    (courier as { estimatedDeliveryDate?: string }).estimatedDeliveryDate,
+    expectedDays ? `${expectedDays} Days` : undefined,
+  ]
+
+  return candidates.map((value) => String(value ?? '').trim()).find(Boolean) ?? null
+}
+
 const buildCourierSelection = (courier: Courier & Record<string, unknown>): CourierSelection => ({
   id: Number(courier.id ?? courier.courier_id ?? 0),
   name: String(courier.displayName || courier.name || 'Courier'),
@@ -428,6 +449,18 @@ const buildCourierSelection = (courier: Courier & Record<string, unknown>): Cour
       (courier as { cost?: number | string }).cost) as number | string | undefined,
     0,
   ),
+  edd: getCourierEddLabel(courier),
+  expectedDeliveryDate:
+    String(
+      courier.expected_delivery_date ||
+        courier.expectedDeliveryDate ||
+        (courier as { estimated_delivery_date?: string }).estimated_delivery_date ||
+        (courier as { estimatedDeliveryDate?: string }).estimatedDeliveryDate ||
+        '',
+    ).trim() || null,
+  expectedDeliveryDays:
+    parseNumber((courier.expected_delivery_days ?? courier.edd_days) as number | string | undefined, 0) ||
+    null,
   codCharges: parseNumber(
     (courier.localRates as { forward?: { cod_charges?: number | string } } | undefined)?.forward
       ?.cod_charges as number | string | undefined,
@@ -1111,6 +1144,10 @@ export default function BulkB2CUpload({ onClose }: { onClose?: () => void }) {
               | undefined) ?? undefined,
           courier_id: courier.id,
           courier_option_key: courier.courierOptionKey ?? undefined,
+          edd: courier.edd ?? undefined,
+          expected_delivery_date: courier.expectedDeliveryDate ?? undefined,
+          expectedDeliveryDate: courier.expectedDeliveryDate ?? undefined,
+          expected_delivery_days: courier.expectedDeliveryDays ?? undefined,
           shadowfax_forward_mode: courier.shadowfaxForwardMode ?? undefined,
           shadowfax_service_mode: courier.shadowfaxServiceMode ?? undefined,
           selected_max_slab_weight: courier.maxSlabWeight ?? undefined,
@@ -1830,6 +1867,11 @@ export default function BulkB2CUpload({ onClose }: { onClose?: () => void }) {
                                         kg
                                       </Typography>
                                     ) : null}
+                                    <Typography variant="caption" color="text.secondary">
+                                      {row.selectedCourier.edd
+                                        ? `Estimated delivery: ${row.selectedCourier.edd}`
+                                        : 'EDD unavailable'}
+                                    </Typography>
                                   </Stack>
                                 ) : null}
                               </Stack>
@@ -1863,6 +1905,7 @@ export default function BulkB2CUpload({ onClose }: { onClose?: () => void }) {
                                     {courier.maxSlabWeight
                                       ? `| Slab ${Number(courier.maxSlabWeight).toFixed(2)} kg`
                                       : ''}
+                                    {courier.edd ? ` | EDD ${courier.edd}` : ' | EDD unavailable'}
                                   </MenuItem>
                                 ))}
                               </TextField>
@@ -1905,6 +1948,11 @@ export default function BulkB2CUpload({ onClose }: { onClose?: () => void }) {
                                   Slab {Number(row.selectedCourier.maxSlabWeight).toFixed(2)} kg
                                 </Typography>
                               ) : null}
+                              <Typography variant="caption" color="text.secondary">
+                                {row.selectedCourier.edd
+                                  ? `Estimated delivery: ${row.selectedCourier.edd}`
+                                  : 'EDD unavailable'}
+                              </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 {formatCurrency(
                                   Number(

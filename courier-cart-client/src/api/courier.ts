@@ -8,6 +8,11 @@ export interface Courier {
   courier_option_key?: string | null
   max_slab_weight?: number | null
   edd?: string | null
+  edd_days?: number | null
+  expected_delivery_days?: number | null
+  expected_delivery_date?: string | null
+  expectedDeliveryDate?: string | null
+  expected_delivery_date_label?: string | null
   tag?: string | null
   baseCourierId?: number | null
   masterCompany?: string | null

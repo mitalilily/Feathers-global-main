@@ -145,6 +145,44 @@ const getTaxInclusiveRate = (
   );
 };
 
+const getCourierEddLabel = (courier: Record<string, any>) => {
+  const candidates = [
+    courier.expected_delivery_date_label,
+    courier.edd,
+    courier.expected_delivery_date,
+    courier.expectedDeliveryDate,
+    courier.estimated_delivery_date,
+    courier.estimatedDeliveryDate,
+    courier.expected_delivery_days
+      ? `${courier.expected_delivery_days} Days`
+      : undefined,
+    courier.edd_days ? `${courier.edd_days} Days` : undefined,
+  ];
+
+  return (
+    candidates
+      .map((value) => String(value ?? "").trim())
+      .find(Boolean) ?? null
+  );
+};
+
+const getBatchEddLabel = (option: CommonCourierOption) => {
+  const labels = Array.from(
+    new Set(
+      option.perOrder
+        .map((courier) => getCourierEddLabel(courier))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  if (!labels.length) return "EDD unavailable";
+  if (labels.length === 1) return `Estimated delivery: ${labels[0]}`;
+  if (labels.length === 2) {
+    return `Estimated delivery: ${labels[0]} - ${labels[1]}`;
+  }
+  return `Estimated delivery: ${labels[0]} - ${labels[labels.length - 1]} (${labels.length} dates)`;
+};
+
 const getWarehouseLabel = (warehouse: HydratedPickup) =>
   warehouse.pickup?.addressNickname ||
   warehouse.pickup?.contactName ||
@@ -416,6 +454,21 @@ export default function BulkOrderCourierDrawer({
           courier_id: Number(courier.id ?? courier.courier_id),
           courier_partner: courier.name ?? courier.displayName,
           courier_option_key: getCourierKey(courier),
+          edd: getCourierEddLabel(courier),
+          expected_delivery_date:
+            courier.expected_delivery_date ??
+            courier.expectedDeliveryDate ??
+            courier.estimated_delivery_date ??
+            courier.estimatedDeliveryDate ??
+            undefined,
+          expectedDeliveryDate:
+            courier.expectedDeliveryDate ??
+            courier.expected_delivery_date ??
+            courier.estimatedDeliveryDate ??
+            courier.estimated_delivery_date ??
+            undefined,
+          expected_delivery_days:
+            courier.expected_delivery_days ?? courier.edd_days ?? undefined,
           amazon_request_token: courier.amazon_request_token,
           amazon_rate_id: courier.amazon_rate_id,
           amazon_service_id: courier.amazon_service_id,
@@ -610,6 +663,9 @@ export default function BulkOrderCourierDrawer({
                       <Typography fontWeight={800}>{name}</Typography>
                       <Typography variant="body2" color="text.secondary">
                         Serviceable for all {orders.length} selected orders
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {getBatchEddLabel(option)}
                       </Typography>
                     </Box>
                     <Box sx={{ textAlign: "right" }}>
