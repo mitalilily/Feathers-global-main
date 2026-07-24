@@ -1253,7 +1253,7 @@ export class ShadowfaxService {
     try {
       return await this.get(`/v4/clients/requests/${encodeURIComponent(requestId)}`)
     } catch (err: any) {
-      const status = err?.status ?? err?.response?.status
+      const status = err?.statusCode ?? err?.status ?? err?.response?.status
       if (status !== 404) throw err
 
       const bulkResponse = await this.bulkTrackReverseShipments([requestId])
