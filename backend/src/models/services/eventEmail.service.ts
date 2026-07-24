@@ -13,6 +13,11 @@ import { b2b_orders } from '../schema/b2bOrders'
 import { b2c_orders } from '../schema/b2cOrders'
 import { users } from '../schema/users'
 import { userProfiles } from '../schema/userProfile'
+import {
+  isCustomerEmailNotificationEnabled,
+  isSellerEmailNotificationEnabled,
+  resolveCustomerEmailEventForOrderStatus,
+} from './emailNotificationPreferences.service'
 import { presignDownload } from './upload.service'
 
 const formatCurrency = (value: unknown) => `Rs. ${Number(value || 0).toFixed(2)}`
@@ -109,6 +114,8 @@ export const sendWalletRechargeEventEmail = async (params: {
   gatewayPaymentId?: string | null
   reason?: string | null
 }) => {
+  if (!(await isSellerEmailNotificationEnabled(params.userId, 'wallet_recharge'))) return
+
   const merchant = await getMerchantContext(params.userId)
   if (!merchant.merchantEmail) return
 
@@ -149,6 +156,8 @@ export const sendSupportTicketCreatedEmail = async (params: {
     createdAt?: Date | string | null
   }
 }) => {
+  if (!(await isSellerEmailNotificationEnabled(params.userId, 'ticket_created'))) return
+
   const merchant = await getMerchantContext(params.userId)
   if (!merchant.merchantEmail) return
 
@@ -183,6 +192,13 @@ export const sendAccountActivatedEmail = async (params: {
   userId?: string
   email?: string | null
 }) => {
+  if (
+    params.userId &&
+    !(await isSellerEmailNotificationEnabled(params.userId, 'account_activated'))
+  ) {
+    return
+  }
+
   let to = compactText(params.email, '')
   let merchantName = 'Merchant'
 
@@ -334,6 +350,64 @@ export const sendOrderStatusUpdateEmail = async (params: {
   })
 }
 
+export const sendCustomerOrderStatusUpdateEmail = async (params: {
+  order: any
+  nextStatus: string
+  previousStatus?: string | null
+  rawStatus?: string | null
+  location?: string | null
+  remarks?: string | null
+  source?: string | null
+}) => {
+  const nextStatus = compactText(params.nextStatus, '').toLowerCase()
+  const previousStatus = compactText(params.previousStatus, '').toLowerCase()
+  if (!nextStatus || nextStatus === previousStatus) return
+
+  const event = resolveCustomerEmailEventForOrderStatus(nextStatus)
+  const userId = compactText(params.order?.user_id || params.order?.userId, '')
+  const customerEmail = compactText(params.order?.buyer_email, '')
+  if (!event || !userId || !customerEmail) return
+  if (!(await isCustomerEmailNotificationEnabled(userId, event))) return
+
+  const meta = ORDER_STATUS_META[nextStatus] || ORDER_STATUS_META.undelivered
+  const customerName = compactText(params.order?.buyer_name, 'Customer')
+  const addressParts = [
+    params.order?.address,
+    params.order?.city,
+    params.order?.state,
+    params.order?.pincode,
+  ]
+    .map((value) => compactText(value, ''))
+    .filter(Boolean)
+    .join(', ')
+
+  await sendOperationalEmail({
+    to: customerEmail,
+    subject: `${meta.subjectPrefix} - ${compactText(params.order?.order_number, 'Order update')}`,
+    eyebrow: meta.eyebrow,
+    title: meta.title,
+    intro: `Hello ${escapeHtml(customerName)}, your order ${escapeHtml(
+      compactText(params.order?.order_number),
+    )} has a new shipment update.`,
+    rows: [
+      { label: 'Order number', value: escapeHtml(compactText(params.order?.order_number)) },
+      { label: 'AWB number', value: escapeHtml(compactText(params.order?.awb_number)) },
+      {
+        label: 'Courier partner',
+        value: escapeHtml(
+          compactText(params.order?.courier_partner || params.order?.integration_type || 'Courier'),
+        ),
+      },
+      { label: 'Current status', value: escapeHtml(toStatusLabel(nextStatus)) },
+      { label: 'Location', value: escapeHtml(compactText(params.location)) },
+      { label: 'Remarks', value: escapeHtml(compactText(params.remarks || params.order?.delivery_message)) },
+      { label: 'Delivery address', value: escapeHtml(compactText(addressParts)) },
+      { label: 'Updated at', value: formatDateTime(new Date()) },
+    ],
+    outro: 'This shipment update was shared by the seller through FGShip.',
+  })
+}
+
 const getOrderForRemittance = async (orderType: string, orderId: string) => {
   if (orderType === 'b2b') {
     const [order] = await db.select().from(b2b_orders).where(eq(b2b_orders.id, orderId)).limit(1)
@@ -384,6 +458,8 @@ export const sendCodRemittanceEventEmail = async (params: {
   remittance: any
   event: 'created' | 'settled'
 }) => {
+  if (!(await isSellerEmailNotificationEnabled(params.remittance.userId, 'cod_remittance'))) return
+
   const merchant = await getMerchantContext(params.remittance.userId)
   if (!merchant.merchantEmail) return
 
@@ -441,6 +517,8 @@ export const sendTaxInvoiceGeneratedEmail = async (params: {
   invoiceAmount: number
   invoiceKey: string
 }) => {
+  if (!(await isSellerEmailNotificationEnabled(params.order.user_id, 'tax_invoice'))) return
+
   const merchant = await getMerchantContext(params.order.user_id)
   if (!merchant.merchantEmail || !params.invoiceKey) return
 

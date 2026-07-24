@@ -49,7 +49,11 @@ import { users } from '../schema/users'
 import { wallets, walletTransactions } from '../schema/wallet'
 import { computeRovChargeForOrder } from './insurance.service'
 import { generateInvoicePDF, Product } from './invoice.service'
-import { sendOrderStatusUpdateEmail, sendTaxInvoiceGeneratedEmail } from './eventEmail.service'
+import {
+  sendCustomerOrderStatusUpdateEmail,
+  sendOrderStatusUpdateEmail,
+  sendTaxInvoiceGeneratedEmail,
+} from './eventEmail.service'
 import { formatPickupAddress, loadInvoiceAssets, normalizePickupDetails } from './invoiceHelpers'
 import { resolveInvoiceNumber } from './invoiceNumber.service'
 import { createNotificationService } from './notifications.service'
@@ -15460,6 +15464,18 @@ const notifyLiveTrackingStatusEmail = async (params: {
     source: 'live_tracking_fetch',
   }).catch((err: any) => {
     console.error(`Failed to send live tracking status email for ${params.order?.order_number}:`, err)
+  })
+
+  await sendCustomerOrderStatusUpdateEmail({
+    order: params.order,
+    nextStatus,
+    previousStatus,
+    rawStatus: params.rawStatus,
+    location: params.location,
+    remarks: params.remarks,
+    source: 'live_tracking_fetch',
+  }).catch((err: any) => {
+    console.error(`Failed to send customer live tracking email for ${params.order?.order_number}:`, err)
   })
 }
 

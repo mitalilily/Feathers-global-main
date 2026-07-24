@@ -49,6 +49,10 @@ import { getRtoEventsController } from '../controllers/externalApi/rto.controlle
 import { checkServiceabilityController } from '../controllers/externalApi/serviceability.controller'
 import { getShippingRatesController } from '../controllers/externalApi/shipping.controller'
 import {
+  getEmailNotificationPreferencesController,
+  updateEmailNotificationPreferencesController,
+} from '../controllers/emailNotificationPreferences.controller'
+import {
   createWebhookController,
   deleteWebhookController,
   getWebhookController,
@@ -78,6 +82,9 @@ router.get('/webhooks/:id', requireAuth, getWebhookController)
 router.put('/webhooks/:id', requireAuth, updateWebhookController)
 router.delete('/webhooks/:id', requireAuth, deleteWebhookController)
 router.post('/webhooks/:id/regenerate-secret', requireAuth, regenerateWebhookSecretController)
+
+router.get('/email-notifications/preferences', requireAuth, getEmailNotificationPreferencesController)
+router.put('/email-notifications/preferences', requireAuth, updateEmailNotificationPreferencesController)
 
 // Provider webhook (Ekart) for partners who want to post directly
 router.post('/webhook/ekart/track', ekartWebhookHandler)

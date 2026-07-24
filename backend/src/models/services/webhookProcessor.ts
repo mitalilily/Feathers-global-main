@@ -16,7 +16,11 @@ import {
   calculateChargedWeight,
   calculateVolumetricWeight,
 } from './courierWeightCalculation.service'
-import { sendOrderStatusUpdateEmail, sendTaxInvoiceGeneratedEmail } from './eventEmail.service'
+import {
+  sendCustomerOrderStatusUpdateEmail,
+  sendOrderStatusUpdateEmail,
+  sendTaxInvoiceGeneratedEmail,
+} from './eventEmail.service'
 import { generateInvoicePDF } from './invoice.service'
 import { recordNdrEvent } from './ndr.service'
 import { createNotificationService } from './notifications.service'
@@ -70,6 +74,18 @@ const notifyOrderStatusEmail = async (params: {
     source: params.source,
   }).catch((err) => {
     console.error(`Failed to send order status email for ${params.order?.order_number}:`, err)
+  })
+
+  await sendCustomerOrderStatusUpdateEmail({
+    order: params.order,
+    nextStatus,
+    previousStatus,
+    rawStatus: params.rawStatus,
+    location: params.location,
+    remarks: params.remarks,
+    source: params.source,
+  }).catch((err) => {
+    console.error(`Failed to send customer order status email for ${params.order?.order_number}:`, err)
   })
 }
 

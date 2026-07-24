@@ -24,9 +24,12 @@ import { ViewWebhookSecretModal } from './apiIntegration/ViewWebhookSecretModal'
 import { WebhookFormModal } from './apiIntegration/WebhookFormModal'
 import { WebhookInfoPanel } from './apiIntegration/WebhookInfoPanel'
 import { WebhooksTable } from './apiIntegration/WebhooksTable'
+import EmailNotificationsPanel from './apiIntegration/EmailNotificationsPanel'
 
 const ApiIntegration = () => {
-  const [activeTab, setActiveTab] = useState<'apiKeys' | 'webhooks'>('apiKeys')
+  const [activeTab, setActiveTab] = useState<'apiKeys' | 'webhooks' | 'emailNotifications'>(
+    'apiKeys',
+  )
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [copiedSecret, setCopiedSecret] = useState<string | null>(null)
 
@@ -268,9 +271,12 @@ const ApiIntegration = () => {
         tabs={[
           { label: 'API Keys', value: 'apiKeys' },
           { label: 'Webhooks', value: 'webhooks' },
+          { label: 'Email Notifications', value: 'emailNotifications' },
         ]}
         value={activeTab}
-        onChange={(value) => setActiveTab(value as 'apiKeys' | 'webhooks')}
+        onChange={(value) =>
+          setActiveTab(value as 'apiKeys' | 'webhooks' | 'emailNotifications')
+        }
       />
     </Box>
   )
@@ -341,6 +347,8 @@ const ApiIntegration = () => {
             </Box>
           </Stack>
         )}
+
+        {activeTab === 'emailNotifications' && <EmailNotificationsPanel />}
 
         {/* Modals */}
         <CreateApiKeyModal

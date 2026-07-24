@@ -137,3 +137,46 @@ export const webhookService = {
     return res.data
   },
 }
+
+export const CUSTOMER_EMAIL_NOTIFICATION_EVENTS = [
+  'pickup_done',
+  'in_transit',
+  'out_for_delivery',
+  'delivered',
+  'undelivered',
+  'reverse_pickup',
+] as const
+
+export const SELLER_EMAIL_NOTIFICATION_EVENTS = [
+  'wallet_recharge',
+  'ticket_created',
+  'account_activated',
+  'cod_remittance',
+  'tax_invoice',
+  'weight_discrepancy',
+] as const
+
+export type CustomerEmailNotificationEvent = (typeof CUSTOMER_EMAIL_NOTIFICATION_EVENTS)[number]
+export type SellerEmailNotificationEvent = (typeof SELLER_EMAIL_NOTIFICATION_EVENTS)[number]
+
+export type EmailNotificationEventMap<T extends string = string> = Record<T, boolean>
+
+export interface EmailNotificationPreferences {
+  customer_enabled: boolean
+  customer_events: EmailNotificationEventMap<CustomerEmailNotificationEvent>
+  seller_events: EmailNotificationEventMap<SellerEmailNotificationEvent>
+}
+
+export const emailNotificationPreferencesService = {
+  getPreferences: async (): Promise<{ success: boolean; data: EmailNotificationPreferences }> => {
+    const res = await axiosInstance.get(`${API_BASE}/email-notifications/preferences`)
+    return res.data
+  },
+
+  updatePreferences: async (
+    data: EmailNotificationPreferences,
+  ): Promise<{ success: boolean; data: EmailNotificationPreferences; message: string }> => {
+    const res = await axiosInstance.put(`${API_BASE}/email-notifications/preferences`, data)
+    return res.data
+  },
+}

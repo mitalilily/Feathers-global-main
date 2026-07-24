@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ApiKey } from '../api/apiIntegration'
-import { apiKeyService, webhookService } from '../api/apiIntegration'
+import type { ApiKey, EmailNotificationPreferences } from '../api/apiIntegration'
+import {
+  apiKeyService,
+  emailNotificationPreferencesService,
+  webhookService,
+} from '../api/apiIntegration'
 
 // API Keys hooks
 export const useApiKeys = (enabled: boolean = true) => {
@@ -111,6 +115,27 @@ export const useRegenerateWebhookSecret = () => {
     mutationFn: webhookService.regenerateSecret,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['webhooks'] })
+    },
+  })
+}
+
+export const useEmailNotificationPreferences = (enabled: boolean = true) => {
+  return useQuery({
+    queryKey: ['emailNotificationPreferences'],
+    queryFn: () => emailNotificationPreferencesService.getPreferences(),
+    staleTime: 2 * 60 * 1000,
+    enabled,
+  })
+}
+
+export const useUpdateEmailNotificationPreferences = () => {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: EmailNotificationPreferences) =>
+      emailNotificationPreferencesService.updatePreferences(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emailNotificationPreferences'] })
     },
   })
 }

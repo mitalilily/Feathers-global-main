@@ -11,6 +11,7 @@ import {
 } from '../../schema/schema'
 import { db } from '../client'
 import { createWalletTransaction } from './wallet.service'
+import { isSellerEmailNotificationEnabled } from './emailNotificationPreferences.service'
 import { sendWeightDiscrepancyEmail } from './weightReconciliationEmail.service'
 import { calculateFreight } from './pricing/chargeableFreight'
 import { computeB2CFreightForOrder } from './shiprocket.service'
@@ -335,7 +336,7 @@ export async function createWeightDiscrepancy(params: CreateDiscrepancyParams) {
 
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
 
-  if (user?.email) {
+  if (user?.email && (await isSellerEmailNotificationEnabled(userId, 'weight_discrepancy'))) {
     const thresholdInfo = settings?.auto_accept_threshold_kg
       ? `${settings.auto_accept_threshold_kg}kg`
       : settings?.auto_accept_threshold_percent
