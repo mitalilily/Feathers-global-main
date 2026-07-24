@@ -54,7 +54,7 @@ fi
 
 fresh_npm_ci() {
   rm -rf node_modules
-  npm ci "$@"
+  npm ci --include=dev "$@"
 }
 
 publish_courier_client_build() {
