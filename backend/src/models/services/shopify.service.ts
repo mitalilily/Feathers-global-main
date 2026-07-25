@@ -107,7 +107,6 @@ type ShopifyAccessTokenResponse = {
 }
 
 const shopifyTokenRefreshLocks = new Map<string, Promise<string>>()
-const shopifyFulfillmentEventPermissionBlockedStores = new Set<string>()
 
 const toNumber = (value: unknown, fallback = 0): number => {
   const n = Number(value)
@@ -134,9 +133,16 @@ const REQUIRED_SHOPIFY_OAUTH_SCOPES = [
   'read_products',
   'read_webhooks',
   'write_webhooks',
+  'read_fulfillments',
   'write_fulfillments',
+  'read_assigned_fulfillment_orders',
+  'write_assigned_fulfillment_orders',
   'read_merchant_managed_fulfillment_orders',
   'write_merchant_managed_fulfillment_orders',
+  'read_third_party_fulfillment_orders',
+  'write_third_party_fulfillment_orders',
+  'read_custom_fulfillment_services',
+  'write_custom_fulfillment_services',
 ] as const
 
 const parseShopifyScopes = () =>
@@ -2757,6 +2763,24 @@ const buildShopifyFulfillmentEventPermissionError = () =>
     'Shopify fulfillment events are blocked for this store. Reconnect the Shopify app after approving write_fulfillments and install it with a Shopify user that has fulfill_and_ship_orders permission.',
   )
 
+const isShopifyReconnectRequiredError = (error: any) => {
+  const responseData = error?.response?.data
+  const message = String(
+    responseData?.error_description ||
+      responseData?.message ||
+      error?.message ||
+      error ||
+      '',
+  ).toLowerCase()
+
+  return (
+    message.includes('active refresh_token') ||
+    message.includes('refresh token expired') ||
+    message.includes('refresh token is missing') ||
+    message.includes('reconnect the shopify store')
+  )
+}
+
 const updateShopifyOrderTags = async (store: ShopifyStore, shopifyOrderId: string, tags: string[]) => {
   const data = await shopifyStoreGraphqlRequest<{
     orderUpdate: { userErrors: Array<{ field?: string[]; message: string }> }
@@ -3000,15 +3024,6 @@ export const syncShopifyStatusForLocalOrder = async (
       if (fulfillmentHasEventStatus(targetFulfillmentForEvent, fulfillmentEventStatus)) {
         actions.push('fulfillment_event_already_current')
       } else {
-        const fulfillmentEventStoreKey = String((store as any)?.id || (store as any)?.domain || '')
-        if (
-          fulfillmentEventStoreKey &&
-          shopifyFulfillmentEventPermissionBlockedStores.has(fulfillmentEventStoreKey)
-        ) {
-          actions.push('fulfillment_event_blocked_by_shopify_permission')
-          throw buildShopifyFulfillmentEventPermissionError()
-        }
-
         try {
           await createShopifyFulfillmentEvent({
             store,
@@ -3021,9 +3036,6 @@ export const syncShopifyStatusForLocalOrder = async (
           actions.push(`fulfillment_event_${fulfillmentEventStatus.toLowerCase()}`)
         } catch (eventError: any) {
           if (isShopifyFulfillmentEventPermissionError(eventError)) {
-            if (fulfillmentEventStoreKey) {
-              shopifyFulfillmentEventPermissionBlockedStores.add(fulfillmentEventStoreKey)
-            }
             actions.push('fulfillment_event_blocked_by_shopify_permission')
             throw buildShopifyFulfillmentEventPermissionError()
           }
@@ -3058,6 +3070,7 @@ export const syncShopifyStatusForLocalOrder = async (
         status: 'failed',
         source: options.source,
         actions,
+        reason: isShopifyReconnectRequiredError(err) ? 'shopify_reconnect_required' : undefined,
         error: err,
         syncedStatus: orderStatus,
         syncedAwb: trackingNumber,
@@ -3073,6 +3086,7 @@ export const syncShopifyStatusForLocalOrder = async (
       success: false,
       channel: 'shopify',
       actions,
+      reason: isShopifyReconnectRequiredError(err) ? 'shopify_reconnect_required' : undefined,
       error: err?.response?.data || err?.message || err,
     }
   }
