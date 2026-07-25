@@ -4665,9 +4665,15 @@ export const fetchAvailableCouriersWithRates = async (
           : bucket.rows
 
       for (const courier of providerRows) {
+        const isXpressbeesReverseRateCardCourier =
+          providerKey === 'xpressbees' &&
+          isReverseShipment &&
+          courier.isRateCardBackedB2C === true
         const xpressbeesUsesRouteServiceability =
           providerKey === 'xpressbees' &&
-          (xpressbeesResp?.mode === 'xbees_pincode_master' || providerMeta.raw?.fallback === true)
+          (xpressbeesResp?.mode === 'xbees_pincode_master' ||
+            providerMeta.raw?.fallback === true ||
+            isXpressbeesReverseRateCardCourier)
         const xpressbeesRecord =
           providerKey === 'xpressbees'
             ? xpressbeesResp?.records?.find(
@@ -4680,7 +4686,9 @@ export const fetchAvailableCouriersWithRates = async (
                     serviceability_mode:
                       providerMeta.raw?.fallback === true
                         ? 'local_rate_card_fallback'
-                        : 'xbees_pincode_master',
+                        : isXpressbeesReverseRateCardCourier
+                          ? 'xpressbees_reverse_rate_card'
+                          : 'xbees_pincode_master',
                     chargeable_weight: Number(params.weight ?? 0) || null,
                     raw: xpressbeesResp?.raw ?? providerMeta.raw ?? null,
                   }
