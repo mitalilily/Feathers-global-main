@@ -4,10 +4,17 @@ import { createWalletTransaction } from '../models/services/wallet.service'
 import { computeB2CFreightForOrder } from '../models/services/shiprocket.service'
 
 const REFUND_REASON_PREFIX = 'RTO freight included in forward freight refund'
+const PROVIDER_REFUND_REASON_PREFIX = 'RTO freight no rate-card refund'
 
 const apply = process.argv.includes('--apply')
+const providerRefundMode = process.argv.includes('--provider-refunds')
 const onlyAwbArg = process.argv.find((arg) => arg.startsWith('--awb='))
 const onlyAwb = onlyAwbArg ? onlyAwbArg.split('=').slice(1).join('=').trim() : ''
+const providersArg = process.argv.find((arg) => arg.startsWith('--providers='))
+const providerRefunds = (providersArg ? providersArg.split('=').slice(1).join('=') : 'shadowfax,ekart')
+  .split(',')
+  .map((provider) => provider.trim().toLowerCase())
+  .filter(Boolean)
 
 const toMoney = (value: unknown) => {
   const amount = Number(value ?? 0)
@@ -25,6 +32,126 @@ const normalizeWeightToGrams = (value: unknown) => {
 const getPickupPincode = (pickupDetails: any) => {
   if (!pickupDetails || typeof pickupDetails !== 'object') return ''
   return String(pickupDetails.pincode || pickupDetails.pin || '').trim()
+}
+
+const sqlProviderCondition = (reasonExpression: any) =>
+  sql.join(
+    providerRefunds.map((provider) => sql`${reasonExpression} ilike ${`%${provider}%`}`),
+    sql` or `,
+  )
+
+const refundProviderRtoDebits = async () => {
+  if (!providerRefunds.length) {
+    throw new Error('No providers supplied for provider refund mode')
+  }
+
+  const result = await db.execute(sql`
+    select
+      rto_wt.wallet_id,
+      coalesce(w.currency, 'INR') as currency,
+      case
+        when rto_wt.reason ilike '%shadowfax%' then 'shadowfax'
+        when rto_wt.reason ilike '%ekart%' then 'ekart'
+        else 'unknown'
+      end as provider,
+      coalesce(rto_wt.meta->>'awb', rto_wt.meta->>'awb_number') as awb_number,
+      substring(rto_wt.reason from '\\((#[^)]+)\\)') as order_number,
+      rto_wt.ref,
+      count(*)::int as debit_count,
+      coalesce(sum(rto_wt.amount), 0)::numeric as debit_amount,
+      coalesce((
+        select sum(credit.amount)
+        from wallet_transactions credit
+        where credit.wallet_id = rto_wt.wallet_id
+          and credit.type = 'credit'
+          and credit.reason ilike ${`${PROVIDER_REFUND_REASON_PREFIX}%`}
+          and coalesce(credit.meta->>'original_ref', '') = coalesce(rto_wt.ref, '')
+          and coalesce(credit.meta->>'awb_number', '') = coalesce(coalesce(rto_wt.meta->>'awb', rto_wt.meta->>'awb_number'), '')
+      ), 0)::numeric as existing_refund_amount,
+      json_agg(
+        json_build_object(
+          'id', rto_wt.id,
+          'amount', rto_wt.amount,
+          'reason', rto_wt.reason,
+          'ref', rto_wt.ref,
+          'awb_number', coalesce(rto_wt.meta->>'awb', rto_wt.meta->>'awb_number'),
+          'created_at', rto_wt.created_at
+        )
+        order by rto_wt.created_at asc, rto_wt.id asc
+      ) as debits
+    from wallet_transactions rto_wt
+    join wallets w on w.id = rto_wt.wallet_id
+    where rto_wt.type = 'debit'
+      and rto_wt.reason ilike 'RTO freight -%'
+      and (${onlyAwb || null}::text is null or rto_wt.meta->>'awb' = ${onlyAwb || null} or rto_wt.meta->>'awb_number' = ${onlyAwb || null})
+      and (${sqlProviderCondition(sql`rto_wt.reason`)})
+    group by
+      rto_wt.wallet_id,
+      coalesce(w.currency, 'INR'),
+      provider,
+      coalesce(rto_wt.meta->>'awb', rto_wt.meta->>'awb_number'),
+      substring(rto_wt.reason from '\\((#[^)]+)\\)'),
+      rto_wt.ref
+    order by provider, order_number, awb_number
+  `)
+
+  const groups = ((result as any).rows || []) as any[]
+  const summary = {
+    dryRun: !apply,
+    mode: 'provider-refunds',
+    providers: providerRefunds,
+    groupsChecked: groups.length,
+    refundTransactionsCreated: 0,
+    refundAmount: 0,
+    skippedAlreadyCorrected: 0,
+    details: [] as any[],
+  }
+
+  for (const group of groups) {
+    const debitAmount = roundMoney(Number(group.debit_amount || 0))
+    const existingRefundAmount = roundMoney(Number(group.existing_refund_amount || 0))
+    const refundDue = roundMoney(Math.max(0, debitAmount - existingRefundAmount))
+
+    if (refundDue <= 0) {
+      summary.skippedAlreadyCorrected += 1
+      continue
+    }
+
+    summary.refundTransactionsCreated += 1
+    summary.refundAmount = roundMoney(summary.refundAmount + refundDue)
+    summary.details.push({
+      provider: group.provider,
+      order_number: group.order_number,
+      awb_number: group.awb_number,
+      original_ref: group.ref,
+      refund_due: refundDue,
+      debit_amount: debitAmount,
+      existing_refund_amount: existingRefundAmount,
+      debit_count: Number(group.debit_count || 0),
+    })
+
+    if (apply) {
+      await createWalletTransaction({
+        walletId: group.wallet_id,
+        amount: refundDue,
+        type: 'credit',
+        ref: group.ref || group.awb_number || null,
+        reason: `${PROVIDER_REFUND_REASON_PREFIX} - ${group.provider} (${group.order_number || group.awb_number || 'unknown'})`,
+        currency: group.currency || 'INR',
+        meta: {
+          source: 'refund_no_rto_rate_debits_provider_refunds',
+          provider: group.provider,
+          order_number: group.order_number,
+          awb_number: group.awb_number,
+          original_ref: group.ref,
+          explanation: 'Provider has no separate positive RTO rate configured; RTO freight is included in forward freight.',
+          refunded_rto_debits: group.debits || [],
+        },
+      })
+    }
+  }
+
+  console.log(JSON.stringify(summary, null, 2))
 }
 
 const hasPositiveRtoRateForOrder = async (order: any) => {
@@ -71,6 +198,11 @@ const hasPositiveRtoRateForOrder = async (order: any) => {
 }
 
 const main = async () => {
+  if (providerRefundMode) {
+    await refundProviderRtoDebits()
+    return
+  }
+
   const result = await db.execute(sql`
     select distinct
       o.id,
