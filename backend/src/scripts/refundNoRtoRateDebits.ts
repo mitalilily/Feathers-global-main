@@ -59,15 +59,6 @@ const refundProviderRtoDebits = async () => {
       rto_wt.ref,
       count(*)::int as debit_count,
       coalesce(sum(rto_wt.amount), 0)::numeric as debit_amount,
-      coalesce((
-        select sum(credit.amount)
-        from wallet_transactions credit
-        where credit.wallet_id = rto_wt.wallet_id
-          and credit.type = 'credit'
-          and credit.reason ilike ${`${PROVIDER_REFUND_REASON_PREFIX}%`}
-          and coalesce(credit.meta->>'original_ref', '') = coalesce(rto_wt.ref, '')
-          and coalesce(credit.meta->>'awb_number', '') = coalesce(coalesce(rto_wt.meta->>'awb', rto_wt.meta->>'awb_number'), '')
-      ), 0)::numeric as existing_refund_amount,
       json_agg(
         json_build_object(
           'id', rto_wt.id,
@@ -108,8 +99,18 @@ const refundProviderRtoDebits = async () => {
   }
 
   for (const group of groups) {
+    const existingRefundResult = await db.execute(sql`
+      select coalesce(sum(amount), 0)::numeric as amount
+      from wallet_transactions
+      where wallet_id = ${group.wallet_id}
+        and type = 'credit'
+        and reason ilike ${`${PROVIDER_REFUND_REASON_PREFIX}%`}
+        and coalesce(meta->>'original_ref', '') = coalesce(${group.ref || ''}, '')
+        and coalesce(meta->>'awb_number', '') = coalesce(${group.awb_number || ''}, '')
+    `)
+    const existingRefundRow = ((existingRefundResult as any).rows || [])[0] || {}
     const debitAmount = roundMoney(Number(group.debit_amount || 0))
-    const existingRefundAmount = roundMoney(Number(group.existing_refund_amount || 0))
+    const existingRefundAmount = roundMoney(Number(existingRefundRow.amount || 0))
     const refundDue = roundMoney(Math.max(0, debitAmount - existingRefundAmount))
 
     if (refundDue <= 0) {
