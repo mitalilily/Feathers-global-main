@@ -272,6 +272,9 @@ const isSupportedB2CFallbackRate = (
 
   if (!SUPPORTED_B2C_FALLBACK_PROVIDERS.includes(provider)) return false
   if (provider === 'xpressbees') {
+    if (rate.type === 'reverse_pickup') {
+      return mode !== 'air' && !name.includes('air')
+    }
     return mode !== 'air' && !name.includes('air') && !name.includes('reverse')
   }
 
