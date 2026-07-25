@@ -2766,6 +2766,51 @@ const fulfillmentHasEventStatus = (fulfillment: any, status: string) => {
   return events.some((event: any) => String(event?.status || '').toUpperCase() === status)
 }
 
+const shopifyFulfillmentEventPriority: Record<string, number> = {
+  CONFIRMED: 1,
+  CARRIER_PICKED_UP: 2,
+  IN_TRANSIT: 3,
+  OUT_FOR_DELIVERY: 4,
+  ATTEMPTED_DELIVERY: 4,
+  FAILURE: 4,
+  DELIVERED: 5,
+}
+
+const getLatestShopifyFulfillmentEvent = (fulfillment: any) => {
+  const events = Array.isArray(fulfillment?.events?.nodes) ? fulfillment.events.nodes : []
+  return events
+    .map((event: any) => ({
+      ...event,
+      status: String(event?.status || '').toUpperCase(),
+      time: new Date(event?.happenedAt || event?.createdAt || 0).getTime(),
+    }))
+    .filter((event: any) => event.status)
+    .sort((a: any, b: any) => b.time - a.time)[0]
+}
+
+const shouldCreateShopifyFulfillmentEvent = (fulfillment: any, desiredStatus: string) => {
+  const normalizedDesiredStatus = String(desiredStatus || '').toUpperCase()
+  const desiredPriority = shopifyFulfillmentEventPriority[normalizedDesiredStatus] || 0
+  const latestEvent = getLatestShopifyFulfillmentEvent(fulfillment)
+
+  if (!latestEvent?.status) {
+    return !fulfillmentHasEventStatus(fulfillment, normalizedDesiredStatus)
+  }
+
+  const latestPriority = shopifyFulfillmentEventPriority[latestEvent.status] || 0
+  if (latestEvent.status === normalizedDesiredStatus) return false
+
+  // Never create an older/lower shipment stage after Shopify already has a
+  // newer/higher event. This prevents the Delivery status column from
+  // regressing, e.g. OFD -> In transit.
+  if (latestPriority > desiredPriority) return false
+
+  // If a higher current stage already exists but a lower event was added later,
+  // create the current stage again with a fresh timestamp so Shopify displays
+  // the actual latest status.
+  return desiredPriority >= latestPriority
+}
+
 const createShopifyFulfillmentEvent = async ({
   store,
   fulfillmentId,
@@ -3083,7 +3128,7 @@ export const syncShopifyStatusForLocalOrder = async (
     }
 
     if (targetFulfillmentForEvent?.id && fulfillmentEventStatus) {
-      if (fulfillmentHasEventStatus(targetFulfillmentForEvent, fulfillmentEventStatus)) {
+      if (!shouldCreateShopifyFulfillmentEvent(targetFulfillmentForEvent, fulfillmentEventStatus)) {
         actions.push('fulfillment_event_already_current')
       } else {
         try {
