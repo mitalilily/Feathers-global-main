@@ -3503,7 +3503,7 @@ export const fetchAvailableCouriersWithRates = async (
       }
     }
 
-    // const isReverseShipment = params.isReverse === true || params.payment_type === 'reverse'
+    const isReverseShipment = params.isReverse === true || params.payment_type === 'reverse'
 
     // Build registry of enabled couriers by service provider
     // Filter by business type: check if business_type JSONB array contains 'b2c'
@@ -3608,6 +3608,7 @@ export const fetchAvailableCouriersWithRates = async (
       }
 
       if (providerKey === 'xpressbees') {
+        if (isReverseShipment) return !isXpressbeesAirCourier(source)
         return isXpressbeesForwardSurfaceCourier(source)
       }
 
@@ -4885,8 +4886,6 @@ export const fetchAvailableCouriersWithRates = async (
     // 🔹 Merge local rates with couriers
     // Match couriers with local rates by courier_id
     // Include ALL couriers (even if they don't have local rates) - they have service provider response data
-    const isReverseShipment = params.isReverse === true || params.payment_type === 'reverse'
-
     const shouldIncludeCodCharges = params.payment_type === 'cod'
 
     const buildServiceabilityRateOptions = (rateCard: any) => {
@@ -5047,8 +5046,30 @@ export const fetchAvailableCouriersWithRates = async (
         const applicableRateOptions = applicableRateCards.flatMap((r) =>
           buildServiceabilityRateOptions(r),
         )
+        const selectedApplicableRateOptions = isReverseShipment
+          ? applicableRateOptions
+              .sort((left: any, right: any) => {
+                const leftTotal =
+                  Number(left.rate ?? 0) +
+                  Number(left.cod_charges ?? 0) +
+                  Number(left.other_charges ?? 0)
+                const rightTotal =
+                  Number(right.rate ?? 0) +
+                  Number(right.cod_charges ?? 0) +
+                  Number(right.other_charges ?? 0)
+                return (
+                  leftTotal - rightTotal ||
+                  Number(left.max_slab_weight ?? Infinity) -
+                    Number(right.max_slab_weight ?? Infinity) ||
+                  String(left.shipping_rate_id || '').localeCompare(
+                    String(right.shipping_rate_id || ''),
+                  )
+                )
+              })
+              .slice(0, 1)
+          : applicableRateOptions
 
-        if (!applicableRateOptions.length) {
+        if (!selectedApplicableRateOptions.length) {
           return [
             {
               ...courier,
@@ -5077,7 +5098,7 @@ export const fetchAvailableCouriersWithRates = async (
           ]
         }
 
-        return applicableRateOptions.map((applicableRate: any) => {
+        return selectedApplicableRateOptions.map((applicableRate: any) => {
           const rateCardFreight = Number(applicableRate.rate ?? 0)
           const rateCardCod = shouldIncludeCodCharges
             ? Number(applicableRate.cod_charges ?? 0)
