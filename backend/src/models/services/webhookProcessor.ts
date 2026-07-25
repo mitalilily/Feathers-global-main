@@ -539,6 +539,20 @@ async function applyRtoChargeOnce(
   order: any,
   courierLabel: string,
 ): Promise<number | null> {
+  const normalizedCourierLabel = String(courierLabel || order?.courier_partner || order?.integration_type || '')
+    .trim()
+    .toLowerCase()
+  if (normalizedCourierLabel.includes('shadowfax') || normalizedCourierLabel.includes('ekart')) {
+    console.log(
+      `ℹ️ Skipping RTO freight debit for ${courierLabel}; RTO is included in forward freight`,
+      {
+        order_number: order?.order_number,
+        awb_number: order?.awb_number,
+      },
+    )
+    return null
+  }
+
   const amount = await resolveRtoCharge(order)
   if (amount <= 0) return null
 
