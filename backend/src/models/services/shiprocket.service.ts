@@ -3416,7 +3416,6 @@ async function filterCouriersByBusinessType(
     const hasB2CRateCardBackedVisibility =
       expectedBusinessType === 'b2c' &&
       c?.isRateCardBackedB2C === true &&
-      visibility?.isEnabled === true &&
       Boolean(c?.localRates?.forward || c?.localRates?.rto || c?.localRates?.reverse_pickup)
 
     if (!hasBusinessType && !hasB2CRateCardBackedVisibility) {
