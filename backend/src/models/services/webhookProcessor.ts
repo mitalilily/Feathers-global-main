@@ -489,13 +489,7 @@ const generateInvoiceForOrderWebhook = async (
   }
 }
 
-const getStoredRtoCharge = (order: any) =>
-  Number(order.freight_charges ?? order.shipping_charges ?? 0) || 0
-
 async function resolveRtoCharge(order: any): Promise<number> {
-  const storedCharge = getStoredRtoCharge(order)
-  if (storedCharge > 0) return storedCharge
-
   const courierId = Number(order.courier_id ?? 0)
   const originPincode = order.pickup_details?.pincode
   const destinationPincode = order.pincode
