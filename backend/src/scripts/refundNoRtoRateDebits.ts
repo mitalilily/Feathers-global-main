@@ -72,7 +72,7 @@ const hasPositiveRtoRateForOrder = async (order: any) => {
 
 const main = async () => {
   const result = await db.execute(sql`
-    select
+    select distinct
       o.id,
       o.user_id,
       o.order_number,
@@ -94,18 +94,47 @@ const main = async () => {
       coalesce(w.currency, 'INR') as currency
     from b2c_orders o
     join wallets w on w."userId" = o.user_id
+    join wallet_transactions rto_wt
+      on rto_wt.wallet_id = w.id
+      and rto_wt.type = 'debit'
+      and rto_wt.reason ilike 'RTO freight -%'
+      and (
+        rto_wt.ref = o.id::text
+        or o.awb_number = rto_wt.meta->>'awb'
+        or o.awb_number = rto_wt.meta->>'awb_number'
+        or (
+          o.order_number is not null
+          and rto_wt.reason ilike ('%' || o.order_number || '%')
+        )
+      )
     where
       (${onlyAwb || null}::text is null or o.awb_number = ${onlyAwb || null})
-      and exists (
-        select 1
-        from wallet_transactions wt
-        where wt.wallet_id = w.id
-          and wt.ref = o.id::text
-          and wt.type = 'debit'
-          and wt.reason ilike 'RTO freight -%'
-      )
     order by o.order_number
   `)
+
+  const unmatchedResult = await db.execute(sql`
+    select count(*)::int as count, coalesce(sum(rto_wt.amount), 0)::numeric as amount
+    from wallet_transactions rto_wt
+    join wallets w on w.id = rto_wt.wallet_id
+    where rto_wt.type = 'debit'
+      and rto_wt.reason ilike 'RTO freight -%'
+      and (${onlyAwb || null}::text is null or rto_wt.meta->>'awb' = ${onlyAwb || null} or rto_wt.meta->>'awb_number' = ${onlyAwb || null})
+      and not exists (
+        select 1
+        from b2c_orders o
+        where o.user_id = w."userId"
+          and (
+            rto_wt.ref = o.id::text
+            or o.awb_number = rto_wt.meta->>'awb'
+            or o.awb_number = rto_wt.meta->>'awb_number'
+            or (
+              o.order_number is not null
+              and rto_wt.reason ilike ('%' || o.order_number || '%')
+            )
+          )
+      )
+  `)
+  const unmatched = ((unmatchedResult as any).rows || [])[0] || {}
 
   const orders = ((result as any).rows || []) as any[]
   const summary = {
@@ -116,6 +145,8 @@ const main = async () => {
     refundAmount: 0,
     skippedHasSeparateRtoRate: 0,
     skippedAlreadyCorrected: 0,
+    unmatchedRtoDebits: Number(unmatched.count || 0),
+    unmatchedRtoDebitAmount: roundMoney(Number(unmatched.amount || 0)),
     details: [] as any[],
   }
 
@@ -131,7 +162,12 @@ const main = async () => {
         select id, wallet_id, type, amount, reason, ref, meta, created_at
         from wallet_transactions
         where wallet_id = ${order.wallet_id}
-          and ref = ${order.id}
+          and (
+            ref = ${order.id}
+            or meta->>'awb' = ${order.awb_number}
+            or meta->>'awb_number' = ${order.awb_number}
+            or reason ilike ${`%${order.order_number || ''}%`}
+          )
         order by created_at asc, id asc
       `)
       const transactions = ((txResult as any).rows || []) as any[]
