@@ -1510,6 +1510,16 @@ const normalizeGraphqlOrder = (
   const tags = Array.isArray(node?.tags) ? node.tags.join(', ') : String(node?.tags || '')
   const lineItems = Array.isArray(node?.lineItems?.nodes) ? node.lineItems.nodes : []
   const totalQuantity = lineItems.reduce((sum: number, item: any) => sum + toNumber(item?.quantity, 0), 0)
+  const fulfillments = Array.isArray(node?.fulfillments) ? node.fulfillments : []
+  const firstTracking = fulfillments
+    .flatMap((fulfillment: any) => (Array.isArray(fulfillment?.trackingInfo) ? fulfillment.trackingInfo : []))
+    .find((tracking: any) => String(tracking?.number || '').trim())
+  const fulfillmentWithTracking =
+    fulfillments.find((fulfillment: any) =>
+      (Array.isArray(fulfillment?.trackingInfo) ? fulfillment.trackingInfo : []).some((tracking: any) =>
+        String(tracking?.number || '').trim(),
+      ),
+    ) || null
 
   return {
     id: legacyId,
@@ -1523,6 +1533,9 @@ const normalizeGraphqlOrder = (
     phone: node?.phone || '',
     financial_status: String(node?.displayFinancialStatus || '').toLowerCase(),
     fulfillment_status: String(node?.displayFulfillmentStatus || '').toLowerCase(),
+    tracking_number: String(firstTracking?.number || '').trim(),
+    tracking_company: String(firstTracking?.company || fulfillmentWithTracking?.name || '').trim(),
+    tracking_url: String(firstTracking?.url || '').trim(),
     payment_gateway_names: node?.paymentGatewayNames || [],
     tags,
     total_price: moneyAmount(node?.currentTotalPriceSet ?? node?.totalPriceSet),
@@ -1699,6 +1712,16 @@ const SHOPIFY_ORDERS_QUERY = `
           paymentGatewayNames
           tags
           totalWeight
+          fulfillments(first: 20) {
+            id
+            name
+            status
+            trackingInfo(first: 10) {
+              company
+              number
+              url
+            }
+          }
           currentTotalPriceSet { shopMoney { amount currencyCode } }
           totalPriceSet { shopMoney { amount currencyCode } }
           currentShippingPriceSet { shopMoney { amount currencyCode } }
@@ -1771,6 +1794,16 @@ const SHOPIFY_ORDERS_RESTRICTED_QUERY = `
           paymentGatewayNames
           tags
           totalWeight
+          fulfillments(first: 20) {
+            id
+            name
+            status
+            trackingInfo(first: 10) {
+              company
+              number
+              url
+            }
+          }
           currentTotalPriceSet { shopMoney { amount currencyCode } }
           totalPriceSet { shopMoney { amount currencyCode } }
           currentShippingPriceSet { shopMoney { amount currencyCode } }
@@ -1867,12 +1900,18 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   const piiAccessRestricted = order?.shopify_pii_restricted === true
   const existingTags = String(order?.tags || '').trim()
   const syncTags = existingTags || `shopify_store:${store.id}`
+  const shopifyTrackingNumber = String(order?.tracking_number || '').trim()
+  const shopifyTrackingCompany = String(order?.tracking_company || '').trim()
+  const shopifyTrackingUrl = String(order?.tracking_url || '').trim()
   const providerMeta = {
     source: 'shopify',
     shopify_store_id: String(store.id),
     shopify_order_id: shopifyOrderId,
     shopify_financial_signature: shopifyFinancialSignature,
     shopify_pii_restricted: piiAccessRestricted,
+    shopify_tracking_number: shopifyTrackingNumber || undefined,
+    shopify_tracking_company: shopifyTrackingCompany || undefined,
+    shopify_tracking_url: shopifyTrackingUrl || undefined,
     customer_data_note: piiAccessRestricted
       ? 'Shopify did not grant this app access to customer PII; buyer address and phone were not available during sync.'
       : undefined,
@@ -1959,9 +1998,10 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
     gift_wrap: 0,
     discount: discountAmount,
     order_status: mappedStatus,
-    courier_partner: 'Shopify',
     provider_meta: providerMeta,
     integration_type: 'shopify',
+    awb_number: shopifyTrackingNumber || null,
+    courier_partner: shopifyTrackingCompany || 'Shopify',
     is_external_api: false,
     tags: syncTags.slice(0, 200),
     updated_at: new Date(),
@@ -2002,6 +2042,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
         row.courier_partner ||
         payload.courier_partner,
       integration_type: bookedProviderKey || row.integration_type || payload.integration_type,
+      awb_number: row.awb_number || payload.awb_number,
       provider_meta: {
         ...existingProviderMeta,
         ...providerMeta,
