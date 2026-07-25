@@ -7,6 +7,14 @@ import { getUserWalletTransactions } from '../models/services/wallet.service'
 import { getOrCreateWalletOfUser } from '../models/services/walletTopupService'
 import { getMerchantScopedUserId } from '../utils/merchantScope'
 
+const endOfDay = (date?: Date) => {
+  if (!date) return undefined
+  const out = new Date(date)
+  if (Number.isNaN(out.getTime())) return undefined
+  out.setHours(23, 59, 59, 999)
+  return out
+}
+
 export const getUserWalletBalance = async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = getMerchantScopedUserId(req)
@@ -63,7 +71,7 @@ export const getWalletTransactionsController = async (req: any, res: Response) =
       offset,
       type: type as 'credit' | 'debit' | undefined,
       dateFrom: dateFrom ? new Date(dateFrom) : undefined,
-      dateTo: dateTo ? new Date(dateTo) : undefined,
+      dateTo: dateTo ? endOfDay(new Date(dateTo)) : undefined,
       search: typeof search === 'string' ? search : undefined,
     })
 

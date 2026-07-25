@@ -48,6 +48,7 @@ export interface WalletTransaction {
   currency?: string
   created_at: string
   awb_number?: string | null
+  closing_balance?: number | string | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   order?: Record<string, any> | null
   shipment_order_type?: string | null
@@ -77,6 +78,9 @@ export interface WalletTransactionsResponse {
     currency: string
   }
   transactions: WalletTransaction[]
+  totalCount?: number
+  limit?: number
+  offset?: number
 }
 
 interface WalletTransactionsParams {

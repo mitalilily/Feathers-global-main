@@ -19,7 +19,6 @@ import {
   TextField,
 } from '@mui/material'
 import { useState } from 'react'
-import { FaArrowDown, FaArrowUp } from 'react-icons/fa'
 import { MdDownload } from 'react-icons/md'
 import Papa from 'papaparse'
 import { FilterBar, type FilterField } from '../../components/FilterBar'
@@ -67,11 +66,11 @@ const formatCsvAmount = (value: unknown) => {
   return (Number.isFinite(amount) ? Math.abs(amount) : 0).toFixed(2)
 }
 
-const formatDate = (date?: string) => {
-  if (!date) return '-'
-  const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  return parsed.toLocaleDateString('en-IN')
+const formatLedgerAmount = (value: unknown, currency = 'INR') => {
+  if (value === undefined || value === null || value === '') return '-'
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '-'
+  return formatCurrency(Math.abs(amount), currency)
 }
 
 const formatDateTime = (date?: string) => {
@@ -136,6 +135,31 @@ const getCourierName = (txn?: WalletTransaction | null) => {
     meta.courier_partner,
     meta.integration_type,
   )
+}
+
+const getTransactionId = (txn?: WalletTransaction | null) => {
+  const meta = getMeta(txn)
+  return firstText(meta.transaction_id, meta.transactionId, meta.gatewayPaymentId, meta.gateway_payment_id, txn?.id)
+}
+
+const getLedgerDescription = (txn?: WalletTransaction | null) => {
+  const reason = String(txn?.reason || '').toLowerCase()
+  if (reason.includes('rto cod')) return 'RTO COD Charges'
+  if (reason.includes('cod')) return 'COD Charges'
+  if (reason.includes('rto freight')) return 'RTO Freight Charges'
+  if (reason.includes('reverse')) return 'Reverse Shipping Charges'
+  if (reason.includes('weight')) return 'Weight Discrepancy Charges'
+  if (reason.includes('wallet recharge') || reason.includes('topup') || reason.includes('top-up')) return 'Wallet Recharge'
+  if (reason.includes('refund')) return 'Refund'
+  if (reason.includes('freight') || reason.includes('shipment') || reason.includes('order payment')) return 'Freight Charges'
+  return txn?.reason || '-'
+}
+
+const getLedgerTransactionType = (txn?: WalletTransaction | null) => {
+  const description = getLedgerDescription(txn)
+  if (description === 'Wallet Recharge') return 'Wallet Recharge'
+  if (description === 'Refund') return 'Refund'
+  return 'Shipping'
 }
 
 const isClientVisibleLine = (line: PriceBreakupLine) => {
@@ -274,12 +298,14 @@ const WalletTransactions = () => {
     }
 
     const csvData = transactions.map((txn) => ({
-      Type: txn.type === 'credit' ? 'Credit' : 'Debit',
-      Reason: txn.reason || '-',
-      Reference: txn.ref || '-',
-      AWB: getTransactionAwb(txn) || '-',
-      Amount: formatCsvAmount(txn.amount),
-      Date: formatDate(txn.created_at),
+      Date: formatDateTime(txn.created_at),
+      'Txn Type': getLedgerTransactionType(txn),
+      'Ref No': getTransactionAwb(txn) || txn.ref || '-',
+      'Transaction ID': getTransactionId(txn),
+      Credit: txn.type === 'credit' ? formatCsvAmount(txn.amount) : '-',
+      Debit: txn.type === 'debit' ? formatCsvAmount(txn.amount) : '-',
+      'Closing Balance': formatCsvAmount(txn.closing_balance),
+      Description: getLedgerDescription(txn),
     }))
 
     const csv = Papa.unparse(csvData)
@@ -389,21 +415,26 @@ const WalletTransactions = () => {
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ backgroundColor: alpha('#17171A', 0.02) }}>
-                  <TableCell sx={{ fontWeight: 700, fontSize: '0.8rem', color: '#6B7280' }}>Type</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: '0.8rem', color: '#6B7280' }}>Reason</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: '0.8rem', color: '#6B7280' }}>Reference</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: '0.8rem', color: '#6B7280' }}>AWB</TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: '0.8rem', color: '#6B7280' }} align="right">
-                    Amount
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }}>Date</TableCell>
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }}>Txn Type</TableCell>
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }}>Ref No#</TableCell>
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }}>Transaction ID</TableCell>
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }} align="right">
+                    Credit(₹)
                   </TableCell>
-                  <TableCell sx={{ fontWeight: 700, fontSize: '0.8rem', color: '#6B7280' }} align="right">
-                    Date
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }} align="right">
+                    Debit(₹)
                   </TableCell>
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }} align="right">
+                    Closing Balance(₹)
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 800, fontSize: '0.74rem', color: '#94A3B8', textTransform: 'uppercase' }}>Description</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {transactions.map((txn) => {
                   const awb = getTransactionAwb(txn)
+                  const txnId = getTransactionId(txn)
                   return (
                     <TableRow
                       key={txn.id}
@@ -412,28 +443,11 @@ const WalletTransactions = () => {
                         '&:last-child td': { borderBottom: 0 },
                       }}
                     >
-                      <TableCell sx={{ p: '10px 16px', fontSize: '0.85rem' }}>
-                        <Box
-                          sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 28,
-                            height: 28,
-                            borderRadius: '50%',
-                            backgroundColor:
-                              txn.type === 'credit' ? alpha('#10B981', 0.1) : alpha('#EF4444', 0.1),
-                            color: txn.type === 'credit' ? '#10B981' : '#EF4444',
-                          }}
-                        >
-                          {txn.type === 'credit' ? <FaArrowDown size={12} /> : <FaArrowUp size={12} />}
-                        </Box>
+                      <TableCell sx={{ p: '10px 16px', fontSize: '0.78rem', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' }}>
+                        {formatDateTime(txn.created_at)}
                       </TableCell>
-                      <TableCell sx={{ p: '10px 16px', fontSize: '0.85rem', fontWeight: 500, color: '#17171A' }}>
-                        {txn.reason || '-'}
-                      </TableCell>
-                      <TableCell sx={{ p: '10px 16px', fontSize: '0.8rem', color: '#6B7280' }}>
-                        {txn.ref || '-'}
+                      <TableCell sx={{ p: '10px 16px', fontSize: '0.82rem', color: '#334155' }}>
+                        {getLedgerTransactionType(txn)}
                       </TableCell>
                       <TableCell sx={{ p: '10px 16px', fontSize: '0.8rem' }}>
                         {awb ? (
@@ -453,23 +467,41 @@ const WalletTransactions = () => {
                             {awb}
                           </Button>
                         ) : (
-                          <Typography sx={{ color: '#9CA3AF', fontSize: '0.8rem' }}>-</Typography>
+                          <Typography sx={{ color: '#64748B', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                            {txn.ref || '-'}
+                          </Typography>
                         )}
+                      </TableCell>
+                      <TableCell sx={{ p: '10px 16px', fontSize: '0.78rem', color: '#334155', fontFamily: 'monospace' }}>
+                        {txnId ? `#${String(txnId).replace(/^#/, '').slice(0, 10)}` : '-'}
                       </TableCell>
                       <TableCell
                         sx={{
                           p: '10px 16px',
                           fontSize: '0.85rem',
                           fontWeight: 700,
-                          color: txn.type === 'credit' ? '#10B981' : '#EF4444',
+                          color: '#059669',
                           textAlign: 'right',
                         }}
                       >
-                        {txn.type === 'credit' ? '+' : '-'}
-                        {formatCurrency(txn.amount, txn.currency)}
+                        {txn.type === 'credit' ? formatLedgerAmount(txn.amount, txn.currency) : '-'}
                       </TableCell>
-                      <TableCell sx={{ p: '10px 16px', fontSize: '0.8rem', color: '#6B7280', textAlign: 'right' }}>
-                        {formatDate(txn.created_at)}
+                      <TableCell
+                        sx={{
+                          p: '10px 16px',
+                          fontSize: '0.85rem',
+                          fontWeight: 700,
+                          color: '#DC2626',
+                          textAlign: 'right',
+                        }}
+                      >
+                        {txn.type === 'debit' ? formatLedgerAmount(txn.amount, txn.currency) : '-'}
+                      </TableCell>
+                      <TableCell sx={{ p: '10px 16px', fontSize: '0.82rem', color: '#334155', fontWeight: 700, textAlign: 'right' }}>
+                        {formatLedgerAmount(txn.closing_balance, txn.currency)}
+                      </TableCell>
+                      <TableCell sx={{ p: '10px 16px', fontSize: '0.82rem', color: '#334155', fontWeight: 600 }}>
+                        {getLedgerDescription(txn)}
                       </TableCell>
                     </TableRow>
                   )

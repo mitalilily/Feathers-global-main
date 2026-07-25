@@ -26,7 +26,6 @@ import {
   VStack,
 } from '@chakra-ui/react'
 import { IconAdjustments, IconEye, IconMinus, IconPlus, IconWallet } from '@tabler/icons-react'
-import StatusBadge from 'components/Badge/StatusBadge'
 import CustomDatePicker from 'components/Input/CustomDatePicker'
 import CustomModal from 'components/Modal/CustomModal'
 import SortControls from 'components/SortControls'
@@ -251,6 +250,13 @@ export default function AdminWallets() {
     }).format(num)
   }
 
+  const formatLedgerAmount = (value) => {
+    if (value === undefined || value === null || value === '') return '-'
+    const num = Number(value)
+    if (!Number.isFinite(num)) return '-'
+    return formatBalance(Math.abs(num))
+  }
+
   const formatDate = (date) => {
     if (!date) return '—'
     return new Date(date).toLocaleString('en-IN', {
@@ -323,6 +329,41 @@ export default function AdminWallets() {
       meta.courier_partner,
       meta.integration_type,
     )
+  }
+
+  const getTransactionId = (txn) => {
+    const meta = getTransactionMeta(txn)
+    return firstText(
+      meta.transaction_id,
+      meta.transactionId,
+      meta.gatewayPaymentId,
+      meta.gateway_payment_id,
+      txn?.id,
+    )
+  }
+
+  const getLedgerDescription = (txn) => {
+    const reason = String(txn?.reason || '').toLowerCase()
+    if (reason.includes('rto cod')) return 'RTO COD Charges'
+    if (reason.includes('cod')) return 'COD Charges'
+    if (reason.includes('rto freight')) return 'RTO Freight Charges'
+    if (reason.includes('reverse')) return 'Reverse Shipping Charges'
+    if (reason.includes('weight')) return 'Weight Discrepancy Charges'
+    if (reason.includes('wallet recharge') || reason.includes('topup') || reason.includes('top-up')) {
+      return 'Wallet Recharge'
+    }
+    if (reason.includes('refund')) return 'Refund'
+    if (reason.includes('freight') || reason.includes('shipment') || reason.includes('order payment')) {
+      return 'Freight Charges'
+    }
+    return txn?.reason || '-'
+  }
+
+  const getLedgerTransactionType = (txn) => {
+    const description = getLedgerDescription(txn)
+    if (description === 'Wallet Recharge') return 'Wallet Recharge'
+    if (description === 'Refund') return 'Refund'
+    return 'Shipping'
   }
 
   const getTransactionBreakupLines = (txn) => {
@@ -643,48 +684,76 @@ export default function AdminWallets() {
               <SkeletonText mt="4" noOfLines={5} spacing="4" />
             </VStack>
           ) : (
-            <TableContainer>
+            <TableContainer border="1px" borderColor="gray.100" borderRadius="md">
               <Table variant="simple" size="sm">
-                <Thead>
+                <Thead bg="gray.50">
                   <Tr>
                     <Th>Date</Th>
-                    <Th>Type</Th>
-                    <Th>Amount</Th>
-                    <Th>Reason</Th>
-                    <Th>AWB</Th>
-                    <Th>Reference</Th>
+                    <Th>Txn Type</Th>
+                    <Th>Ref No#</Th>
+                    <Th>Transaction ID</Th>
+                    <Th isNumeric>Credit(₹)</Th>
+                    <Th isNumeric>Debit(₹)</Th>
+                    <Th isNumeric>Closing Balance(₹)</Th>
+                    <Th>Description</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {transactionsData?.transactions?.length > 0 ? (
-                    transactionsData.transactions.map((txn) => (
-                      <Tr key={txn.id}>
-                        <Td>{formatDate(txn.created_at)}</Td>
-                        <Td>
-                          <StatusBadge
-                            status={txn.type?.toUpperCase()}
-                            type={txn.type === 'credit' ? 'success' : 'error'}
-                          />
-                        </Td>
-                        <Td
-                          fontWeight="bold"
-                          color={txn.type === 'credit' ? 'green.500' : 'red.500'}
-                        >
-                          {txn.type === 'credit' ? '+' : '-'}
-                          {formatBalance(txn.amount)}
-                        </Td>
-                        <Td>{txn.reason || '—'}</Td>
-                        <Td>{renderTransactionAwb(txn)}</Td>
-                        <Td>
-                          <Text fontSize="xs" fontFamily="mono">
-                            {txn.ref || '—'}
-                          </Text>
-                        </Td>
-                      </Tr>
-                    ))
+                    transactionsData.transactions.map((txn) => {
+                      const awb = getTransactionAwb(txn)
+                      const transactionId = getTransactionId(txn)
+                      return (
+                        <Tr key={txn.id} _hover={{ bg: 'gray.50' }}>
+                          <Td whiteSpace="nowrap" fontSize="xs" fontWeight="700" color="gray.700">
+                            {formatDate(txn.created_at)}
+                          </Td>
+                          <Td fontSize="sm" color="gray.700">
+                            {getLedgerTransactionType(txn)}
+                          </Td>
+                          <Td>
+                            {awb ? (
+                              <Tooltip label="View transaction details" hasArrow>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  colorScheme="blue"
+                                  fontFamily="mono"
+                                  fontWeight="800"
+                                  onClick={() => handleViewTransactionDetails(txn)}
+                                >
+                                  {awb}
+                                </Button>
+                              </Tooltip>
+                            ) : (
+                              <Text fontSize="xs" fontFamily="mono" color="gray.500">
+                                {txn.ref || '-'}
+                              </Text>
+                            )}
+                          </Td>
+                          <Td>
+                            <Text fontSize="xs" fontFamily="mono" color="gray.700">
+                              {transactionId ? `#${String(transactionId).replace(/^#/, '').slice(0, 10)}` : '-'}
+                            </Text>
+                          </Td>
+                          <Td isNumeric fontWeight="800" color="green.600">
+                            {txn.type === 'credit' ? formatLedgerAmount(txn.amount) : '-'}
+                          </Td>
+                          <Td isNumeric fontWeight="800" color="red.600">
+                            {txn.type === 'debit' ? formatLedgerAmount(txn.amount) : '-'}
+                          </Td>
+                          <Td isNumeric fontWeight="800" color="gray.700">
+                            {formatLedgerAmount(txn.closing_balance)}
+                          </Td>
+                          <Td fontSize="sm" fontWeight="600" color="gray.700">
+                            {getLedgerDescription(txn)}
+                          </Td>
+                        </Tr>
+                      )
+                    })
                   ) : (
                     <Tr>
-                      <Td colSpan={6} textAlign="center" py={8}>
+                      <Td colSpan={8} textAlign="center" py={8}>
                         <Text color="gray.500">No transactions found</Text>
                       </Td>
                     </Tr>
