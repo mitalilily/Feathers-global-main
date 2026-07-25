@@ -44,7 +44,7 @@ const main = async () => {
   const email = getArgValue('email')
   const userIdArg = getArgValue('user-id')
   const storeId = getArgValue('store-id')
-  const limit = Math.min(Math.max(parseLimit(), 1), 250)
+  const limit = Math.min(Math.max(parseLimit(), 1), 1000)
 
   if (hasArg('all')) {
     const summary = await syncShopifyOrdersForAllStores(limit)

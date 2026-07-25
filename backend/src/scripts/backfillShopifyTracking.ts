@@ -121,7 +121,7 @@ const main = async () => {
   }
 
   for (const store of storeRows) {
-    const refreshed = await shopify.syncShopifyOrdersForUser(store.userId, Math.min(limit, 250), store.id, db)
+    const refreshed = await shopify.syncShopifyOrdersForUser(store.userId, limit, store.id, db)
     summary.orderRefresh.created += refreshed.created
     summary.orderRefresh.updated += refreshed.updated
     summary.orderRefresh.skipped += refreshed.skipped

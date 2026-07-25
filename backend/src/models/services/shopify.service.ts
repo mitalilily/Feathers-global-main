@@ -1694,8 +1694,12 @@ const canAttachShopifyToExistingOrderNumber = (
 }
 
 const SHOPIFY_ORDERS_QUERY = `
-  query ShiplifiOrders($first: Int!) {
-    orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+  query ShiplifiOrders($first: Int!, $after: String) {
+    orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           id
@@ -1778,8 +1782,12 @@ const SHOPIFY_ORDERS_QUERY = `
 `
 
 const SHOPIFY_ORDERS_RESTRICTED_QUERY = `
-  query ShiplifiOrdersRestricted($first: Int!) {
-    orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+  query ShiplifiOrdersRestricted($first: Int!, $after: String) {
+    orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
       edges {
         node {
           id
@@ -1832,40 +1840,53 @@ const SHOPIFY_ORDERS_RESTRICTED_QUERY = `
 `
 
 const fetchShopifyOrders = async (store: ShopifyStore, limit = 50) => {
-  const clampedLimit = Math.min(Math.max(limit, 1), 250)
+  const totalLimit = Math.min(Math.max(limit, 1), 1000)
   let piiAccessRestricted = false
-  let data: { orders: { edges: Array<{ node: any }> } }
+  let after: string | null = null
+  const orders: any[] = []
 
-  try {
-    data = await shopifyStoreGraphqlRequest<{
-      orders: { edges: Array<{ node: any }> }
-    }>({
-      store,
-      query: SHOPIFY_ORDERS_QUERY,
-      variables: { first: clampedLimit },
-      timeout: 30000,
-    })
-  } catch (error: any) {
-    if (!isShopifyCustomerDataAccessError(error)) throw error
+  while (orders.length < totalLimit) {
+    const first = Math.min(250, totalLimit - orders.length)
+    let data: {
+      orders: {
+        pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }
+        edges: Array<{ node: any }>
+      }
+    }
 
-    piiAccessRestricted = true
-    console.warn('[Shopify] Customer data access restricted; syncing non-PII order fields only', {
-      storeId: store.id,
-      domain: store.domain,
-    })
-    data = await shopifyStoreGraphqlRequest<{
-      orders: { edges: Array<{ node: any }> }
-    }>({
-      store,
-      query: SHOPIFY_ORDERS_RESTRICTED_QUERY,
-      variables: { first: clampedLimit },
-      timeout: 30000,
-    })
+    try {
+      data = await shopifyStoreGraphqlRequest<typeof data>({
+        store,
+        query: piiAccessRestricted ? SHOPIFY_ORDERS_RESTRICTED_QUERY : SHOPIFY_ORDERS_QUERY,
+        variables: { first, after },
+        timeout: 30000,
+      })
+    } catch (error: any) {
+      if (piiAccessRestricted || !isShopifyCustomerDataAccessError(error)) throw error
+
+      piiAccessRestricted = true
+      console.warn('[Shopify] Customer data access restricted; syncing non-PII order fields only', {
+        storeId: store.id,
+        domain: store.domain,
+      })
+      data = await shopifyStoreGraphqlRequest<typeof data>({
+        store,
+        query: SHOPIFY_ORDERS_RESTRICTED_QUERY,
+        variables: { first, after },
+        timeout: 30000,
+      })
+    }
+
+    const pageEdges = data?.orders?.edges || []
+    orders.push(...pageEdges.map((edge) => normalizeGraphqlOrder(edge.node, { piiAccessRestricted })))
+
+    if (!data?.orders?.pageInfo?.hasNextPage || !data.orders.pageInfo.endCursor || pageEdges.length === 0) {
+      break
+    }
+    after = data.orders.pageInfo.endCursor
   }
 
-  return (data?.orders?.edges || []).map((edge) =>
-    normalizeGraphqlOrder(edge.node, { piiAccessRestricted }),
-  )
+  return orders
 }
 
 const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings: any, tx: any = db) => {
