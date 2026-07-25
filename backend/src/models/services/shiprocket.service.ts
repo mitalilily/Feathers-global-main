@@ -4911,6 +4911,7 @@ export const fetchAvailableCouriersWithRates = async (
               cod_charges: effectiveCodCharge,
               cod_percent: shouldIncludeCodCharges ? rateCard.cod_percent : 0,
               other_charges: rateCard.other_charges,
+              type: rateCard.type,
               shipping_rate_id: rateCard.shippingRateId,
               mode: rateCard.mode,
               min_weight: rateCard.min_weight,
