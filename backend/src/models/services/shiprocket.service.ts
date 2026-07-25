@@ -3976,7 +3976,9 @@ export const fetchAvailableCouriersWithRates = async (
 
         const courierId = Number(rate.courier_id)
         if (!Number.isFinite(courierId)) continue
-        // Older Xpressbees Surface rows can be enabled with B2C rates but lack the B2C registry flag.
+        // Older Xpressbees rows can be enabled with B2C rates but lack the B2C registry flag.
+        // Reverse pickup has its own rate-card-backed courier ("Express Reverse") and provider
+        // syncs can mark that registry row disabled, so expose it from the active reverse rate card.
         if (providerKey === 'xpressbees' && !isCourierInSystem(providerKey, courierId)) {
           const registryRow = enabledCourierRegistryRows.get(
             makeProviderCourierRegistryKey(providerKey, courierId),
@@ -3987,6 +3989,14 @@ export const fetchAvailableCouriersWithRates = async (
               serviceProvider: registryRow.serviceProvider,
               name: registryRow.name,
               createdAt: registryRow.createdAt,
+              isRateCardBackedB2C: true,
+            })
+          } else if (isReverseShipment && rate.type === 'reverse_pickup') {
+            addProviderBucketRow(providerKey, {
+              id: courierId,
+              serviceProvider: providerKey,
+              name: rate.courier_name || 'Xpressbees Reverse',
+              createdAt: null,
               isRateCardBackedB2C: true,
             })
           }
