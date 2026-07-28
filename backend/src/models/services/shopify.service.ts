@@ -1407,6 +1407,14 @@ const shouldNotifyCustomerOnFulfill = (settings: any) => {
   return ['notify', 'notify_customer', 'yes', 'true', '1'].includes(value)
 }
 
+const shouldForceFulfillmentForStatusSync = ({
+  trackingNumber,
+  fulfillmentEventStatus,
+}: {
+  trackingNumber: string
+  fulfillmentEventStatus: string | null
+}) => Boolean(String(trackingNumber || '').trim() && fulfillmentEventStatus)
+
 const mapProducts = (order: any) => {
   const items = Array.isArray(order?.line_items) ? order.line_items : []
   return items.map((item: any) => {
@@ -3039,7 +3047,18 @@ export const syncShopifyStatusForLocalOrder = async (
       actions.push(`fulfill_trigger_normalized:${effectiveFulfillTrigger}`)
     }
 
-    if (shouldAttemptFulfillment(orderStatus, effectiveFulfillTrigger)) {
+    const forceFulfillmentForStatusSync = shouldForceFulfillmentForStatusSync({
+      trackingNumber,
+      fulfillmentEventStatus,
+    })
+    const shouldSyncFulfillment =
+      shouldAttemptFulfillment(orderStatus, effectiveFulfillTrigger) || forceFulfillmentForStatusSync
+
+    if (shouldSyncFulfillment) {
+      if (!shouldAttemptFulfillment(orderStatus, effectiveFulfillTrigger) && forceFulfillmentForStatusSync) {
+        actions.push('fulfillment_forced_for_status_sync')
+      }
+
       const isAlreadyFulfilled = String(remoteOrder.displayFulfillmentStatus || '').toUpperCase() === 'FULFILLED'
       const openFulfillmentOrders = (remoteOrder.fulfillmentOrders?.nodes || []).filter((fo: any) => {
         const foStatus = String(fo?.status || '').toUpperCase()

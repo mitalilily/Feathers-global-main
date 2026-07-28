@@ -176,6 +176,61 @@ export const getSalesChannelSyncCandidates = async ({
             or ${b2c_orders.provider_meta}->'sales_channel_sync'->>'synced_awb'
               is distinct from coalesce(${b2c_orders.awb_number}, '')
             or (
+              (
+                ${b2c_orders.order_id} like 'shopify_%'
+                or ${b2c_orders.provider_meta}->>'source' = 'shopify'
+                or coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
+              )
+              and
+              coalesce(${b2c_orders.awb_number}, '') <> ''
+              and lower(coalesce(${b2c_orders.order_status}, '')) in (
+                'booked',
+                'shipment_created',
+                'manifested',
+                'manifest_generated',
+                'label_printed',
+                'label_purchased',
+                'pickup_initiated',
+                'pickup_scheduled',
+                'pickup_requested',
+                'pickup_completed',
+                'picked',
+                'picked_up',
+                'carrier_picked_up',
+                'in_transit',
+                'out_for_delivery',
+                'ndr',
+                'undelivered',
+                'delivery_attempted',
+                'attempted_delivery',
+                'delayed',
+                'lost',
+                'rto',
+                'rto_in_transit',
+                'delivered',
+                'rto_delivered',
+                'cancelled',
+                'canceled',
+                'cancellation_requested'
+              )
+              and not exists (
+                select 1
+                from jsonb_array_elements_text(
+                  case
+                    when jsonb_typeof(${b2c_orders.provider_meta}->'sales_channel_sync'->'actions') = 'array'
+                      then ${b2c_orders.provider_meta}->'sales_channel_sync'->'actions'
+                    else '[]'::jsonb
+                  end
+                ) as sync_action(value)
+                where sync_action.value like 'fulfillment_event_%'
+                  and sync_action.value not in (
+                    'fulfillment_event_skipped_no_fulfillment',
+                    'fulfillment_event_skipped_unmapped_status',
+                    'fulfillment_event_blocked_by_shopify_permission'
+                  )
+              )
+            )
+            or (
               ${b2c_orders.provider_meta}->'sales_channel_sync'->>'status' = 'failed'
               and coalesce(
                 (${b2c_orders.provider_meta}->'sales_channel_sync'->>'last_attempted_at')::timestamptz,
