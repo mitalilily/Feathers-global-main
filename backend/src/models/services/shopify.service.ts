@@ -3132,8 +3132,19 @@ export const syncShopifyStatusForLocalOrder = async (
     }
 
     if (settings?.autoCancelOrders && orderStatus === 'cancelled' && !remoteOrder.cancelledAt) {
-      await cancelShopifyOrder(store, shopifyOrderId)
-      actions.push('order_cancelled')
+      try {
+        await cancelShopifyOrder(store, shopifyOrderId)
+        actions.push('order_cancelled')
+      } catch (cancelError: any) {
+        // Shopify may reject cancellation after a fulfillment exists. That
+        // should not block tracking/status events from updating the Delivery
+        // status column.
+        actions.push('order_cancel_skipped_by_shopify')
+        console.warn(
+          `Shopify order cancel skipped for local order ${order?.order_number || order?.id}:`,
+          cancelError?.response?.data || cancelError?.message || cancelError,
+        )
+      }
     }
 
     if (
