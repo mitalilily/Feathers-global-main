@@ -72,6 +72,7 @@ const main = async () => {
     sql`
       (
         ${b2c_orders.order_id} like 'shopify_%'
+        or ${b2c_orders.order_number} ~* '^#?[A-Za-z0-9]+-E$'
         or ${b2c_orders.provider_meta}->>'source' = 'shopify'
         or coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
       )
@@ -105,6 +106,7 @@ const main = async () => {
       (
         ${b2c_orders.provider_meta}->>'shopify_store_id' = ${storeId}
         or ${b2c_orders.order_id} like ${`shopify_${storeId}_%`}
+        or ${b2c_orders.order_number} ~* '^#?[A-Za-z0-9]+-E$'
       )
     `)
   }

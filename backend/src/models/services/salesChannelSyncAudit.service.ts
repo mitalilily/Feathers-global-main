@@ -31,8 +31,10 @@ const toErrorMessage = (error: unknown) => {
 
 export const detectSalesChannel = (order: any): SalesChannel | null => {
   const localOrderId = String(order?.order_id || '').trim()
+  const orderNumber = String(order?.order_number || '').trim()
   if (localOrderId.startsWith('shopify_')) return 'shopify'
   if (localOrderId.startsWith('woo_')) return 'woocommerce'
+  if (/^#?[A-Za-z0-9]+-E$/i.test(orderNumber)) return 'shopify'
 
   const providerMeta =
     order?.provider_meta && typeof order.provider_meta === 'object' && !Array.isArray(order.provider_meta)
@@ -130,6 +132,7 @@ export const getSalesChannelSyncCandidates = async ({
         or(
           like(b2c_orders.order_id, 'shopify_%'),
           like(b2c_orders.order_id, 'woo_%'),
+          sql`${b2c_orders.order_number} ~* '^#?[A-Za-z0-9]+-E$'`,
           sql`${b2c_orders.provider_meta}->>'source' in ('shopify', 'woocommerce', 'woo')`,
           sql`coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''`,
           sql`coalesce(${b2c_orders.provider_meta}->>'woocommerce_order_id', '') <> ''`,
@@ -178,6 +181,7 @@ export const getSalesChannelSyncCandidates = async ({
             or (
               (
                 ${b2c_orders.order_id} like 'shopify_%'
+                or ${b2c_orders.order_number} ~* '^#?[A-Za-z0-9]+-E$'
                 or ${b2c_orders.provider_meta}->>'source' = 'shopify'
                 or coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
               )

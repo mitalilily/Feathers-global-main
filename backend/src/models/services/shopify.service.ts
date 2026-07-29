@@ -499,6 +499,12 @@ const extractShopifySyncTarget = (
   return { isShopifyOrder: false }
 }
 
+const getPanelShopifyBaseOrderNumber = (order: any) => {
+  const orderNumber = String(order?.order_number || '').trim()
+  const match = orderNumber.match(/^(#?[A-Za-z0-9]+)-E$/i)
+  return match ? match[1] : ''
+}
+
 export const getConfiguredShopifyCredentials = () => {
   const storeUrl = normalizeShopifyDomain(process.env.SHOPIFY_STORE || process.env.SHOPIFY_STORE_URL)
   const adminApiAccessToken = String(
@@ -2600,6 +2606,122 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
   return data?.order
 }
 
+const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName: string) => {
+  const cleanOrderName = String(orderName || '').trim()
+  if (!cleanOrderName) return null
+
+  const data = await shopifyStoreGraphqlRequest<{
+    orders: {
+      nodes: Array<{
+        id: string
+        name?: string | null
+        tags: string[]
+        cancelledAt?: string | null
+        displayFulfillmentStatus?: string
+        canMarkAsPaid?: boolean
+        fulfillmentOrders: {
+          nodes: Array<{ id: string; status: string; requestStatus?: string }>
+        }
+        fulfillments: Array<{
+          id: string
+          status?: string
+          events?: {
+            nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
+          }
+          trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
+        }>
+      }>
+    }
+  }>({
+    store,
+    query: `
+      query ShiplifiOrderStatusSyncByName($query: String!) {
+        orders(first: 5, query: $query) {
+          nodes {
+            id
+            name
+            tags
+            cancelledAt
+            displayFulfillmentStatus
+            canMarkAsPaid
+            fulfillmentOrders(first: 50) {
+              nodes {
+                id
+                status
+                requestStatus
+              }
+            }
+            fulfillments(first: 20) {
+              id
+              status
+              events(first: 10) {
+                nodes {
+                  id
+                  status
+                  happenedAt
+                }
+              }
+              trackingInfo(first: 10) {
+                company
+                number
+                url
+              }
+            }
+          }
+        }
+      }
+    `,
+    variables: { query: `name:${cleanOrderName}` },
+  })
+
+  const orders = Array.isArray(data?.orders?.nodes) ? data.orders.nodes : []
+  return orders.find((node: any) => String(node?.name || '').trim() === cleanOrderName) || null
+}
+
+const recordResolvedPanelShopifyOrder = async ({
+  order,
+  store,
+  shopifyOrderId,
+  baseOrderNumber,
+  tx,
+}: {
+  order: any
+  store: ShopifyStore
+  shopifyOrderId: string
+  baseOrderNumber: string
+  tx: any
+}) => {
+  const localOrderUuid = String(order?.id || '').trim()
+  if (!localOrderUuid || !shopifyOrderId) return
+
+  const providerMeta =
+    order?.provider_meta && typeof order.provider_meta === 'object' && !Array.isArray(order.provider_meta)
+      ? { ...order.provider_meta }
+      : {}
+
+  const nextMeta = {
+    ...providerMeta,
+    source: 'shopify',
+    shopify_store_id: String((store as any)?.id || ''),
+    shopify_order_id: extractLegacyId(shopifyOrderId),
+    shopify_order_gid: toShopifyGid('Order', shopifyOrderId),
+    shopify_panel_base_order_number: baseOrderNumber,
+    shopify_panel_link_resolved_at: new Date().toISOString(),
+  }
+
+  await tx
+    .update(b2c_orders)
+    .set({
+      provider_meta: nextMeta,
+      integration_type: 'shopify',
+      updated_at: new Date(),
+    })
+    .where(sql`${b2c_orders.id} = ${localOrderUuid}::uuid`)
+
+  order.provider_meta = nextMeta
+  order.integration_type = 'shopify'
+}
+
 const assertNoUserErrors = (operation: string, errors: Array<{ field?: string[]; message: string }> = []) => {
   if (!errors.length) return
   throw new Error(`${operation}: ${errors.map((err) => err.message).join('; ')}`)
@@ -2796,7 +2918,11 @@ const getLatestShopifyFulfillmentEvent = (fulfillment: any) => {
     .sort((a: any, b: any) => b.time - a.time)[0]
 }
 
-const shouldCreateShopifyFulfillmentEvent = (fulfillment: any, desiredStatus: string) => {
+const shouldCreateShopifyFulfillmentEvent = (
+  fulfillment: any,
+  desiredStatus: string,
+  options: { allowPanelShipmentStageOverride?: boolean } = {},
+) => {
   const normalizedDesiredStatus = String(desiredStatus || '').toUpperCase()
   const desiredPriority = shopifyFulfillmentEventPriority[normalizedDesiredStatus] || 0
   const latestEvent = getLatestShopifyFulfillmentEvent(fulfillment)
@@ -2807,6 +2933,8 @@ const shouldCreateShopifyFulfillmentEvent = (fulfillment: any, desiredStatus: st
 
   const latestPriority = shopifyFulfillmentEventPriority[latestEvent.status] || 0
   if (latestEvent.status === normalizedDesiredStatus) return false
+
+  if (options.allowPanelShipmentStageOverride) return true
 
   // Never create an older/lower shipment stage after Shopify already has a
   // newer/higher event. This prevents the Delivery status column from
@@ -2991,14 +3119,10 @@ export const syncShopifyStatusForLocalOrder = async (
   tx: any = db,
   options: { source?: string } = {},
 ) => {
-  const syncTarget = extractShopifySyncTarget(order)
-  if (!syncTarget.isShopifyOrder) {
+  let syncTarget = extractShopifySyncTarget(order)
+  const panelShopifyBaseOrderNumber = !syncTarget.isShopifyOrder ? getPanelShopifyBaseOrderNumber(order) : ''
+  if (!syncTarget.isShopifyOrder && !panelShopifyBaseOrderNumber) {
     return { attempted: false, success: true, channel: 'shopify', reason: 'not_a_shopify_order' }
-  }
-
-  const shopifyOrderId = syncTarget.shopifyOrderId || ''
-  if (!shopifyOrderId) {
-    return { attempted: false, success: false, channel: 'shopify', reason: 'missing_shopify_order_id' }
   }
 
   const store = await getStoreForStatusSync(order.user_id, syncTarget.storeId, tx)
@@ -3022,9 +3146,46 @@ export const syncShopifyStatusForLocalOrder = async (
   const actions: string[] = []
   let targetFulfillmentForEvent: any = null
   const fulfillmentEventStatus = mapShopifyFulfillmentEventStatus(orderStatus)
+  let remoteOrderFromPanelLookup: any = null
+
+  if (!syncTarget.isShopifyOrder) {
+    if (!panelShopifyBaseOrderNumber) {
+      return { attempted: false, success: true, channel: 'shopify', reason: 'not_a_shopify_order' }
+    }
+
+    remoteOrderFromPanelLookup = await getShopifyOrderByNameForStatusSync(store, panelShopifyBaseOrderNumber)
+    if (!remoteOrderFromPanelLookup?.id) {
+      return {
+        attempted: true,
+        success: false,
+        channel: 'shopify',
+        reason: 'panel_shopify_base_order_not_found',
+      }
+    }
+
+    syncTarget = {
+      storeId: String((store as any)?.id || '') || undefined,
+      shopifyOrderId: extractLegacyId(remoteOrderFromPanelLookup.id),
+      isShopifyOrder: true,
+    }
+    actions.push(`panel_order_linked:${panelShopifyBaseOrderNumber}`)
+
+    await recordResolvedPanelShopifyOrder({
+      order,
+      store,
+      shopifyOrderId: remoteOrderFromPanelLookup.id,
+      baseOrderNumber: panelShopifyBaseOrderNumber,
+      tx,
+    })
+  }
+
+  const shopifyOrderId = syncTarget.shopifyOrderId || ''
+  if (!shopifyOrderId) {
+    return { attempted: false, success: false, channel: 'shopify', reason: 'missing_shopify_order_id' }
+  }
 
   try {
-    const remoteOrder = await getShopifyOrderForStatusSync(store, shopifyOrderId)
+    const remoteOrder = remoteOrderFromPanelLookup || (await getShopifyOrderForStatusSync(store, shopifyOrderId))
     if (!remoteOrder) {
       await recordSalesChannelSyncOutcome(
         order,
@@ -3158,7 +3319,11 @@ export const syncShopifyStatusForLocalOrder = async (
     }
 
     if (targetFulfillmentForEvent?.id && fulfillmentEventStatus) {
-      if (!shouldCreateShopifyFulfillmentEvent(targetFulfillmentForEvent, fulfillmentEventStatus)) {
+      if (
+        !shouldCreateShopifyFulfillmentEvent(targetFulfillmentForEvent, fulfillmentEventStatus, {
+          allowPanelShipmentStageOverride: Boolean(panelShopifyBaseOrderNumber),
+        })
+      ) {
         actions.push('fulfillment_event_already_current')
       } else {
         try {
