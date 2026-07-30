@@ -3344,16 +3344,15 @@ export const syncShopifyStatusForLocalOrder = async (
       actions.push('fulfillment_skipped_by_settings')
     }
 
-    if (settings?.autoUpdateShipmentStatus) {
-      const cleanTags = (Array.isArray(remoteOrder.tags) ? remoteOrder.tags : String(order?.tags || '').split(','))
-        .map((t: string) => String(t || '').trim())
-        .filter(Boolean)
-        .filter((t: string) => !/^(mcw_status|dg_status):/i.test(t))
-      cleanTags.push(`dg_status:${orderStatus}`)
+    const existingTags = (Array.isArray(remoteOrder.tags) ? remoteOrder.tags : String(order?.tags || '').split(','))
+      .map((t: string) => String(t || '').trim())
+      .filter(Boolean)
+    const cleanTags = existingTags.filter((t: string) => !/^(mcw_status|dg_status):/i.test(t))
+    if (cleanTags.length !== existingTags.length) {
       await updateShopifyOrderTags(store, shopifyOrderId, cleanTags)
-      actions.push('status_tag_updated')
+      actions.push('status_tags_removed')
     } else {
-      actions.push('status_tag_skipped_by_settings')
+      actions.push('status_tags_not_present')
     }
 
     if (settings?.autoCancelOrders && orderStatus === 'cancelled' && !remoteOrder.cancelledAt) {
