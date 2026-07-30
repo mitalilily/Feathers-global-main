@@ -235,6 +235,28 @@ export const getSalesChannelSyncCandidates = async ({
               )
             )
             or (
+              (
+                ${b2c_orders.order_id} like 'shopify_%'
+                or ${b2c_orders.order_number} ~* '^#?[A-Za-z0-9]+-E$'
+                or ${b2c_orders.provider_meta}->>'source' = 'shopify'
+                or coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
+              )
+              and
+              coalesce(${b2c_orders.awb_number}, '') <> ''
+              and ${b2c_orders.provider_meta}->'sales_channel_sync'->>'status' = 'success'
+              and not exists (
+                select 1
+                from jsonb_array_elements_text(
+                  case
+                    when jsonb_typeof(${b2c_orders.provider_meta}->'sales_channel_sync'->'actions') = 'array'
+                      then ${b2c_orders.provider_meta}->'sales_channel_sync'->'actions'
+                    else '[]'::jsonb
+                  end
+                ) as sync_action(value)
+                where sync_action.value like 'fulfillment_display_status_verified:%'
+              )
+            )
+            or (
               ${b2c_orders.provider_meta}->'sales_channel_sync'->>'status' = 'failed'
               and coalesce(
                 (${b2c_orders.provider_meta}->'sales_channel_sync'->>'last_attempted_at')::timestamptz,

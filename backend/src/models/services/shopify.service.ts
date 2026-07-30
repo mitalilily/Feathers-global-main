@@ -2558,6 +2558,7 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
       fulfillments: Array<{
         id: string
         status?: string
+        displayStatus?: string | null
         events?: {
           nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
         }
@@ -2584,6 +2585,7 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
           fulfillments(first: 20) {
             id
             status
+            displayStatus
             events(first: 10) {
               nodes {
                 id
@@ -2625,6 +2627,7 @@ const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName
         fulfillments: Array<{
           id: string
           status?: string
+          displayStatus?: string | null
           events?: {
             nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
           }
@@ -2654,6 +2657,7 @@ const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName
             fulfillments(first: 20) {
               id
               status
+              displayStatus
               events(first: 10) {
                 nodes {
                   id
@@ -2725,6 +2729,49 @@ const recordResolvedPanelShopifyOrder = async ({
 const assertNoUserErrors = (operation: string, errors: Array<{ field?: string[]; message: string }> = []) => {
   if (!errors.length) return
   throw new Error(`${operation}: ${errors.map((err) => err.message).join('; ')}`)
+}
+
+const getShopifyFulfillmentForStatusSync = async (store: ShopifyStore, fulfillmentId: string) => {
+  const cleanFulfillmentId = String(fulfillmentId || '').trim()
+  if (!cleanFulfillmentId) return null
+
+  const data = await shopifyStoreGraphqlRequest<{
+    fulfillment: {
+      id: string
+      status?: string | null
+      displayStatus?: string | null
+      events?: {
+        nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
+      }
+      trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
+    } | null
+  }>({
+    store,
+    query: `
+      query ShiplifiFulfillmentDisplayStatus($id: ID!) {
+        fulfillment(id: $id) {
+          id
+          status
+          displayStatus
+          events(first: 10) {
+            nodes {
+              id
+              status
+              happenedAt
+            }
+          }
+          trackingInfo(first: 10) {
+            company
+            number
+            url
+          }
+        }
+      }
+    `,
+    variables: { id: cleanFulfillmentId },
+  })
+
+  return data?.fulfillment || null
 }
 
 const createShopifyFulfillment = async ({
@@ -2946,6 +2993,23 @@ const shouldCreateShopifyFulfillmentEvent = (
   // the actual latest status.
   return desiredPriority >= latestPriority
 }
+
+const shopifyFulfillmentDisplayMatchesStatus = (fulfillment: any, desiredStatus: string) => {
+  const displayStatus = String(fulfillment?.displayStatus || '').trim().toUpperCase()
+  const normalizedDesiredStatus = String(desiredStatus || '').trim().toUpperCase()
+  if (!displayStatus || !normalizedDesiredStatus) return false
+  if (displayStatus === normalizedDesiredStatus) return true
+
+  // Shopify can collapse early carrier states into "in transit" in the Admin
+  // list once the shipment is moving. Treat that as a valid real-column update
+  // for pickup-stage events, but keep OFD/delivered exact.
+  if (normalizedDesiredStatus === 'CARRIER_PICKED_UP' && displayStatus === 'IN_TRANSIT') return true
+
+  return false
+}
+
+const getShopifyFulfillmentDisplayStatus = (fulfillment: any) =>
+  String(fulfillment?.displayStatus || '').trim().toUpperCase() || 'UNKNOWN'
 
 const createShopifyFulfillmentEvent = async ({
   store,
@@ -3319,11 +3383,24 @@ export const syncShopifyStatusForLocalOrder = async (
     }
 
     if (targetFulfillmentForEvent?.id && fulfillmentEventStatus) {
-      if (
-        !shouldCreateShopifyFulfillmentEvent(targetFulfillmentForEvent, fulfillmentEventStatus, {
+      let currentFulfillmentForDisplay =
+        (await getShopifyFulfillmentForStatusSync(store, targetFulfillmentForEvent.id)) ||
+        targetFulfillmentForEvent
+      const displayStatusAlreadyCurrent = shopifyFulfillmentDisplayMatchesStatus(
+        currentFulfillmentForDisplay,
+        fulfillmentEventStatus,
+      )
+      const shouldCreateEvent = shouldCreateShopifyFulfillmentEvent(
+        currentFulfillmentForDisplay,
+        fulfillmentEventStatus,
+        {
           allowPanelShipmentStageOverride: Boolean(panelShopifyBaseOrderNumber),
-        })
-      ) {
+        },
+      )
+      const shouldRefreshDisplayStatusWithEvent =
+        !displayStatusAlreadyCurrent && fulfillmentHasEventStatus(currentFulfillmentForDisplay, fulfillmentEventStatus)
+
+      if (!shouldCreateEvent && !shouldRefreshDisplayStatusWithEvent) {
         actions.push('fulfillment_event_already_current')
       } else {
         try {
@@ -3336,6 +3413,9 @@ export const syncShopifyStatusForLocalOrder = async (
               undefined,
           })
           actions.push(`fulfillment_event_${fulfillmentEventStatus.toLowerCase()}`)
+          currentFulfillmentForDisplay =
+            (await getShopifyFulfillmentForStatusSync(store, targetFulfillmentForEvent.id)) ||
+            currentFulfillmentForDisplay
         } catch (eventError: any) {
           if (isShopifyFulfillmentEventPermissionError(eventError)) {
             actions.push('fulfillment_event_blocked_by_shopify_permission')
@@ -3343,6 +3423,14 @@ export const syncShopifyStatusForLocalOrder = async (
           }
           throw eventError
         }
+      }
+
+      if (shopifyFulfillmentDisplayMatchesStatus(currentFulfillmentForDisplay, fulfillmentEventStatus)) {
+        actions.push(`fulfillment_display_status_verified:${fulfillmentEventStatus.toLowerCase()}`)
+      } else {
+        actions.push(
+          `fulfillment_display_status_pending:${getShopifyFulfillmentDisplayStatus(currentFulfillmentForDisplay).toLowerCase()}`,
+        )
       }
     } else if (fulfillmentEventStatus) {
       actions.push('fulfillment_event_skipped_no_fulfillment')
