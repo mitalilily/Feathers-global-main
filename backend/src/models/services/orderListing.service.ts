@@ -134,6 +134,23 @@ const buildPickupAlertCondition = (alias: 'b2c' | 'b2b', pickupAlert?: string) =
   return null
 }
 
+const buildExcludeUnbookedShopifyImportCondition = (alias: 'b2c' | 'b2b') => {
+  if (alias !== 'b2c') return sql`true`
+
+  return sql`NOT (
+    (
+      ${sql.raw(`${alias}.order_id`)} LIKE 'shopify_%'
+      OR ${sql.raw(`${alias}.provider_meta`)}->>'source' = 'shopify'
+      OR COALESCE(${sql.raw(`${alias}.provider_meta`)}->>'shopify_order_id', '') <> ''
+    )
+    AND COALESCE(${sql.raw(`${alias}.awb_number`)}, '') = ''
+    AND COALESCE(${sql.raw(`${alias}.shipment_id`)}, '') = ''
+    AND COALESCE(${sql.raw(`${alias}.provider_reference`)}, '') = ''
+    AND COALESCE(${sql.raw(`${alias}.provider_request_id`)}, '') = ''
+    AND LOWER(COALESCE(${sql.raw(`${alias}.courier_partner`)}, '')) IN ('', 'shopify')
+  )`
+}
+
 const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilters) => {
   const conditions: SQL[] = [sql`true`]
   const normalizedLabelGenerated = String(filters.labelGenerated || '')
@@ -147,6 +164,7 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
   const statusCondition = buildStatusCondition(`${alias}.order_status`, filters.status)
   if (statusCondition) {
     conditions.push(statusCondition)
+    conditions.push(buildExcludeUnbookedShopifyImportCondition(alias))
   }
 
   const hasGeneratedLabelCondition = buildGeneratedLabelCondition(alias)
@@ -173,6 +191,7 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
   const pickupAlertCondition = buildPickupAlertCondition(alias, filters.pickupAlert)
   if (pickupAlertCondition) {
     conditions.push(pickupAlertCondition)
+    conditions.push(buildExcludeUnbookedShopifyImportCondition(alias))
   }
 
   return conditions

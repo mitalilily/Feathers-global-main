@@ -10289,6 +10289,19 @@ interface OrderFilters {
   sortOrder?: 'asc' | 'desc'
 }
 
+const excludeUnbookedShopifyImportSql = sql`NOT (
+  (
+    ${b2c_orders.order_id} LIKE 'shopify_%'
+    OR ${b2c_orders.provider_meta}->>'source' = 'shopify'
+    OR COALESCE(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
+  )
+  AND COALESCE(${b2c_orders.awb_number}, '') = ''
+  AND COALESCE(${b2c_orders.shipment_id}, '') = ''
+  AND COALESCE(${b2c_orders.provider_reference}, '') = ''
+  AND COALESCE(${b2c_orders.provider_request_id}, '') = ''
+  AND LOWER(COALESCE(${b2c_orders.courier_partner}, '')) IN ('', 'shopify')
+)`
+
 export const getB2COrdersByUserService = async (
   userId: string,
   page: number = 1,
@@ -10310,6 +10323,7 @@ export const getB2COrdersByUserService = async (
     } else {
       conditions.push(eq(b2c_orders.order_status, filters.status))
     }
+    conditions.push(excludeUnbookedShopifyImportSql)
   }
 
   const hasGeneratedLabelCondition = hasGeneratedLabelSql(
