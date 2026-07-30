@@ -2919,6 +2919,9 @@ const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null =
       'manifest_generated',
       'label_printed',
       'label_purchased',
+      'pickup_initiated',
+      'pickup_scheduled',
+      'pickup_requested',
     ].includes(status)
   ) {
     return 'CONFIRMED'
@@ -2926,20 +2929,15 @@ const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null =
 
   if (
     [
-      'pickup_initiated',
-      'pickup_scheduled',
-      'pickup_requested',
       'pickup_completed',
       'picked',
       'picked_up',
       'carrier_picked_up',
     ].includes(status)
   ) {
-    // Shopify Admin's order-list Delivery status does not render
-    // CARRIER_PICKED_UP as a visible shipment-stage badge for many stores; it
-    // keeps showing "Tracking added". Use IN_TRANSIT for pickup-stage movement
-    // so the real Delivery status column advances, while keeping the exact
-    // raw stage in dg_status:* tags for cross-checking.
+    // Only actual pickup-completed/picked-up movement should advance Shopify's
+    // Delivery status column to In transit. Pending pickup states must keep
+    // showing "Tracking added" until the courier confirms pickup.
     return 'IN_TRANSIT'
   }
 
@@ -3421,7 +3419,12 @@ export const syncShopifyStatusForLocalOrder = async (
         currentFulfillmentForDisplay,
         fulfillmentEventStatus,
         {
-          allowPanelShipmentStageOverride: Boolean(panelShopifyBaseOrderNumber),
+          allowPanelShipmentStageOverride:
+            Boolean(panelShopifyBaseOrderNumber) ||
+            (fulfillmentEventStatus === 'CONFIRMED' &&
+              ['booked', 'shipment_created', 'pickup_initiated', 'pickup_scheduled', 'pickup_requested'].includes(
+                orderStatus,
+              )),
         },
       )
       const shouldRefreshDisplayStatusWithEvent =

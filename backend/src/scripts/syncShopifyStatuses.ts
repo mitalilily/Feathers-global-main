@@ -44,6 +44,7 @@ const main = async () => {
   const email = getArgValue('email')
   const userIdArg = getArgValue('user-id')
   const storeId = getArgValue('store-id')
+  const statusArg = getArgValue('status')
   const limit = parsePositiveInt(getArgValue('limit') || process.env.SHOPIFY_STATUS_SYNC_LIMIT, 500, 5000)
   const recentDays = getArgValue('recent-days')
   const source = getArgValue('source') || 'manual-status-resync'
@@ -68,6 +69,38 @@ const main = async () => {
     throw new Error('Pass --all, --email=<user@example.com>, --user-id=<uuid>, or --store-id=<shopify-store-id>')
   }
 
+  const statusValues = (
+    statusArg
+      ? statusArg
+      : `
+        booked,
+        shipment_created,
+        pickup_initiated,
+        pickup_scheduled,
+        picked,
+        picked_up,
+        in_transit,
+        out_for_delivery,
+        ndr,
+        undelivered,
+        delivery_attempted,
+        rto,
+        rto_in_transit,
+        delivered,
+        rto_delivered,
+        cancelled,
+        cancellation_requested
+      `
+  )
+    .split(',')
+    .map((value) =>
+      value
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_'),
+    )
+    .filter(Boolean)
+
   const filters: any[] = [
     sql`
       (
@@ -77,27 +110,10 @@ const main = async () => {
         or coalesce(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
       )
     `,
-    sql`
-      lower(coalesce(${b2c_orders.order_status}, '')) in (
-        'booked',
-        'shipment_created',
-        'pickup_initiated',
-        'pickup_scheduled',
-        'picked',
-        'picked_up',
-        'in_transit',
-        'out_for_delivery',
-        'ndr',
-        'undelivered',
-        'delivery_attempted',
-        'rto',
-        'rto_in_transit',
-        'delivered',
-        'rto_delivered',
-        'cancelled',
-        'cancellation_requested'
-      )
-    `,
+    sql`lower(coalesce(${b2c_orders.order_status}, '')) in (${sql.join(
+      statusValues.map((status) => sql`${status}`),
+      sql`, `,
+    )})`,
   ]
 
   if (userId) filters.push(eq(b2c_orders.user_id, userId))
@@ -173,6 +189,7 @@ const main = async () => {
     storeId: storeId || null,
     limit,
     recentDays: recentDaysValue,
+    status: statusValues,
     source,
     ...summary,
   })
