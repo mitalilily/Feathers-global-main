@@ -2935,7 +2935,12 @@ const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null =
       'carrier_picked_up',
     ].includes(status)
   ) {
-    return 'CARRIER_PICKED_UP'
+    // Shopify Admin's order-list Delivery status does not render
+    // CARRIER_PICKED_UP as a visible shipment-stage badge for many stores; it
+    // keeps showing "Tracking added". Use IN_TRANSIT for pickup-stage movement
+    // so the real Delivery status column advances, while keeping the exact
+    // raw stage in dg_status:* tags for cross-checking.
+    return 'IN_TRANSIT'
   }
 
   if (['in_transit', 'rto', 'rto_in_transit'].includes(status)) return 'IN_TRANSIT'
