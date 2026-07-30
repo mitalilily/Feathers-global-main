@@ -10306,6 +10306,26 @@ const excludeUnbookedShopifyImportSql = sql`NOT (
   AND LOWER(COALESCE(${b2c_orders.courier_partner}, '')) IN ('', 'shopify')
 )`
 
+const B2C_NEW_ORDER_STATUSES = new Set(['pending', 'manifest_failed'])
+
+const normalizeB2CStatusFilterValues = (status?: string | string[]) => {
+  const values = Array.isArray(status) ? status : status ? String(status).split(',') : []
+  return values
+    .map((value) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_'),
+    )
+    .filter(Boolean)
+}
+
+const shouldExcludeUnbookedShopifyImportsForB2CStatus = (status?: string | string[]) => {
+  const normalized = normalizeB2CStatusFilterValues(status)
+  if (normalized.length === 0) return false
+  return normalized.some((value) => !B2C_NEW_ORDER_STATUSES.has(value))
+}
+
 export const getB2COrdersByUserService = async (
   userId: string,
   page: number = 1,
@@ -10327,7 +10347,9 @@ export const getB2COrdersByUserService = async (
     } else {
       conditions.push(eq(b2c_orders.order_status, filters.status))
     }
-    conditions.push(excludeUnbookedShopifyImportSql)
+    if (shouldExcludeUnbookedShopifyImportsForB2CStatus(filters.status)) {
+      conditions.push(excludeUnbookedShopifyImportSql)
+    }
   }
 
   const hasGeneratedLabelCondition = hasGeneratedLabelSql(

@@ -151,6 +151,26 @@ const buildExcludeUnbookedShopifyImportCondition = (alias: 'b2c' | 'b2b') => {
   )`
 }
 
+const NEW_ORDER_STATUSES = new Set(['pending', 'manifest_failed'])
+
+const normalizeStatusFilter = (status?: string | string[]) => {
+  const values = Array.isArray(status) ? status : status ? String(status).split(',') : []
+  return values
+    .map((value) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_'),
+    )
+    .filter(Boolean)
+}
+
+const shouldExcludeUnbookedShopifyImportsForStatus = (status?: string | string[]) => {
+  const normalized = normalizeStatusFilter(status)
+  if (normalized.length === 0) return false
+  return normalized.some((value) => !NEW_ORDER_STATUSES.has(value))
+}
+
 const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilters) => {
   const conditions: SQL[] = [sql`true`]
   const normalizedLabelGenerated = String(filters.labelGenerated || '')
@@ -164,7 +184,9 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
   const statusCondition = buildStatusCondition(`${alias}.order_status`, filters.status)
   if (statusCondition) {
     conditions.push(statusCondition)
-    conditions.push(buildExcludeUnbookedShopifyImportCondition(alias))
+    if (shouldExcludeUnbookedShopifyImportsForStatus(filters.status)) {
+      conditions.push(buildExcludeUnbookedShopifyImportCondition(alias))
+    }
   }
 
   const hasGeneratedLabelCondition = buildGeneratedLabelCondition(alias)
