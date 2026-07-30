@@ -2895,6 +2895,18 @@ const normalizeShipmentStatus = (status: unknown) =>
     .toLowerCase()
     .replace(/[\s-]+/g, '_')
 
+const getShipmentStatusFromShopifyTags = (tags: unknown): string => {
+  const tagList = Array.isArray(tags) ? tags : String(tags || '').split(',')
+  for (const rawTag of tagList) {
+    const match = String(rawTag || '')
+      .trim()
+      .match(/^(?:dg_status|mcw_status):(.+)$/i)
+    const taggedStatus = normalizeShipmentStatus(match?.[1])
+    if (taggedStatus && mapShopifyFulfillmentEventStatus(taggedStatus)) return taggedStatus
+  }
+  return ''
+}
+
 const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null => {
   const status = normalizeShipmentStatus(orderStatus)
   if (!status) return null
@@ -3205,12 +3217,12 @@ export const syncShopifyStatusForLocalOrder = async (
   }
 
   const settings = normalizeShopifySettings((store as any)?.settings || {})
-  const orderStatus = String(order?.order_status || '').toLowerCase()
+  const localOrderStatus = normalizeShipmentStatus(order?.order_status)
   const trackingNumber = String(order?.awb_number || '').trim()
   const actions: string[] = []
   let targetFulfillmentForEvent: any = null
-  const fulfillmentEventStatus = mapShopifyFulfillmentEventStatus(orderStatus)
   let remoteOrderFromPanelLookup: any = null
+  let effectiveOrderStatusForAudit = localOrderStatus
 
   if (!syncTarget.isShopifyOrder) {
     if (!panelShopifyBaseOrderNumber) {
@@ -3262,6 +3274,16 @@ export const syncShopifyStatusForLocalOrder = async (
         tx,
       )
       return { attempted: true, success: false, channel: 'shopify', reason: 'remote_order_not_found' }
+    }
+
+    const taggedShipmentStatus = getShipmentStatusFromShopifyTags(remoteOrder.tags)
+    const orderStatus = taggedShipmentStatus || localOrderStatus
+    effectiveOrderStatusForAudit = orderStatus
+    const fulfillmentEventStatus = mapShopifyFulfillmentEventStatus(orderStatus)
+    if (taggedShipmentStatus) {
+      actions.push(`status_source_shopify_tag:${taggedShipmentStatus}`)
+    } else {
+      actions.push(`status_source_local_order:${orderStatus || 'unknown'}`)
     }
 
     const effectiveFulfillTrigger = getEffectiveFulfillTriggerForStatusSync(settings)
@@ -3344,15 +3366,16 @@ export const syncShopifyStatusForLocalOrder = async (
       actions.push('fulfillment_skipped_by_settings')
     }
 
-    const existingTags = (Array.isArray(remoteOrder.tags) ? remoteOrder.tags : String(order?.tags || '').split(','))
-      .map((t: string) => String(t || '').trim())
-      .filter(Boolean)
-    const cleanTags = existingTags.filter((t: string) => !/^(mcw_status|dg_status):/i.test(t))
-    if (cleanTags.length !== existingTags.length) {
+    if (settings?.autoUpdateShipmentStatus && orderStatus) {
+      const cleanTags = (Array.isArray(remoteOrder.tags) ? remoteOrder.tags : String(order?.tags || '').split(','))
+        .map((t: string) => String(t || '').trim())
+        .filter(Boolean)
+        .filter((t: string) => !/^(mcw_status|dg_status):/i.test(t))
+      cleanTags.push(`dg_status:${orderStatus}`)
       await updateShopifyOrderTags(store, shopifyOrderId, cleanTags)
-      actions.push('status_tags_removed')
+      actions.push('status_tag_updated')
     } else {
-      actions.push('status_tags_not_present')
+      actions.push('status_tag_skipped_by_settings')
     }
 
     if (settings?.autoCancelOrders && orderStatus === 'cancelled' && !remoteOrder.cancelledAt) {
@@ -3461,7 +3484,7 @@ export const syncShopifyStatusForLocalOrder = async (
         actions,
         reason: isShopifyReconnectRequiredError(err) ? 'shopify_reconnect_required' : undefined,
         error: err,
-        syncedStatus: orderStatus,
+        syncedStatus: effectiveOrderStatusForAudit,
         syncedAwb: trackingNumber,
       },
       tx,
