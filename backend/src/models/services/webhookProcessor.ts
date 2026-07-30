@@ -489,11 +489,17 @@ const generateInvoiceForOrderWebhook = async (
   }
 }
 
+const normalizeShipmentWeightToGrams = (value: unknown) => {
+  const numeric = Number(value ?? 0)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+  return numeric > 50 ? Math.round(numeric) : Math.round(numeric * 1000)
+}
+
 async function resolveRtoCharge(order: any): Promise<number> {
   const courierId = Number(order.courier_id ?? 0)
-  const originPincode = order.pickup_details?.pincode
+  const originPincode = order.pickup_details?.pincode || order.pickup_details?.pin
   const destinationPincode = order.pincode
-  const weightG = Math.round(Number(order.weight ?? 0) * 1000)
+  const weightG = normalizeShipmentWeightToGrams(order.charged_weight ?? order.weight)
   const lengthCm = Number(order.length ?? 0)
   const breadthCm = Number(order.breadth ?? 0)
   const heightCm = Number(order.height ?? 0)
@@ -516,7 +522,7 @@ async function resolveRtoCharge(order: any): Promise<number> {
       userId: order.user_id,
       courierId,
       serviceProvider: order.integration_type ?? null,
-      mode: order.shipping_mode ?? null,
+      mode: order.shipping_mode ?? order.provider_mode ?? order.provider_service ?? null,
       selectedMaxSlabWeight: order.selected_max_slab_weight ?? null,
       originPincode,
       destinationPincode,
@@ -524,7 +530,8 @@ async function resolveRtoCharge(order: any): Promise<number> {
       lengthCm,
       breadthCm,
       heightCm,
-      isReverse: true,
+      isReverse: false,
+      isRto: true,
     })
 
     return Number(rate.freight ?? 0) || 0
@@ -539,20 +546,6 @@ async function applyRtoChargeOnce(
   order: any,
   courierLabel: string,
 ): Promise<number | null> {
-  const normalizedCourierLabel = String(courierLabel || order?.courier_partner || order?.integration_type || '')
-    .trim()
-    .toLowerCase()
-  if (normalizedCourierLabel.includes('shadowfax') || normalizedCourierLabel.includes('ekart')) {
-    console.log(
-      `ℹ️ Skipping RTO freight debit for ${courierLabel}; RTO is included in forward freight`,
-      {
-        order_number: order?.order_number,
-        awb_number: order?.awb_number,
-      },
-    )
-    return null
-  }
-
   const amount = await resolveRtoCharge(order)
   if (amount <= 0) return null
 
@@ -605,8 +598,13 @@ async function applyRtoChargeOnce(
       reason: `RTO freight - ${courierLabel} (${order.order_number})`,
       ref: order.id,
       meta: {
+        source: 'rto_webhook',
+        rate_type: 'rto',
         awb: order.awb_number,
+        awb_number: order.awb_number,
+        order_id: order.id,
         order_number: order.order_number,
+        courier_id: order.courier_id ?? null,
         courier_partner: order.courier_partner ?? courierLabel,
       },
       tx: tx as any,

@@ -322,9 +322,12 @@ const firstNonEmptyText = (...values: unknown[]): string => {
 
 const REVERSE_B2C_RATE_TYPES = ['reverse_pickup'] as const
 const FORWARD_B2C_RATE_TYPES = ['forward'] as const
+const RTO_B2C_RATE_TYPES = ['rto'] as const
 
-const getPreferredB2CRateTypes = (isReverse: boolean) =>
-  (isReverse ? REVERSE_B2C_RATE_TYPES : FORWARD_B2C_RATE_TYPES)
+const getPreferredB2CRateTypes = (isReverse: boolean, isRto = false) => {
+  if (isRto) return RTO_B2C_RATE_TYPES
+  return isReverse ? REVERSE_B2C_RATE_TYPES : FORWARD_B2C_RATE_TYPES
+}
 
 const getActiveB2CLocalRateForShipment = (courier: any, isReverse: boolean) => {
   if (!courier?.localRates) return null
@@ -3156,6 +3159,7 @@ export const computeB2CFreightForOrder = async (params: {
   heightCm: number
   orderAmount?: number | null
   isReverse?: boolean
+  isRto?: boolean
 }) => {
   // Resolve active plan
   const [userPlan] = await db
@@ -3192,7 +3196,7 @@ export const computeB2CFreightForOrder = async (params: {
     )
   }
 
-  const preferredRateTypes = getPreferredB2CRateTypes(Boolean(params.isReverse))
+  const preferredRateTypes = getPreferredB2CRateTypes(Boolean(params.isReverse), Boolean(params.isRto))
   const resolvedServiceProvider =
     params.serviceProvider?.trim() ||
     (params.courierId !== undefined && params.courierId !== null

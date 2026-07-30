@@ -159,7 +159,7 @@ const hasPositiveRtoRateForOrder = async (order: any) => {
   const courierId = Number(order.courier_id ?? 0)
   const originPincode = getPickupPincode(order.pickup_details)
   const destinationPincode = String(order.pincode || '').trim()
-  const weightG = normalizeWeightToGrams(order.weight)
+  const weightG = normalizeWeightToGrams(order.charged_weight ?? order.weight)
   const lengthCm = Number(order.length ?? 0)
   const breadthCm = Number(order.breadth ?? 0)
   const heightCm = Number(order.height ?? 0)
@@ -182,7 +182,7 @@ const hasPositiveRtoRateForOrder = async (order: any) => {
       userId: order.user_id,
       courierId,
       serviceProvider: order.integration_type ?? null,
-      mode: order.shipping_mode ?? null,
+      mode: order.shipping_mode ?? order.provider_mode ?? order.provider_service ?? null,
       selectedMaxSlabWeight: order.selected_max_slab_weight ?? null,
       originPincode,
       destinationPincode,
@@ -190,7 +190,8 @@ const hasPositiveRtoRateForOrder = async (order: any) => {
       lengthCm,
       breadthCm,
       heightCm,
-      isReverse: true,
+      isReverse: false,
+      isRto: true,
     })
     return toMoney(computed.freight) > 0
   } catch {
@@ -216,9 +217,12 @@ const main = async () => {
       o.courier_partner,
       o.integration_type,
       o.shipping_mode,
+      o.provider_mode,
+      o.provider_service,
       o.selected_max_slab_weight,
       o.pickup_details,
       o.pincode,
+      o.charged_weight,
       o.weight,
       o.length,
       o.breadth,

@@ -24,6 +24,8 @@
     "sync:shopify-orders": "tsx src/scripts/syncShopifyOrders.ts",
     "sync:shopify-statuses": "tsx src/scripts/syncShopifyStatuses.ts",
     "backfill:shopify-tracking": "tsx src/scripts/backfillShopifyTracking.ts",
+    "backfill:missing-rto-freight": "tsx src/scripts/backfillMissingRtoFreightDebits.ts",
+    "reconcile:rto-freight": "tsx src/scripts/reconcileRtoFreightDebits.ts",
     "normalize:ekart-reverse-statuses": "tsx src/scripts/normalizeEkartReverseStatuses.ts",
     "normalize:xpressbees-statuses": "tsx src/scripts/normalizeXpressbeesStatuses.ts",
     "backfill:rto-wallet-corrections": "tsx src/scripts/backfillRtoWalletCorrections.ts",
