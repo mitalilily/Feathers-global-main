@@ -1154,7 +1154,6 @@ export class ShadowfaxService {
     const orderItems = Array.isArray(params.order_items) ? params.order_items : []
     return {
       client_order_number: params.order_number,
-      client_request_id: params.order_number,
       warehouse_name: params.pickup?.warehouse_name || this.clientName || 'Warehouse',
       warehouse_address: params.pickup?.address || '',
       destination_pincode: Number(params.rto?.pincode || params.pickup?.pincode),

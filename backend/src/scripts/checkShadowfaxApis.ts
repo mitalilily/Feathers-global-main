@@ -13,6 +13,7 @@ const FORWARD_AWB = 'SFXFW1234567890'
 const WAREHOUSE_AWB = 'SFXWH1234567890'
 const FALLBACK_AWB = 'SFXFB1234567890'
 const REVERSE_REQUEST_ID = 'R-SFX1234567890'
+const REVERSE_AWB = 'SFXREV1234567890'
 
 const readJsonBody = async (req: IncomingMessage) =>
   new Promise<any>((resolve, reject) => {
@@ -260,13 +261,14 @@ const startMockShadowfaxServer = async () => {
 
       if (req.method === 'POST' && parsed.pathname === '/v3/clients/requests') {
         assert.equal(body?.client_order_number, 'SFX_TEST_ORDER')
+        assert.equal(body?.client_request_id, undefined)
         assert.equal(body?.destination_pincode, 122001)
         assert.equal(body?.address_attributes?.pincode, 400001)
         assert.equal(body?.skus_attributes?.[0]?.client_sku_id, 'SKU-SFX-1')
         return sendJson(res, 200, {
           success: true,
           client_request_id: REVERSE_REQUEST_ID,
-          awb_number: REVERSE_REQUEST_ID,
+          awb_number: REVERSE_AWB,
           status: 'created',
         })
       }
@@ -650,6 +652,7 @@ const main = async () => {
     const reverseShipment = await shadowfax.createReverseShipment(buildShipmentPayload())
     assertJsonResponse('createReverseShipment', reverseShipment)
     assert.equal(reverseShipment?.client_request_id, REVERSE_REQUEST_ID)
+    assert.equal(reverseShipment?.awb_number, REVERSE_AWB)
 
     const tracking = await shadowfax.trackShipment(FORWARD_AWB)
     assertJsonResponse('trackShipment', tracking)
