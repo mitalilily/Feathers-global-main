@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, lte, or, sql } from 'drizzle-orm'
 import { Request, Response } from 'express'
 import { db } from '../../models/client'
+import { isSellerEmailNotificationEnabled } from '../../models/services/emailNotificationPreferences.service'
 import { presignDownload } from '../../models/services/upload.service'
 import { createWalletTransaction } from '../../models/services/wallet.service'
 import { sendDisputeUpdateEmail } from '../../models/services/weightReconciliationEmail.service'
@@ -330,7 +331,7 @@ export async function approveDispute(req: Request, res: Response) {
 
     // Send email to customer
     const [user] = await db.select().from(users).where(eq(users.id, dispute.user_id)).limit(1)
-    if (user?.email) {
+    if (user?.email && (await isSellerEmailNotificationEnabled(dispute.user_id, 'weight_discrepancy'))) {
       const [discrepancy] = await db
         .select()
         .from(weight_discrepancies)
@@ -436,7 +437,7 @@ export async function rejectDispute(req: Request, res: Response) {
 
     // Send email to customer
     const [user] = await db.select().from(users).where(eq(users.id, dispute.user_id)).limit(1)
-    if (user?.email) {
+    if (user?.email && (await isSellerEmailNotificationEnabled(dispute.user_id, 'weight_discrepancy'))) {
       const [discrepancy] = await db
         .select()
         .from(weight_discrepancies)

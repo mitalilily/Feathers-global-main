@@ -8,7 +8,6 @@ import {
 } from '../../models/services/reverse.service'
 import {
   sendCustomerOrderStatusUpdateEmail,
-  sendReversePickupCreatedEmail,
 } from '../../models/services/eventEmail.service'
 import { createB2CShipmentService } from '../../models/services/shiprocket.service'
 import { b2c_orders } from '../../schema/schema'
@@ -114,13 +113,6 @@ export const createReturnOrderController = async (req: any, res: Response) => {
       console.error('Failed to send return order webhook:', err)
     })
 
-    await sendReversePickupCreatedEmail({
-      order,
-      originalOrderId,
-      reverseCharge,
-    }).catch((err) => {
-      console.error('Failed to send reverse pickup email:', err)
-    })
     await sendCustomerOrderStatusUpdateEmail({
       order,
       nextStatus: 'reverse_pickup',

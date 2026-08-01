@@ -298,6 +298,11 @@ export const sendOrderStatusUpdateEmail = async (params: {
   const meta = ORDER_STATUS_META[nextStatus]
   const userId = compactText(params.order?.user_id || params.order?.userId, '')
   if (!meta || !userId) return
+  // Seller settings currently expose operational email toggles only
+  // (wallet, ticket, account, COD remittance, tax invoice, weight discrepancy).
+  // Shipment-stage tracking emails are customer-stage notifications, so do not
+  // send seller status emails without an explicit seller stage toggle.
+  return
 
   const merchant = await getMerchantContext(userId)
   if (!merchant.merchantEmail) return
@@ -566,29 +571,7 @@ export const sendReversePickupCreatedEmail = async (params: {
   originalOrderId: string
   reverseCharge: number
 }) => {
-  const userId = compactText(params.order?.user_id || params.order?.userId, '')
-  if (!userId) return
-
-  const merchant = await getMerchantContext(userId)
-  if (!merchant.merchantEmail) return
-
-  await sendOperationalEmail({
-    to: merchant.merchantEmail,
-    subject: `Reverse pickup created - ${compactText(params.order?.order_number)}`,
-    eyebrow: 'Reverse Pickup',
-    title: 'Reverse pickup created',
-    intro: `Hello ${escapeHtml(merchant.merchantName)}, a reverse pickup has been created successfully.`,
-    rows: [
-      { label: 'Reverse order number', value: escapeHtml(compactText(params.order?.order_number)) },
-      { label: 'AWB number', value: escapeHtml(compactText(params.order?.awb_number)) },
-      { label: 'Original order ID', value: escapeHtml(compactText(params.originalOrderId)) },
-      {
-        label: 'Courier partner',
-        value: escapeHtml(compactText(params.order?.courier_partner || params.order?.integration_type)),
-      },
-      { label: 'Reverse charge', value: formatCurrency(params.reverseCharge) },
-      { label: 'Status', value: escapeHtml(toStatusLabel(compactText(params.order?.order_status || 'booked'))) },
-      { label: 'Created at', value: formatDateTime(new Date()) },
-    ],
-  })
+  void params
+  // There is no seller-side reverse-pickup notification toggle in the settings panel.
+  // Keep this helper as a no-op so seller reverse-pickup emails cannot bypass preferences.
 }
