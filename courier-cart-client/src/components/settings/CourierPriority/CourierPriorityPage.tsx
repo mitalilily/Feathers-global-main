@@ -19,7 +19,7 @@ import {
   Typography,
   alpha,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { type DragEvent, useEffect, useMemo, useState } from 'react'
 import { MdDelete, MdDragIndicator, MdExpandMore, MdSave } from 'react-icons/md'
 import {
   type CourierPriorityCondition,
@@ -74,6 +74,17 @@ const moveItem = <T,>(items: T[], from: number, to: number) => {
   return next
 }
 
+const courierDragKey = (courier: PriorityCourier) =>
+  [
+    courier.courierId,
+    courier.integration_type,
+    courier.serviceProvider,
+    courier.max_slab_weight,
+    courier.name,
+  ]
+    .map((value) => String(value ?? '').trim())
+    .join('__')
+
 const conditionLabel = (condition: CourierPriorityCondition) => {
   const type = conditionTypes.find((item) => item.value === condition.type)?.label || condition.type
   if (condition.type === 'weight') {
@@ -102,7 +113,7 @@ const CourierPriorityPage = () => {
   const [ruleName, setRuleName] = useState('')
   const [conditions, setConditions] = useState<CourierPriorityCondition[]>([])
   const [priorityCouriers, setPriorityCouriers] = useState<PriorityCourier[]>([])
-  const [draggedCourierIndex, setDraggedCourierIndex] = useState<number | null>(null)
+  const [draggedCourierKey, setDraggedCourierKey] = useState<string | null>(null)
 
   useEffect(() => {
     const savedName = String(presetProfile?.name || '') as ProfileName
@@ -141,10 +152,24 @@ const CourierPriorityPage = () => {
     )
   }
 
-  const handleCourierDrop = (index: number) => {
-    if (draggedCourierIndex === null || draggedCourierIndex === index) return
-    moveCourier(draggedCourierIndex, index)
-    setDraggedCourierIndex(null)
+  const handleCourierDragStart = (courier: PriorityCourier) => {
+    setDraggedCourierKey(courierDragKey(courier))
+  }
+
+  const handleCourierDragOver = (event: DragEvent, hoverIndex: number) => {
+    event.preventDefault()
+    if (!draggedCourierKey) return
+
+    const activeIndex = effectivePriorityCouriers.findIndex(
+      (courier) => courierDragKey(courier) === draggedCourierKey,
+    )
+
+    if (activeIndex < 0 || activeIndex === hoverIndex) return
+    moveCourier(activeIndex, hoverIndex)
+  }
+
+  const handleCourierDragEnd = () => {
+    setDraggedCourierKey(null)
   }
 
   const savePreset = () => {
@@ -407,8 +432,33 @@ const CourierPriorityPage = () => {
               >
                 {effectivePriorityCouriers.map((courier, index) => (
                   <Paper
-                    key={`${courier.courierId}-${courier.integration_type}-${index}`}
-                    sx={{ p: 1, borderRadius: 2, border: '1px solid #E5E7EB' }}
+                    key={`${courierDragKey(courier)}-${index}`}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', courierDragKey(courier))
+                      handleCourierDragStart(courier)
+                    }}
+                    onDragOver={(event) => handleCourierDragOver(event, index)}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      handleCourierDragEnd()
+                    }}
+                    onDragEnd={handleCourierDragEnd}
+                    sx={{
+                      p: 1,
+                      borderRadius: 2,
+                      border: '1px solid #E5E7EB',
+                      cursor: 'grab',
+                      opacity: draggedCourierKey === courierDragKey(courier) ? 0.55 : 1,
+                      transition: 'border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease',
+                      userSelect: 'none',
+                      '&:active': { cursor: 'grabbing' },
+                      '&:hover': {
+                        borderColor: '#047b85',
+                        boxShadow: '0 8px 22px rgba(4, 123, 133, 0.12)',
+                      },
+                    }}
                   >
                     <Stack direction="row" alignItems="center" gap={0.75}>
                       <Chip label={index + 1} color="primary" size="small" />
@@ -416,17 +466,10 @@ const CourierPriorityPage = () => {
                         {courier.name}
                       </Typography>
                       <Box
-                        draggable
-                        onDragStart={() => setDraggedCourierIndex(index)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => handleCourierDrop(index)}
-                        onDragEnd={() => setDraggedCourierIndex(null)}
                         sx={{
                           display: 'flex',
                           alignItems: 'center',
-                          cursor: 'grab',
                           color: 'text.secondary',
-                          opacity: draggedCourierIndex === index ? 0.5 : 1,
                         }}
                       >
                         <MdDragIndicator size={18} />
