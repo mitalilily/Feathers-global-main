@@ -312,6 +312,47 @@ const parseRecordValue = (value: unknown): Record<string, any> => {
   return {}
 }
 
+const normalizeComparableText = (value: unknown) => String(value ?? '').trim()
+
+const normalizeComparableNumber = (value: unknown) => {
+  const parsed = Number(value ?? 0)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const normalizeComparableJson = (value: unknown) => {
+  if (value === undefined || value === null) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+const appendLocalOverrideGroups = (
+  providerMetaValue: unknown,
+  groups: string[],
+  source = 'booking',
+) => {
+  const providerMeta = parseRecordValue(providerMetaValue)
+  const existingOverrides = parseRecordValue(providerMeta.local_overrides)
+  const existingFields = Array.isArray(existingOverrides.fields)
+    ? existingOverrides.fields.map((field: unknown) => String(field || '').trim()).filter(Boolean)
+    : []
+  const nextFields = Array.from(new Set([...existingFields, ...groups.filter(Boolean)]))
+
+  if (!nextFields.length) return providerMeta
+
+  return {
+    ...providerMeta,
+    local_overrides: {
+      ...existingOverrides,
+      fields: nextFields,
+      source,
+      updated_at: new Date().toISOString(),
+    },
+  }
+}
+
 const firstNonEmptyText = (...values: unknown[]): string => {
   for (const value of values) {
     const normalized = String(value ?? '').trim()
@@ -6412,6 +6453,69 @@ async function updateExistingB2COrderWithShipment({
   const rtoDetails = normalizeJsonValue(params.rto) ?? existingOrder.rto_details ?? null
   const isCodOrder = params.payment_type === 'cod'
   const storedCodCharges = isCodOrder ? Number(params?.cod_charges ?? 0) : 0
+  const isShopifyImportedOrder =
+    String(existingOrder.order_id || '').startsWith('shopify_') ||
+    String(parseRecordValue(existingOrder.provider_meta).source || '').toLowerCase() === 'shopify' ||
+    String(parseRecordValue(existingOrder.provider_meta).shopify_order_id || '').trim().length > 0
+  const locallyChangedGroups = new Set<string>()
+  const markChanged = (group: string, changed: boolean) => {
+    if (changed) locallyChangedGroups.add(group)
+  }
+
+  markChanged(
+    'consignee',
+    normalizeComparableText(params.consignee?.name) !== normalizeComparableText(existingOrder.buyer_name) ||
+      normalizeComparableText(params.consignee?.phone) !== normalizeComparableText(existingOrder.buyer_phone) ||
+      normalizeComparableText(params.consignee?.email) !== normalizeComparableText(existingOrder.buyer_email) ||
+      normalizeComparableText(params.consignee?.address) !== normalizeComparableText(existingOrder.address) ||
+      normalizeComparableText(params.consignee?.city) !== normalizeComparableText(existingOrder.city) ||
+      normalizeComparableText(params.consignee?.state) !== normalizeComparableText(existingOrder.state) ||
+      normalizeComparableText(params.consignee?.country || 'India') !==
+        normalizeComparableText(existingOrder.country || 'India') ||
+      normalizeComparableText(params.consignee?.pincode) !== normalizeComparableText(existingOrder.pincode),
+  )
+  markChanged(
+    'parcel',
+    normalizeComparableNumber(params.package_weight) !== normalizeComparableNumber(existingOrder.weight) ||
+      normalizeComparableNumber(params.package_length) !== normalizeComparableNumber(existingOrder.length) ||
+      normalizeComparableNumber(params.package_breadth) !== normalizeComparableNumber(existingOrder.breadth) ||
+      normalizeComparableNumber(params.package_height) !== normalizeComparableNumber(existingOrder.height),
+  )
+  markChanged(
+    'products',
+    Array.isArray(params.order_items) &&
+      normalizeComparableJson(params.order_items) !== normalizeComparableJson(existingOrder.products),
+  )
+  markChanged(
+    'financial',
+    normalizeComparableNumber(params.order_amount) !== normalizeComparableNumber(existingOrder.order_amount) ||
+      normalizeComparableText(params.payment_type) !== normalizeComparableText(existingOrder.order_type) ||
+      normalizeComparableNumber(params.prepaid_amount) !== normalizeComparableNumber(existingOrder.prepaid_amount) ||
+      normalizeComparableNumber(params.shipping_charges) !==
+        normalizeComparableNumber(existingOrder.shipping_charges) ||
+      normalizeComparableNumber(params.transaction_fee) !==
+        normalizeComparableNumber(existingOrder.transaction_fee) ||
+      normalizeComparableNumber(params.gift_wrap) !== normalizeComparableNumber(existingOrder.gift_wrap) ||
+      normalizeComparableNumber(params.discount) !== normalizeComparableNumber(existingOrder.discount) ||
+      normalizeComparableNumber(params.cod_charges) !== normalizeComparableNumber(existingOrder.cod_charges),
+  )
+  markChanged(
+    'invoice',
+    normalizeComparableText(params.invoice_number) !== normalizeComparableText(existingOrder.invoice_number) ||
+      normalizeComparableText(params.invoice_date) !== normalizeComparableText(existingOrder.invoice_date) ||
+      normalizeComparableNumber(params.invoice_amount) !== normalizeComparableNumber(existingOrder.invoice_amount),
+  )
+  markChanged(
+    'pickup',
+    normalizeComparableJson(pickupDetails) !== normalizeComparableJson(existingOrder.pickup_details),
+  )
+  markChanged('rto', normalizeComparableJson(rtoDetails) !== normalizeComparableJson(existingOrder.rto_details))
+
+  const localOverrideGroups = isShopifyImportedOrder ? Array.from(locallyChangedGroups) : []
+  const shouldRegenerateLocalLabel =
+    localOverrideGroups.some((group) =>
+      ['consignee', 'parcel', 'products', 'financial', 'invoice', 'pickup', 'rto'].includes(group),
+    ) && (Boolean(existingOrder.label) || Boolean(existingOrder.label_generated_once))
   const providerReference =
     String(
       shipmentData?.provider_reference ??
@@ -6523,14 +6627,28 @@ async function updateExistingB2COrderWithShipment({
       provider_mode: providerMode,
       provider_service: providerService,
       provider_last_status: providerLastStatus ?? status ?? 'booked',
-      provider_meta: shipmentData ?? existingOrder.provider_meta,
+      provider_meta: appendLocalOverrideGroups(
+        {
+          ...parseRecordValue(existingOrder.provider_meta),
+          ...parseRecordValue(shipmentData),
+        },
+        localOverrideGroups,
+        'courier_booking',
+      ),
       edd: expectedDelivery,
       awb_number: shipmentData?.awb_number ?? existingOrder.awb_number,
-      label: typeof shipmentData?.label === 'string' ? shipmentData.label : existingOrder.label,
+      label:
+        typeof shipmentData?.label === 'string'
+          ? shipmentData.label
+          : shouldRegenerateLocalLabel
+            ? null
+            : existingOrder.label,
       label_generated_once:
         typeof shipmentData?.label === 'string' && shipmentData.label.trim().length > 0
           ? true
-          : existingOrder.label_generated_once,
+          : shouldRegenerateLocalLabel
+            ? false
+            : existingOrder.label_generated_once,
       manifest:
         typeof shipmentData?.manifest === 'string' && shipmentData?.manifest.length <= 100
           ? shipmentData.manifest

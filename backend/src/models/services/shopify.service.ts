@@ -49,12 +49,102 @@ type ExistingShopifyOrderRow = {
   id: string
   order_id?: string | null
   order_number?: string | null
+  order_amount?: any
+  invoice_number?: string | null
+  invoice_date?: string | null
+  invoice_amount?: any
+  buyer_name?: string | null
+  buyer_phone?: string | null
+  buyer_email?: string | null
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  country?: string | null
+  pincode?: string | null
+  products?: any
+  weight?: any
+  length?: any
+  breadth?: any
+  height?: any
+  order_type?: string | null
+  prepaid_amount?: any
+  cod_charges?: any
+  shipping_charges?: any
+  transaction_fee?: any
+  gift_wrap?: any
+  discount?: any
   order_status?: string | null
   awb_number?: string | null
   courier_partner?: string | null
   integration_type?: string | null
   provider_meta?: any
   provider_service?: string | null
+  pickup_details?: any
+  rto_details?: any
+  label?: string | null
+  label_generated_once?: boolean | null
+}
+const parseProviderMetaObject = (value: unknown): Record<string, any> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
+const getLocalOverrideFields = (row: ExistingShopifyOrderRow | null | undefined) => {
+  const providerMeta = parseProviderMetaObject(row?.provider_meta)
+  const localOverrides = parseProviderMetaObject(providerMeta.local_overrides)
+  return new Set(
+    Array.isArray(localOverrides.fields)
+      ? localOverrides.fields.map((field: unknown) => String(field || '').trim()).filter(Boolean)
+      : [],
+  )
+}
+
+const existingShopifyOrderSelect = {
+  id: b2c_orders.id,
+  order_id: b2c_orders.order_id,
+  order_number: b2c_orders.order_number,
+  order_amount: b2c_orders.order_amount,
+  invoice_number: b2c_orders.invoice_number,
+  invoice_date: b2c_orders.invoice_date,
+  invoice_amount: b2c_orders.invoice_amount,
+  buyer_name: b2c_orders.buyer_name,
+  buyer_phone: b2c_orders.buyer_phone,
+  buyer_email: b2c_orders.buyer_email,
+  address: b2c_orders.address,
+  city: b2c_orders.city,
+  state: b2c_orders.state,
+  country: b2c_orders.country,
+  pincode: b2c_orders.pincode,
+  products: b2c_orders.products,
+  weight: b2c_orders.weight,
+  length: b2c_orders.length,
+  breadth: b2c_orders.breadth,
+  height: b2c_orders.height,
+  order_type: b2c_orders.order_type,
+  prepaid_amount: b2c_orders.prepaid_amount,
+  cod_charges: b2c_orders.cod_charges,
+  shipping_charges: b2c_orders.shipping_charges,
+  transaction_fee: b2c_orders.transaction_fee,
+  gift_wrap: b2c_orders.gift_wrap,
+  discount: b2c_orders.discount,
+  order_status: b2c_orders.order_status,
+  awb_number: b2c_orders.awb_number,
+  courier_partner: b2c_orders.courier_partner,
+  integration_type: b2c_orders.integration_type,
+  provider_meta: b2c_orders.provider_meta,
+  provider_service: b2c_orders.provider_service,
+  pickup_details: b2c_orders.pickup_details,
+  rto_details: b2c_orders.rto_details,
+  label: b2c_orders.label,
+  label_generated_once: b2c_orders.label_generated_once,
 }
 
 const DEFAULT_SHOPIFY_SYNC_SETTINGS = {
@@ -172,7 +262,6 @@ const getShopifyOAuthScopeStatus = (grantedScopes: unknown, requiredScopes: stri
       : null,
   }
 }
-
 export const getShopifyOAuthConfig = () => {
   const clientId = String(process.env.SHOPIFY_CLIENT_ID || '').trim()
   const clientSecret = String(process.env.SHOPIFY_CLIENT_SECRET || '').trim()
@@ -1953,16 +2042,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   }
 
   const [existing] = await tx
-    .select({
-      id: b2c_orders.id,
-      order_number: b2c_orders.order_number,
-      order_status: b2c_orders.order_status,
-      awb_number: b2c_orders.awb_number,
-      courier_partner: b2c_orders.courier_partner,
-      integration_type: b2c_orders.integration_type,
-      provider_meta: b2c_orders.provider_meta,
-      provider_service: b2c_orders.provider_service,
-    })
+    .select(existingShopifyOrderSelect)
     .from(b2c_orders)
     .where(eq(b2c_orders.order_id, internalOrderId))
     .limit(1)
@@ -1970,16 +2050,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   const [legacyExisting] = existing
     ? [undefined]
     : await tx
-        .select({
-          id: b2c_orders.id,
-          order_number: b2c_orders.order_number,
-          order_status: b2c_orders.order_status,
-          awb_number: b2c_orders.awb_number,
-          courier_partner: b2c_orders.courier_partner,
-          integration_type: b2c_orders.integration_type,
-          provider_meta: b2c_orders.provider_meta,
-          provider_service: b2c_orders.provider_service,
-        })
+        .select(existingShopifyOrderSelect)
         .from(b2c_orders)
         .where(eq(b2c_orders.order_id, legacyInternalOrderId))
         .limit(1)
@@ -2046,44 +2117,108 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
     row: ExistingShopifyOrderRow | null | undefined,
     payload: Partial<typeof b2c_orders.$inferInsert> = updatePayload,
   ) => {
-    if (!row?.awb_number) return payload
-
     const existingProviderMeta =
-      row.provider_meta && typeof row.provider_meta === 'object' && !Array.isArray(row.provider_meta)
+      row?.provider_meta && typeof row.provider_meta === 'object' && !Array.isArray(row.provider_meta)
         ? row.provider_meta
         : {}
+    const localOverrideFields = getLocalOverrideFields(row)
     const existingFinancialSignature = String(
       existingProviderMeta.shopify_financial_signature || '',
     ).trim()
     const shouldInvalidateStaleLabel =
-      !existingFinancialSignature || existingFinancialSignature !== shopifyFinancialSignature
+      row?.awb_number &&
+      localOverrideFields.size === 0 &&
+      (!existingFinancialSignature || existingFinancialSignature !== shopifyFinancialSignature)
     const providerMetaCourierName = getProviderMetaCourierName(existingProviderMeta)
     const bookedProviderKey = resolveCourierProviderKeyFromFields(
-      row.integration_type,
-      row.courier_partner,
+      row?.integration_type,
+      row?.courier_partner,
       providerMetaCourierName,
-      row.provider_service,
+      row?.provider_service,
     )
 
-    return {
+    const nextPayload: Partial<typeof b2c_orders.$inferInsert> = {
       ...payload,
-      order_status:
-        String(payload.order_status || '').toLowerCase() === 'cancelled'
-          ? payload.order_status
-          : row.order_status || payload.order_status,
-      courier_partner:
-        providerMetaCourierName ||
-        (bookedProviderKey ? getCourierProviderDisplayName(bookedProviderKey) : '') ||
-        row.courier_partner ||
-        payload.courier_partner,
-      integration_type: bookedProviderKey || row.integration_type || payload.integration_type,
-      awb_number: row.awb_number || payload.awb_number,
       provider_meta: {
         ...existingProviderMeta,
         ...providerMeta,
       },
-      ...(shouldInvalidateStaleLabel ? { label: null } : {}),
     }
+
+    if (row?.awb_number) {
+      nextPayload.order_status =
+        String(payload.order_status || '').toLowerCase() === 'cancelled'
+          ? payload.order_status
+          : row.order_status || payload.order_status
+      nextPayload.courier_partner =
+        providerMetaCourierName ||
+        (bookedProviderKey ? getCourierProviderDisplayName(bookedProviderKey) : '') ||
+        row.courier_partner ||
+        payload.courier_partner
+      nextPayload.integration_type = bookedProviderKey || row.integration_type || payload.integration_type
+      nextPayload.awb_number = row.awb_number || payload.awb_number
+    }
+
+    if (localOverrideFields.has('consignee')) {
+      Object.assign(nextPayload, {
+        buyer_name: row?.buyer_name,
+        buyer_phone: row?.buyer_phone,
+        buyer_email: row?.buyer_email,
+        address: row?.address,
+        city: row?.city,
+        state: row?.state,
+        country: row?.country,
+        pincode: row?.pincode,
+      })
+    }
+
+    if (localOverrideFields.has('parcel')) {
+      Object.assign(nextPayload, {
+        weight: row?.weight,
+        length: row?.length,
+        breadth: row?.breadth,
+        height: row?.height,
+      })
+    }
+
+    if (localOverrideFields.has('products')) {
+      nextPayload.products = row?.products
+    }
+
+    if (localOverrideFields.has('financial')) {
+      Object.assign(nextPayload, {
+        order_amount: row?.order_amount,
+        order_type: row?.order_type,
+        prepaid_amount: row?.prepaid_amount,
+        cod_charges: row?.cod_charges,
+        shipping_charges: row?.shipping_charges,
+        transaction_fee: row?.transaction_fee,
+        gift_wrap: row?.gift_wrap,
+        discount: row?.discount,
+      })
+    }
+
+    if (localOverrideFields.has('invoice')) {
+      Object.assign(nextPayload, {
+        invoice_number: row?.invoice_number,
+        invoice_date: row?.invoice_date,
+        invoice_amount: row?.invoice_amount,
+      })
+    }
+
+    if (localOverrideFields.has('pickup')) {
+      nextPayload.pickup_details = row?.pickup_details
+    }
+
+    if (localOverrideFields.has('rto')) {
+      nextPayload.rto_details = row?.rto_details
+    }
+
+    if (shouldInvalidateStaleLabel) {
+      nextPayload.label = null
+    }
+
+    return nextPayload
   }
 
   if (targetOrder?.id) {
@@ -2122,16 +2257,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   if (inserted) return inserted
 
   const [postInsertOrderIdConflict] = await tx
-    .select({
-      id: b2c_orders.id,
-      order_id: b2c_orders.order_id,
-      order_status: b2c_orders.order_status,
-      awb_number: b2c_orders.awb_number,
-      courier_partner: b2c_orders.courier_partner,
-      integration_type: b2c_orders.integration_type,
-      provider_meta: b2c_orders.provider_meta,
-      provider_service: b2c_orders.provider_service,
-    })
+    .select(existingShopifyOrderSelect)
     .from(b2c_orders)
     .where(eq(b2c_orders.order_id, internalOrderId))
     .limit(1)
@@ -2148,16 +2274,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   }
 
   const [orderNumberConflict] = await tx
-    .select({
-      id: b2c_orders.id,
-      order_id: b2c_orders.order_id,
-      order_status: b2c_orders.order_status,
-      awb_number: b2c_orders.awb_number,
-      courier_partner: b2c_orders.courier_partner,
-      integration_type: b2c_orders.integration_type,
-      provider_meta: b2c_orders.provider_meta,
-      provider_service: b2c_orders.provider_service,
-    })
+    .select(existingShopifyOrderSelect)
     .from(b2c_orders)
     .where(and(eq(b2c_orders.user_id, store.userId), eq(b2c_orders.order_number, resolvedOrderNumber)))
     .limit(1)
@@ -2197,16 +2314,7 @@ const upsertFromShopifyOrder = async (store: ShopifyStore, order: any, settings:
   if (fallbackInserted) return fallbackInserted
 
   const [fallbackConflict] = await tx
-    .select({
-      id: b2c_orders.id,
-      order_id: b2c_orders.order_id,
-      order_status: b2c_orders.order_status,
-      awb_number: b2c_orders.awb_number,
-      courier_partner: b2c_orders.courier_partner,
-      integration_type: b2c_orders.integration_type,
-      provider_meta: b2c_orders.provider_meta,
-      provider_service: b2c_orders.provider_service,
-    })
+    .select(existingShopifyOrderSelect)
     .from(b2c_orders)
     .where(and(eq(b2c_orders.user_id, store.userId), eq(b2c_orders.order_number, fallbackOrderNumber)))
     .limit(1)
