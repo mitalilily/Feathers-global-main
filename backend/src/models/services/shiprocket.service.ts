@@ -3672,6 +3672,59 @@ export const fetchAvailableCouriersWithRates = async (
       return formatCourierSlabDisplayName(courierName, slabWeightTo)
     }
 
+    const normalizeReverseCourierDedupeName = (value?: unknown) =>
+      String(value || '')
+        .toLowerCase()
+        .replace(/\([^)]*\b\d+(\.\d+)?\s*(k\.?\s*g\.?|kg)\b[^)]*\)/gi, ' ')
+        .replace(/\b\d+(\.\d+)?\s*(k\.?\s*g\.?|kg)\b/gi, ' ')
+        .replace(/\breverse\s*(pickup|qc)?\b/gi, 'reverse')
+        .replace(/[^a-z0-9]+/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const getReverseCourierDedupeKey = (courier: any) => {
+      const providerKey = normalizeProviderKey(
+        courier?.integration_type || courier?.service_provider || courier?.serviceProvider,
+      )
+      const nameKey =
+        normalizeReverseCourierDedupeName(courier?.displayName) ||
+        normalizeReverseCourierDedupeName(courier?.name) ||
+        String(courier?.id || '').trim()
+      const modeKey = normalizeB2CShippingMode(
+        courier?.shipping_mode ??
+          courier?.service_mode ??
+          courier?.provider_serviceability?.shipping_mode ??
+          courier?.provider_serviceability?.service_mode ??
+          courier?.provider_serviceability?.mode ??
+          courier?.mode,
+      )
+      return `${providerKey}__${nameKey}__${modeKey || 'reverse'}`
+    }
+
+    const getReverseCourierScore = (courier: any) => {
+      const activeRate = getActiveB2CLocalRateForShipment(courier, true)
+      const total = Number(
+        activeRate?.total_charges ??
+          courier?.total_charges ??
+          courier?.courier_cost_estimate ??
+          courier?.rate ??
+          Infinity,
+      )
+      return Number.isFinite(total) ? total : Infinity
+    }
+
+    const dedupeReverseCourierOptions = (couriersList: any[]) => {
+      const selected = new Map<string, any>()
+      for (const courier of couriersList) {
+        const key = getReverseCourierDedupeKey(courier)
+        const existing = selected.get(key)
+        if (!existing || getReverseCourierScore(courier) < getReverseCourierScore(existing)) {
+          selected.set(key, courier)
+        }
+      }
+      return Array.from(selected.values())
+    }
+
     interface CourierRow {
       id: number
       serviceProvider: string | null
@@ -5254,6 +5307,17 @@ export const fetchAvailableCouriersWithRates = async (
     })
 
     // 🔹 Sorting and tagging
+    if (isReverseShipment) {
+      const beforeDedupeCount = combined.length
+      combined = dedupeReverseCourierOptions(combined)
+      if (beforeDedupeCount !== combined.length) {
+        console.log('[Serviceability] Deduped reverse courier options', {
+          before: beforeDedupeCount,
+          after: combined.length,
+        })
+      }
+    }
+
     if (userId && combined?.length) {
       const [profile] = await db
         .select()
