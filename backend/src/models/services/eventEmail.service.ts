@@ -268,6 +268,11 @@ const ORDER_STATUS_META: Record<
     eyebrow: 'Reverse Pickup',
     subjectPrefix: 'Reverse pickup',
   },
+  reverse_pickup: {
+    title: 'Reverse pickup created',
+    eyebrow: 'Reverse Pickup',
+    subjectPrefix: 'Reverse pickup',
+  },
   rto_in_transit: {
     title: 'Reverse pickup in transit',
     eyebrow: 'Reverse Pickup',
