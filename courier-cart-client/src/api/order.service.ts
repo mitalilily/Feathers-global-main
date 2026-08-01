@@ -361,6 +361,44 @@ export const generateManifestService = async (params: GenerateManifestParams) =>
   return res.data
 }
 
+export interface AutoAssignBookResult {
+  orderId: string
+  orderNumber?: string | null
+  success: boolean
+  skipped?: boolean
+  courier?: string | null
+  ruleName?: string | null
+  awbNumber?: string | null
+  message: string
+  attempts?: Array<{ courier: string; message: string }>
+}
+
+export interface AutoAssignBookResponse {
+  success: boolean
+  message: string
+  summary: {
+    total: number
+    successCount: number
+    failedCount: number
+    skippedCount: number
+  }
+  results: AutoAssignBookResult[]
+}
+
+export const autoAssignAndBookB2COrders = async (data: {
+  order_ids: Array<string | number>
+  pickup_location_id: string
+  pickup_date?: string
+  pickup_time?: string
+}) => {
+  const res = await axiosInstance.post<AutoAssignBookResponse>(
+    '/orders/b2c/auto-assign-book',
+    data,
+    { timeout: 600000 },
+  )
+  return res.data
+}
+
 export const downloadBulkB2CLabelsService = async (orderIds: Array<string | number>) => {
   const res = await axiosInstance.post('/orders/b2c/bulk-labels', { orderIds }, {
     responseType: 'blob',

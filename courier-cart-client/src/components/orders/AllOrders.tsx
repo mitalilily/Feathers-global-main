@@ -89,6 +89,7 @@ import ManifestPickupScheduleDialog from './ManifestPickupScheduleDialog'
 import { OrderExpandedRow } from './OrderExpandedRow'
 import ReverseModal from './reverse/ReverseModal'
 import BulkOrderCourierDrawer from './BulkOrderCourierDrawer'
+import AutoAssignCourierDrawer from './AutoAssignCourierDrawer'
 import SourceOrderCourierDrawer from './SourceOrderCourierDrawer'
 import { getClientAwbTrackingPath, getPublicTrackingUrl } from '../../utils/awb'
 import { useAuth } from '../../context/auth/AuthContext'
@@ -294,6 +295,7 @@ const AllOrders = () => {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false)
   const [courierSelectionOrder, setCourierSelectionOrder] = useState<Order | null>(null)
   const [bulkCourierSelectionOpen, setBulkCourierSelectionOpen] = useState(false)
+  const [autoAssignOpen, setAutoAssignOpen] = useState(false)
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null)
   const [downloadingByWarehouse, setDownloadingByWarehouse] = useState(false)
   const [warehousePopoverAnchor, setWarehousePopoverAnchor] = useState<HTMLElement | null>(null)
@@ -2357,6 +2359,23 @@ const AllOrders = () => {
                 Bulk Book
               </Button>
               <Button
+                variant="outlined"
+                onClick={() => setAutoAssignOpen(true)}
+                disabled={!canBulkBookSelectedOrders}
+                startIcon={<MdLocalShipping size={14} />}
+                sx={{
+                  textTransform: 'none',
+                  minHeight: 28,
+                  py: 0.75,
+                  px: 1.5,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Auto Assign & Book
+              </Button>
+              <Button
                 variant="contained"
                 onClick={handleBulkManifest}
                 disabled={bulkManifesting || Boolean(manifestValidationMessage)}
@@ -2584,6 +2603,16 @@ const AllOrders = () => {
         open={bulkCourierSelectionOpen}
         orders={selectedOrders}
         onClose={() => setBulkCourierSelectionOpen(false)}
+        onComplete={() => {
+          clearSelection()
+          setBulkFeedback(null)
+        }}
+      />
+
+      <AutoAssignCourierDrawer
+        open={autoAssignOpen}
+        orders={selectedOrders}
+        onClose={() => setAutoAssignOpen(false)}
         onComplete={() => {
           clearSelection()
           setBulkFeedback(null)

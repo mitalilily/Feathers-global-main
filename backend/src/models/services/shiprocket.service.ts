@@ -5360,10 +5360,15 @@ export const fetchAvailableCouriersWithRates = async (
     }
 
     if (userId && combined?.length) {
-      const [profile] = await db
-        .select()
-        .from(courierPriorityProfiles)
-        .where(eq(courierPriorityProfiles.user_id, userId))
+          const [profile] = await db
+            .select()
+            .from(courierPriorityProfiles)
+            .where(
+              and(
+                eq(courierPriorityProfiles.user_id, userId),
+                eq(courierPriorityProfiles.rule_type, 'profile'),
+              ),
+            )
 
       if (profile) {
         if (profile.name === 'personalised' && profile.personalised_order) {
@@ -5384,8 +5389,8 @@ export const fetchAvailableCouriersWithRates = async (
             if (matchedCourier) {
               const personalisedDisplayName =
                 matchedCourier.max_slab_weight != null
-                  ? formatCourierSlabDisplayName(p.name, matchedCourier.max_slab_weight)
-                  : p.name
+                  ? formatCourierSlabDisplayName(p.name || matchedCourier.name, matchedCourier.max_slab_weight)
+                  : p.name || matchedCourier.name
               ordered.push({
                 ...matchedCourier,
                 displayName: personalisedDisplayName,

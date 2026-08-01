@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { courierPriorityService } from '../api/courierPriority.service'
+import { courierPriorityService, type CourierPriorityRule } from '../api/courierPriority.service'
 import { toast } from '../components/UI/Toast'
 
 // Fetch all profiles for a user
@@ -34,11 +34,8 @@ export const useCreateCourierPriority = () => {
 }
 
 interface IUpdateCourierPriority {
-  data: Partial<{
-    name: 'fastest' | 'economical' | 'personalised'
-    personalised_order: { courierId: number; priority: number }[]
-  }>
-  id: number
+  data: Partial<CourierPriorityRule>
+  id: number | string
 }
 // Update a profile
 export const useUpdateCourierPriority = () => {

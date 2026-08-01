@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import {
+  autoAssignAndBookB2COrdersController,
   bookExistingB2COrderController,
   createB2CBulkShipmentController,
   checkOrderNumberAvailabilityController,
@@ -23,6 +24,7 @@ const router = Router()
 router.post('/b2c/create', requireAuth, createB2CShipmentController)
 router.post('/b2c/draft', requireAuth, createB2COrderDraftController)
 router.post('/b2c/bulk-create', requireAuth, createB2CBulkShipmentController)
+router.post('/b2c/auto-assign-book', requireAuth, autoAssignAndBookB2COrdersController)
 router.post('/b2c/:orderId/book-courier', requireAuth, bookExistingB2COrderController)
 router.post('/b2b/create', requireAuth, createB2BShipmentController)
 router.get('/check-order-number', requireAuth, checkOrderNumberAvailabilityController)

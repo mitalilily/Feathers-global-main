@@ -9,6 +9,7 @@ import {
   createB2BShipmentService,
   createB2COrderDraftService,
   createB2CShipmentService,
+  fetchAvailableCouriersWithRates,
   generateManifestService,
   getAllOrdersService,
   getB2BOrdersByUserService,
@@ -21,6 +22,8 @@ import {
 import { regenerateOrderDocumentsServiceAdmin } from '../models/services/adminOrders.service'
 import { db } from '../models/client'
 import { b2c_orders } from '../models/schema/b2cOrders'
+import { courierPriorityProfiles } from '../models/schema/courierPriority'
+import { addresses, pickupAddresses } from '../models/schema/pickupAddresses'
 import { generateLabelForOrder } from '../models/services/generateCustomLabelService'
 import { presignDownload } from '../models/services/upload.service'
 import { getOrderLabelReference, isExternalLabelReference } from '../utils/orderLabels'
@@ -42,6 +45,271 @@ const isOperationalTimeoutError = (error: any) => {
 
 const BULK_LABEL_DOWNLOAD_TIMEOUT_MS = 30000
 const BULK_LABEL_ORDER_FETCH_CHUNK_SIZE = 500
+
+const todayIsoDate = () => new Date().toISOString().slice(0, 10)
+
+const normalizeRuleText = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+
+const toNumberOrZero = (value: unknown) => {
+  const num = Number(value ?? 0)
+  return Number.isFinite(num) ? num : 0
+}
+
+const getOrderAmountForAutoAssign = (order: any) => {
+  const products = Array.isArray(order.products) ? order.products : []
+  const subtotal = products.reduce(
+    (sum: number, product: Record<string, any>) =>
+      sum +
+      toNumberOrZero(product.price) * toNumberOrZero(product.quantity ?? product.qty ?? 1) -
+      toNumberOrZero(product.discount),
+    0,
+  )
+  return subtotal > 0 ? subtotal : toNumberOrZero(order.order_amount)
+}
+
+const getOrderPaymentMode = (order: any) =>
+  normalizeRuleText(order.order_type) === 'cod' ? 'cod' : 'prepaid'
+
+const getOrderChannel = (order: any) => {
+  const orderId = normalizeRuleText(order.order_id)
+  if (orderId.startsWith('shopify_')) return 'shopify'
+  if (orderId.startsWith('woo_')) return 'woocommerce'
+  if (order.is_external_api) return 'api'
+  return 'manual'
+}
+
+const getOrderTags = (order: any) =>
+  String(order.tags || '')
+    .split(/[,\|]/)
+    .map((tag) => normalizeRuleText(tag))
+    .filter(Boolean)
+
+const getOrderSkus = (order: any) =>
+  (Array.isArray(order.products) ? order.products : [])
+    .map((product: any) => normalizeRuleText(product.sku ?? product.product_sku ?? product.itemSku))
+    .filter(Boolean)
+
+const normalizeConditionValues = (value: unknown) =>
+  (Array.isArray(value) ? value : [value])
+    .map((entry) => normalizeRuleText(entry))
+    .filter(Boolean)
+
+const conditionMatches = (condition: any, order: any, zoneCode?: string | null) => {
+  const type = normalizeRuleText(condition?.type)
+  if (!type) return true
+  const values = normalizeConditionValues(condition?.value)
+
+  if (type === 'payment_mode' || type === 'payment' || type === 'payment mode') {
+    return !values.length || values.includes(getOrderPaymentMode(order))
+  }
+
+  if (type === 'weight') {
+    const weightKg = toNumberOrZero(order.weight)
+    const min = condition?.min === undefined || condition?.min === '' ? -Infinity : Number(condition.min)
+    const max = condition?.max === undefined || condition?.max === '' ? Infinity : Number(condition.max)
+    return weightKg >= min && weightKg <= max
+  }
+
+  if (type === 'zone' || type === 'zone_wise' || type === 'zone wise') {
+    if (!values.length) return true
+    return values.includes(normalizeRuleText(zoneCode))
+  }
+
+  if (type === 'channel') {
+    return !values.length || values.includes(getOrderChannel(order))
+  }
+
+  if (type === 'order_tags' || type === 'order tags' || type === 'tags') {
+    if (!values.length) return true
+    const tags = getOrderTags(order)
+    return values.some((value) => tags.includes(value))
+  }
+
+  if (type === 'product_sku' || type === 'product sku' || type === 'sku') {
+    if (!values.length) return true
+    const skus = getOrderSkus(order)
+    return values.some((value) => skus.includes(value))
+  }
+
+  return true
+}
+
+const ruleMatchesOrder = (rule: any, order: any, zoneCode?: string | null) => {
+  const conditions = Array.isArray(rule.conditions) ? rule.conditions : []
+  return conditions.every((condition: any) => conditionMatches(condition, order, zoneCode))
+}
+
+const normalizeCourierProvider = (courier: any) =>
+  normalizeRuleText(courier.integration_type ?? courier.serviceProvider ?? courier.service_provider)
+
+const getCourierOptionKey = (courier: any) =>
+  String(
+    courier.courier_option_key ??
+      `${courier.id ?? courier.courier_id}__${normalizeCourierProvider(courier)}__${courier.max_slab_weight ?? 'base'}`,
+  )
+
+const priorityCourierMatches = (priority: any, courier: any) => {
+  const priorityCourierId = normalizeRuleText(priority?.courierId ?? priority?.courier_id)
+  const courierId = normalizeRuleText(courier.id ?? courier.courier_id)
+  if (priorityCourierId && priorityCourierId !== courierId) return false
+
+  const priorityProvider = normalizeRuleText(priority?.integration_type ?? priority?.serviceProvider)
+  if (priorityProvider && priorityProvider !== normalizeCourierProvider(courier)) return false
+
+  const priorityMaxSlab = priority?.max_slab_weight
+  if (
+    priorityMaxSlab !== undefined &&
+    priorityMaxSlab !== null &&
+    String(priorityMaxSlab) !== String(courier.max_slab_weight ?? '')
+  ) {
+    return false
+  }
+
+  return true
+}
+
+const orderCouriersByRule = (couriers: any[], rule: any) => {
+  const priority = Array.isArray(rule?.personalised_order) ? rule.personalised_order : []
+  const ordered: any[] = []
+  priority
+    .slice()
+    .sort((a: any, b: any) => Number(a.priority ?? 0) - Number(b.priority ?? 0))
+    .forEach((entry: any) => {
+      couriers.forEach((courier) => {
+        const key = getCourierOptionKey(courier)
+        if (!ordered.some((existing) => getCourierOptionKey(existing) === key) && priorityCourierMatches(entry, courier)) {
+          ordered.push(courier)
+        }
+      })
+    })
+  couriers.forEach((courier) => {
+    if (!ordered.some((existing) => getCourierOptionKey(existing) === getCourierOptionKey(courier))) {
+      ordered.push(courier)
+    }
+  })
+  return ordered
+}
+
+const getForwardRateForAutoAssign = (courier: any) =>
+  toNumberOrZero(courier.localRates?.forward?.rate ?? courier.rate ?? courier.freight_charges)
+
+const getCodRateForAutoAssign = (courier: any, order: any) =>
+  getOrderPaymentMode(order) === 'cod'
+    ? toNumberOrZero(courier.localRates?.forward?.cod_charges ?? courier.cod_charges)
+    : 0
+
+const getOtherRateForAutoAssign = (courier: any) =>
+  toNumberOrZero(courier.localRates?.forward?.other_charges ?? courier.other_charges)
+
+const getCourierEddForAutoAssign = (courier: any) =>
+  [
+    courier.expected_delivery_date_label,
+    courier.edd,
+    courier.expected_delivery_date,
+    courier.expectedDeliveryDate,
+    courier.estimated_delivery_date,
+    courier.estimatedDeliveryDate,
+  ]
+    .map((value) => String(value ?? '').trim())
+    .find(Boolean)
+
+const getAddressLine = (address: any) =>
+  [address?.addressLine1, address?.addressLine2].filter(Boolean).join(', ')
+
+const buildAutoAssignBookingPayload = ({
+  order,
+  courier,
+  pickup,
+  rto,
+  pickupLocationId,
+  pickupDate,
+  pickupTime,
+}: {
+  order: any
+  courier: any
+  pickup: any
+  rto?: any
+  pickupLocationId: string
+  pickupDate: string
+  pickupTime: string
+}) => ({
+  payment_type: getOrderPaymentMode(order),
+  package_weight: toNumberOrZero(order.weight),
+  package_length: toNumberOrZero(order.length),
+  package_breadth: toNumberOrZero(order.breadth),
+  package_height: toNumberOrZero(order.height),
+  order_amount: getOrderAmountForAutoAssign(order),
+  shipping_charges: toNumberOrZero(order.shipping_charges),
+  prepaid_amount: toNumberOrZero(order.prepaid_amount),
+  discount: toNumberOrZero(order.discount),
+  transaction_fee: toNumberOrZero(order.transaction_fee),
+  gift_wrap: toNumberOrZero(order.gift_wrap),
+  freight_charges: getForwardRateForAutoAssign(courier),
+  cod_charges: getCodRateForAutoAssign(courier, order),
+  other_charges: getOtherRateForAutoAssign(courier),
+  courier_cost: toNumberOrZero(courier.courier_cost_estimate ?? courier.rate),
+  integration_type: courier.integration_type ?? courier.serviceProvider,
+  courier_id: Number(courier.id ?? courier.courier_id),
+  courier_partner: courier.name ?? courier.displayName,
+  courier_option_key: getCourierOptionKey(courier),
+  edd: getCourierEddForAutoAssign(courier),
+  expected_delivery_date:
+    courier.expected_delivery_date ??
+    courier.expectedDeliveryDate ??
+    courier.estimated_delivery_date ??
+    courier.estimatedDeliveryDate ??
+    undefined,
+  expectedDeliveryDate:
+    courier.expectedDeliveryDate ??
+    courier.expected_delivery_date ??
+    courier.estimatedDeliveryDate ??
+    courier.estimated_delivery_date ??
+    undefined,
+  expected_delivery_days: courier.expected_delivery_days ?? courier.edd_days ?? undefined,
+  amazon_request_token: courier.amazon_request_token,
+  amazon_rate_id: courier.amazon_rate_id,
+  amazon_service_id: courier.amazon_service_id,
+  amazon_carrier_id: courier.amazon_carrier_id,
+  shadowfax_forward_mode: courier.provider_serviceability?.mode ?? courier.mode ?? 'marketplace',
+  shadowfax_service_mode: courier.provider_serviceability?.service_mode ?? courier.service_mode,
+  selected_max_slab_weight: courier.max_slab_weight ?? undefined,
+  pickup_location_id: pickupLocationId,
+  pickup_date: pickupDate,
+  pickup_time: pickupTime,
+  delivery_location: courier.approxZone?.code ?? courier.approxZone?.name,
+  zone_id: courier.approxZone?.id,
+  chargedWeight: courier.localRates?.forward?.chargeable_weight ?? courier.chargeable_weight ?? undefined,
+  volumetricWeight:
+    courier.localRates?.forward?.volumetric_weight ?? courier.volumetric_weight ?? undefined,
+  pickup: {
+    warehouse_name: pickup.addressNickname || pickup.contactName || '',
+    name: pickup.contactName || pickup.addressNickname || '',
+    phone: pickup.contactPhone || '',
+    address: getAddressLine(pickup),
+    city: pickup.city || '',
+    state: pickup.state || '',
+    pincode: pickup.pincode || '',
+    pickup_date: pickupDate,
+    pickup_time: pickupTime,
+  },
+  is_rto_different: rto ? 'yes' : 'no',
+  ...(rto
+    ? {
+        rto: {
+          warehouse_name: rto.addressNickname || rto.contactName || '',
+          name: rto.contactName || rto.addressNickname || '',
+          phone: rto.contactPhone || '',
+          address: getAddressLine(rto),
+          city: rto.city || '',
+          state: rto.state || '',
+          pincode: rto.pincode || '',
+        },
+      }
+    : {}),
+})
 
 const sanitizeBulkPdfFileName = (value: string) =>
   value
@@ -217,6 +485,267 @@ export const bookExistingB2COrderController = async (req: any, res: Response) =>
         : error.message || 'Failed to book courier. Please try again.'
 
     return res.status(statusCode).json({ success: false, message: errorMessage })
+  }
+}
+
+export const autoAssignAndBookB2COrdersController = async (req: any, res: Response) => {
+  try {
+    const userId = getMerchantScopedUserId(req)
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' })
+    }
+
+    const orderIds = Array.isArray(req.body?.order_ids)
+      ? req.body.order_ids.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+      : []
+    const pickupLocationId = String(req.body?.pickup_location_id || '').trim()
+    const pickupDate = String(req.body?.pickup_date || todayIsoDate()).trim() || todayIsoDate()
+    const pickupTime = String(req.body?.pickup_time || '10:00').trim() || '10:00'
+
+    if (!orderIds.length) {
+      return res.status(400).json({ success: false, message: 'Select at least one order.' })
+    }
+    if (!pickupLocationId) {
+      return res.status(400).json({ success: false, message: 'Pickup warehouse is required.' })
+    }
+
+    const [pickupLink] = await db
+      .select()
+      .from(pickupAddresses)
+      .where(
+        and(
+          eq(pickupAddresses.id, pickupLocationId),
+          eq(pickupAddresses.userId, userId),
+          eq(pickupAddresses.isPickupEnabled, true),
+        ),
+      )
+      .limit(1)
+
+    if (!pickupLink?.addressId) {
+      return res.status(400).json({ success: false, message: 'Pickup warehouse is not available.' })
+    }
+
+    const [pickup] = await db.select().from(addresses).where(eq(addresses.id, pickupLink.addressId)).limit(1)
+    const [rto] =
+      pickupLink.isRTOSame || !pickupLink.rtoAddressId
+        ? [null]
+        : await db.select().from(addresses).where(eq(addresses.id, pickupLink.rtoAddressId)).limit(1)
+
+    if (!pickup?.pincode) {
+      return res.status(400).json({ success: false, message: 'Pickup warehouse pincode is missing.' })
+    }
+
+    const rules = await db
+      .select()
+      .from(courierPriorityProfiles)
+      .where(
+        and(
+          eq(courierPriorityProfiles.user_id, userId),
+          eq(courierPriorityProfiles.rule_type, 'rule'),
+          eq(courierPriorityProfiles.is_active, true),
+        ),
+      )
+
+    const activeRules = rules
+      .filter((rule) => Array.isArray(rule.personalised_order) && rule.personalised_order.length > 0)
+      .sort(
+        (left, right) =>
+          Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0) ||
+          new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
+      )
+
+    if (!activeRules.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active courier priority rule found. Create and activate a rule first.',
+      })
+    }
+
+    const orders = await db
+      .select()
+      .from(b2c_orders)
+      .where(and(eq(b2c_orders.user_id, userId), inArray(b2c_orders.id, orderIds)))
+
+    const orderById = new Map(orders.map((order) => [String(order.id), order]))
+    const results: Array<{
+      orderId: string
+      orderNumber?: string | null
+      success: boolean
+      skipped?: boolean
+      courier?: string | null
+      ruleName?: string | null
+      awbNumber?: string | null
+      message: string
+      attempts?: Array<{ courier: string; message: string }>
+    }> = []
+
+    for (const orderId of orderIds) {
+      const order = orderById.get(orderId)
+      if (!order) {
+        results.push({ orderId, success: false, skipped: true, message: 'Order not found.' })
+        continue
+      }
+
+      const orderStatus = normalizeRuleText(order.order_status)
+      if (order.awb_number) {
+        results.push({
+          orderId,
+          orderNumber: order.order_number,
+          success: false,
+          skipped: true,
+          message: 'Skipped: order already has AWB.',
+        })
+        continue
+      }
+      if (['cancelled', 'canceled', 'delivered', 'rto_delivered'].includes(orderStatus)) {
+        results.push({
+          orderId,
+          orderNumber: order.order_number,
+          success: false,
+          skipped: true,
+          message: `Skipped: order status is ${order.order_status}.`,
+        })
+        continue
+      }
+
+      try {
+        const couriers = await fetchAvailableCouriersWithRates(
+          {
+            origin: Number(pickup.pincode),
+            destination: Number(order.pincode),
+            pickupId: pickupLocationId,
+            pickupName: pickup.addressNickname,
+            pickupAddress: pickup.addressLine1,
+            pickupCity: pickup.city,
+            pickupState: pickup.state,
+            deliveryName: order.buyer_name,
+            deliveryPhone: order.buyer_phone,
+            deliveryAddress: order.address,
+            deliveryCity: order.city,
+            deliveryState: order.state,
+            payment_type: getOrderPaymentMode(order),
+            order_amount: getOrderAmountForAutoAssign(order),
+            weight: toNumberOrZero(order.weight),
+            length: toNumberOrZero(order.length),
+            breadth: toNumberOrZero(order.breadth),
+            height: toNumberOrZero(order.height),
+            shipment_type: 'b2c',
+            context: 'auto_assign_book',
+            shadowfax_forward_mode: 'marketplace',
+          } as any,
+          userId,
+        )
+
+        const serviceableCouriers = Array.isArray(couriers) ? couriers : []
+        if (!serviceableCouriers.length) {
+          results.push({
+            orderId,
+            orderNumber: order.order_number,
+            success: false,
+            message: 'No serviceable courier found for this route.',
+          })
+          continue
+        }
+
+        const zoneCode =
+          serviceableCouriers[0]?.approxZone?.code ??
+          serviceableCouriers[0]?.zone_code ??
+          serviceableCouriers[0]?.zone ??
+          null
+        const matchedRule = activeRules.find((rule) => ruleMatchesOrder(rule, order, zoneCode))
+        if (!matchedRule) {
+          results.push({
+            orderId,
+            orderNumber: order.order_number,
+            success: false,
+            message: 'No active courier priority rule matched this order.',
+          })
+          continue
+        }
+
+        const orderedCouriers = orderCouriersByRule(serviceableCouriers, matchedRule)
+        const attempts: Array<{ courier: string; message: string }> = []
+        let booked = false
+
+        for (const courier of orderedCouriers) {
+          const courierName = String(courier.displayName || courier.name || 'Courier')
+          try {
+            const payload = buildAutoAssignBookingPayload({
+              order,
+              courier,
+              pickup,
+              rto: rto || undefined,
+              pickupLocationId,
+              pickupDate,
+              pickupTime,
+            })
+            const bookedResult = await bookExistingB2COrderWithCourierService(order.id, userId, payload as any)
+            results.push({
+              orderId,
+              orderNumber: order.order_number,
+              success: true,
+              courier: courierName,
+              ruleName: matchedRule.name,
+              awbNumber: (bookedResult as any)?.order?.awb_number ?? null,
+              message: 'Booked successfully.',
+              attempts,
+            })
+            booked = true
+            break
+          } catch (error: any) {
+            attempts.push({
+              courier: courierName,
+              message: error?.message || error?.response?.data?.message || 'Booking failed',
+            })
+          }
+        }
+
+        if (!booked) {
+          results.push({
+            orderId,
+            orderNumber: order.order_number,
+            success: false,
+            ruleName: matchedRule.name,
+            message: attempts.length
+              ? `All priority couriers failed. Last error: ${attempts[attempts.length - 1].message}`
+              : 'No rule courier was serviceable.',
+            attempts,
+          })
+        }
+      } catch (error: any) {
+        results.push({
+          orderId,
+          orderNumber: order.order_number,
+          success: false,
+          message: error?.message || 'Auto assign failed.',
+        })
+      }
+    }
+
+    const successCount = results.filter((result) => result.success).length
+    const skippedCount = results.filter((result) => result.skipped).length
+    const failedCount = results.length - successCount - skippedCount
+
+    return res.status(200).json({
+      success: failedCount === 0,
+      message:
+        failedCount > 0
+          ? `${successCount} booked, ${failedCount} failed, ${skippedCount} skipped.`
+          : `${successCount} orders booked successfully.`,
+      summary: {
+        total: results.length,
+        successCount,
+        failedCount,
+        skippedCount,
+      },
+      results,
+    })
+  } catch (error: any) {
+    console.error('Auto assign and book failed:', error)
+    return res.status(500).json({
+      success: false,
+      message: error?.message || 'Auto assign and book failed.',
+    })
   }
 }
 
