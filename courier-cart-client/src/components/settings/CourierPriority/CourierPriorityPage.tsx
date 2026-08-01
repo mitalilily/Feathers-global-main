@@ -66,6 +66,42 @@ const normalizeCourier = (courier: any, index: number): PriorityCourier => ({
   max_slab_weight: courier.max_slab_weight ?? null,
 })
 
+const normalizeCourierProviderText = (courier: PriorityCourier) =>
+  String(courier.serviceProvider ?? courier.integration_type ?? '')
+    .trim()
+    .toLowerCase()
+
+const normalizeCourierNameForDedupe = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\bk\.?g\.?\b/g, 'kg')
+    .replace(/[^a-z0-9]+/g, '')
+
+const hasB2CBusinessType = (courier: any) => {
+  const businessType = courier?.businessType ?? courier?.business_type
+  if (!businessType) return true
+  if (Array.isArray(businessType)) return businessType.includes('b2c')
+  return String(businessType).toLowerCase().includes('b2c')
+}
+
+const dedupePriorityCouriers = (couriers: PriorityCourier[]) => {
+  const seen = new Set<string>()
+  const deduped: PriorityCourier[] = []
+
+  couriers.forEach((courier) => {
+    const provider = normalizeCourierProviderText(courier)
+    const nameKey = normalizeCourierNameForDedupe(courier.name)
+    const key = `${provider || 'unknown'}__${nameKey || courier.courierId}`
+
+    if (seen.has(key)) return
+    seen.add(key)
+    deduped.push(courier)
+  })
+
+  return deduped.map((courier, index) => ({ ...courier, priority: index + 1 }))
+}
+
 const moveItem = <T,>(items: T[], from: number, to: number) => {
   if (to < 0 || to >= items.length) return items
   const next = [...items]
@@ -105,7 +141,12 @@ const CourierPriorityPage = () => {
   const autoRules = rules.filter((rule) => rule.rule_type === 'rule')
 
   const defaultCouriers = useMemo(
-    () => allCouriers.map((courier: any, index: number) => normalizeCourier(courier, index)),
+    () =>
+      dedupePriorityCouriers(
+        allCouriers
+          .filter((courier: any) => courier?.isEnabled !== false && hasB2CBusinessType(courier))
+          .map((courier: any, index: number) => normalizeCourier(courier, index)),
+      ),
     [allCouriers],
   )
 
@@ -121,11 +162,14 @@ const CourierPriorityPage = () => {
       setSelectedPreset(savedName)
     }
     if (presetProfile?.name === 'personalised' && presetProfile.personalised_order?.length) {
-      setPriorityCouriers(presetProfile.personalised_order)
+      setPriorityCouriers(dedupePriorityCouriers(presetProfile.personalised_order))
     }
   }, [presetProfile?.id])
 
-  const effectivePriorityCouriers = priorityCouriers.length ? priorityCouriers : defaultCouriers
+  const effectivePriorityCouriers = useMemo(
+    () => dedupePriorityCouriers(priorityCouriers.length ? priorityCouriers : defaultCouriers),
+    [defaultCouriers, priorityCouriers],
+  )
 
   const addCondition = (type = 'payment_mode') => {
     setConditions((current) => [...current, { type, value: '' }])
@@ -193,10 +237,7 @@ const CourierPriorityPage = () => {
         conditions,
         is_active: true,
         sort_order: autoRules.length + 1,
-        personalised_order: effectivePriorityCouriers.map((courier, index) => ({
-          ...courier,
-          priority: index + 1,
-        })),
+        personalised_order: dedupePriorityCouriers(effectivePriorityCouriers),
       },
       {
         onSuccess: () => {
