@@ -154,7 +154,12 @@ export const resolveCustomerEmailEventForOrderStatus = (
   status: string,
 ): CustomerEmailNotificationEvent | null => {
   const normalized = String(status || '').trim().toLowerCase()
-  if (normalized === 'pickup_initiated' || normalized === 'picked_up') return 'pickup_done'
+  if (
+    normalized === 'booked' ||
+    normalized === 'shipment_created' ||
+    normalized === 'pickup_initiated' ||
+    normalized === 'picked_up'
+  ) return 'pickup_done'
   if (normalized === 'in_transit') return 'in_transit'
   if (normalized === 'out_for_delivery') return 'out_for_delivery'
   if (normalized === 'delivered') return 'delivered'

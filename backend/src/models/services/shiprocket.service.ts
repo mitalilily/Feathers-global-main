@@ -9740,6 +9740,19 @@ export const createB2CShipmentService = async (
     }
 
     const syncedShopifyOrder = await syncShopifyAfterB2CBooking(result?.order?.id, 'courier-booking')
+    const finalOrder = syncedShopifyOrder || result?.order
+    if (finalOrder) {
+      await sendCustomerOrderStatusUpdateEmail({
+        order: finalOrder,
+        nextStatus: isReverseShipment
+          ? 'reverse_pickup'
+          : String(finalOrder.order_status || 'booked'),
+        previousStatus: null,
+        source: 'courier_booking',
+      }).catch((err: any) => {
+        console.error(`Failed to send customer booking email for ${finalOrder?.order_number}:`, err)
+      })
+    }
     return syncedShopifyOrder ? { ...result, order: syncedShopifyOrder } : result
   } catch (error) {
     await notifyAdminsForProviderBalanceIssue({

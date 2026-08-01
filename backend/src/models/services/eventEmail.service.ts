@@ -233,6 +233,16 @@ const ORDER_STATUS_META: Record<
   string,
   { title: string; eyebrow: string; subjectPrefix: string }
 > = {
+  booked: {
+    title: 'Shipment booked',
+    eyebrow: 'Order Update',
+    subjectPrefix: 'Shipment booked',
+  },
+  shipment_created: {
+    title: 'Shipment created',
+    eyebrow: 'Order Update',
+    subjectPrefix: 'Shipment created',
+  },
   pickup_initiated: {
     title: 'Pickup done',
     eyebrow: 'Order Update',
@@ -374,8 +384,12 @@ export const sendCustomerOrderStatusUpdateEmail = async (params: {
   if (!nextStatus || nextStatus === previousStatus) return
 
   const event = resolveCustomerEmailEventForOrderStatus(nextStatus)
+  const previousEvent = previousStatus
+    ? resolveCustomerEmailEventForOrderStatus(previousStatus)
+    : null
   const userId = compactText(params.order?.user_id || params.order?.userId, '')
   const customerEmail = compactText(params.order?.buyer_email, '')
+  if (event && previousEvent === event && event !== 'delivered') return
   if (!event || !userId || !customerEmail) return
   if (!(await isCustomerEmailNotificationEnabled(userId, event))) return
 
