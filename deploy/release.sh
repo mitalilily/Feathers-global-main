@@ -198,6 +198,7 @@ const migrationFiles = [
   'migration_add_xpressbees_manual_awb_ranges.sql',
   'migration_add_label_generated_once.sql',
   'migration_add_email_notification_preferences.sql',
+  'migration_add_shipping_rate_audit_log.sql',
 ]
 
 const existingMigrations = migrationFiles
