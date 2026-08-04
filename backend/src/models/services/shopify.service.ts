@@ -3015,6 +3015,35 @@ const getShipmentStatusFromShopifyTags = (tags: unknown): string => {
   return ''
 }
 
+const getShopifyShipmentStatusPriority = (status: unknown) => {
+  const fulfillmentStatus = mapShopifyFulfillmentEventStatus(status)
+  if (!fulfillmentStatus) return 0
+  return shopifyFulfillmentEventPriority[fulfillmentStatus] || 0
+}
+
+const resolveEffectiveShopifyShipmentStatus = ({
+  taggedShipmentStatus,
+  localOrderStatus,
+}: {
+  taggedShipmentStatus: string
+  localOrderStatus: string
+}) => {
+  if (!taggedShipmentStatus) return { status: localOrderStatus, source: 'local_order' }
+  if (!localOrderStatus) return { status: taggedShipmentStatus, source: 'shopify_tag' }
+
+  const taggedPriority = getShopifyShipmentStatusPriority(taggedShipmentStatus)
+  const localPriority = getShopifyShipmentStatusPriority(localOrderStatus)
+
+  if (localPriority >= taggedPriority) {
+    return {
+      status: localOrderStatus,
+      source: localPriority > taggedPriority ? 'local_order_newer_than_shopify_tag' : 'local_order',
+    }
+  }
+
+  return { status: taggedShipmentStatus, source: 'shopify_tag' }
+}
+
 const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null => {
   const status = normalizeShipmentStatus(orderStatus)
   if (!status) return null
@@ -3388,11 +3417,18 @@ export const syncShopifyStatusForLocalOrder = async (
     }
 
     const taggedShipmentStatus = getShipmentStatusFromShopifyTags(remoteOrder.tags)
-    const orderStatus = taggedShipmentStatus || localOrderStatus
+    const resolvedOrderStatus = resolveEffectiveShopifyShipmentStatus({
+      taggedShipmentStatus,
+      localOrderStatus,
+    })
+    const orderStatus = resolvedOrderStatus.status
     effectiveOrderStatusForAudit = orderStatus
     const fulfillmentEventStatus = mapShopifyFulfillmentEventStatus(orderStatus)
-    if (taggedShipmentStatus) {
+    if (resolvedOrderStatus.source === 'shopify_tag') {
       actions.push(`status_source_shopify_tag:${taggedShipmentStatus}`)
+    } else if (resolvedOrderStatus.source === 'local_order_newer_than_shopify_tag') {
+      actions.push(`status_source_local_order_newer_than_shopify_tag:${localOrderStatus}`)
+      actions.push(`stale_shopify_status_tag_ignored:${taggedShipmentStatus}`)
     } else {
       actions.push(`status_source_local_order:${orderStatus || 'unknown'}`)
     }
