@@ -8664,7 +8664,12 @@ export const createB2CShipmentService = async (
 
         shipmentMeta = {
           shipment_id: reverseRequestId || reverseAwb || undefined,
-          awb_number: reverseAwb || undefined,
+          awb_number:
+            reverseAwb ||
+            ([String(params.order_number ?? '').trim(), String(params.order_id ?? '').trim()].includes(reverseRequestId)
+              ? undefined
+              : reverseRequestId) ||
+            undefined,
           courier_name: 'Shadowfax',
           courier_id: params.courier_id ? Number(params.courier_id) : null,
           label: undefined,
