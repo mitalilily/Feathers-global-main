@@ -1683,6 +1683,10 @@ const AllOrders = () => {
     },
     filters.fromDate && { label: `From: ${filters.fromDate}`, key: 'fromDate' },
     filters.toDate && { label: `To: ${filters.toDate}`, key: 'toDate' },
+    filters.labelGenerated && {
+      label: `Label Generated: ${filters.labelGenerated === 'no' ? 'No' : 'Generated'}`,
+      key: 'labelGenerated',
+    },
   ].filter(Boolean) as Array<{ label: string; key: keyof OrdersFilters }>
 
   const handleCreateOrderClick = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -2109,6 +2113,14 @@ const AllOrders = () => {
           <FilterBar
             fields={filterFields}
             onApply={(appliedFilters) => {
+              if (
+                appliedFilters.fromDate &&
+                appliedFilters.toDate &&
+                appliedFilters.fromDate > appliedFilters.toDate
+              ) {
+                toast.open({ message: 'From Date cannot be after To Date', severity: 'error' })
+                return
+              }
               setFilters((prev) => ({
                 ...prev,
                 ...appliedFilters,

@@ -35,6 +35,7 @@ import {
   resolveDelhiveryShippingMode,
 } from '../../utils/delhiveryCourier'
 import { getAmazonOrderLabelReference } from '../../utils/orderLabels'
+import { validateIndiaOrderDateRange } from '../../utils/orderDateRange'
 import { parseDelhiveryTrackingTimestamp } from '../../utils/delhiveryTrackingTime'
 import { getBucketName, normalizeIndianPhoneForBooking } from '../../utils/functions'
 import { db } from '../client'
@@ -10541,6 +10542,7 @@ export const getB2COrdersByUserService = async (
   const normalizedLabelGenerated = String(filters.labelGenerated || '')
     .trim()
     .toLowerCase()
+  const dateRange = validateIndiaOrderDateRange(filters.fromDate, filters.toDate)
 
   // Build conditions array (explicit type)
   const conditions: SQL<unknown>[] = [eq(b2c_orders.user_id, userId)]
@@ -10602,17 +10604,11 @@ export const getB2COrdersByUserService = async (
   }
 
   // 🔹 Date filters
-  if (filters.fromDate) {
-    // Start of day for fromDate
-    const fromDate = new Date(filters.fromDate)
-    fromDate.setHours(0, 0, 0, 0)
-    conditions.push(gte(b2c_orders.created_at, fromDate))
+  if (dateRange.from) {
+    conditions.push(gte(b2c_orders.created_at, dateRange.from))
   }
-  if (filters.toDate) {
-    // End of day for toDate to include the entire day
-    const toDate = new Date(filters.toDate)
-    toDate.setHours(23, 59, 59, 999)
-    conditions.push(lte(b2c_orders.created_at, toDate))
+  if (dateRange.to) {
+    conditions.push(lte(b2c_orders.created_at, dateRange.to))
   }
 
   if (filters.search && filters.search.trim()) {

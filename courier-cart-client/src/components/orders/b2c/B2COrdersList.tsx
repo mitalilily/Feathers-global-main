@@ -591,6 +591,15 @@ const B2COrdersList = () => {
   }
 
   const handleApplyFilters = (appliedFilters: OrderFilters) => {
+    if (
+      appliedFilters.fromDate &&
+      appliedFilters.toDate &&
+      appliedFilters.fromDate > appliedFilters.toDate
+    ) {
+      toast.open({ message: 'From Date cannot be after To Date', severity: 'error' })
+      return
+    }
+
     // Merge while preserving current status unless explicitly set
     setFilters((prev) => ({
       ...prev,

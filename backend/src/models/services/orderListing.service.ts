@@ -5,6 +5,7 @@ import { b2c_orders } from '../schema/b2cOrders'
 import { userProfiles } from '../schema/userProfile'
 import { users } from '../schema/users'
 import { b2bOrderListSelect, b2cOrderListSelect } from './orderListSelects'
+import { validateIndiaOrderDateRange } from '../../utils/orderDateRange'
 
 export interface CombinedOrderFilters {
   userId?: string
@@ -27,18 +28,6 @@ type CombinedOrderPageRow = {
 }
 
 const DEFAULT_PAGE_LIMIT = 10
-
-const toSqlDateStart = (value: string) => {
-  const date = new Date(value)
-  date.setHours(0, 0, 0, 0)
-  return date
-}
-
-const toSqlDateEnd = (value: string) => {
-  const date = new Date(value)
-  date.setHours(23, 59, 59, 999)
-  return date
-}
 
 const buildStatusCondition = (qualifiedColumn: string, status?: string | string[]) => {
   if (!status) return null
@@ -173,6 +162,7 @@ const shouldExcludeUnbookedShopifyImportsForStatus = (status?: string | string[]
 
 const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilters) => {
   const conditions: SQL[] = [sql`true`]
+  const dateRange = validateIndiaOrderDateRange(filters.fromDate, filters.toDate)
   const normalizedLabelGenerated = String(filters.labelGenerated || '')
     .trim()
     .toLowerCase()
@@ -197,12 +187,12 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
     conditions.push(sql`NOT ${hasGeneratedLabelCondition}`)
   }
 
-  if (filters.fromDate) {
-    conditions.push(sql`${sql.raw(`${alias}.created_at`)} >= ${toSqlDateStart(filters.fromDate)}`)
+  if (dateRange.from) {
+    conditions.push(sql`${sql.raw(`${alias}.created_at`)} >= ${dateRange.from}`)
   }
 
-  if (filters.toDate) {
-    conditions.push(sql`${sql.raw(`${alias}.created_at`)} <= ${toSqlDateEnd(filters.toDate)}`)
+  if (dateRange.to) {
+    conditions.push(sql`${sql.raw(`${alias}.created_at`)} <= ${dateRange.to}`)
   }
 
   const searchCondition = buildSearchCondition(alias, filters.search)
