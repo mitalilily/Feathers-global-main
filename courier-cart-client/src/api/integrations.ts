@@ -56,6 +56,62 @@ export const startShopifyOAuth = async (
   return data
 }
 
+export const startPublicShopifyOAuth = async (payload: ShopifyOAuthStartPayload) => {
+  const { data } = await axiosInstance.post('/integrations/shopify/oauth/public/start', payload)
+  return data
+}
+
+export const exchangeShopifyBootstrap = async (payload: { bootstrap: string }) => {
+  const { data } = await axiosInstance.post('/integrations/shopify/oauth/bootstrap', payload)
+  return data
+}
+
+export const exchangeShopifySession = async (sessionToken: string) => {
+  const { data } = await axiosInstance.post(
+    '/integrations/shopify/oauth/session',
+    {},
+    { headers: { Authorization: `Bearer ${sessionToken}` } },
+  )
+  return data
+}
+
+export const claimShopifyMerchantAccount = async (params: {
+  sessionToken: string
+  shiplifiAccessToken: string
+}) => {
+  const { data } = await axiosInstance.post(
+    '/integrations/shopify/oauth/claim-account',
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${params.sessionToken}`,
+        'X-Shiplifi-Access-Token': params.shiplifiAccessToken,
+      },
+    },
+  )
+  return data
+}
+
+export const auditShopifyInstall = async (params: {
+  event: string
+  shop?: string
+  detail?: string
+}) => {
+  const shop = String(params.shop || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '')
+
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) return
+
+  try {
+    await axiosInstance.post('/integrations/shopify/oauth/audit', { ...params, shop })
+  } catch {
+    // Installation must never fail because diagnostic logging is unavailable.
+  }
+}
+
 export const updateShopifySettings = async (payload: {
   storeId?: string;
   settings: NonNullable<ShopifyForm['settings']>;

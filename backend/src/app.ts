@@ -28,6 +28,7 @@ import {
   xpressbeesWebhookHealthHandler,
 } from './controllers/webhooks/xpressbees.webhook'
 import {
+  shopifyAppUninstalledWebhookController,
   shopifyComplianceWebhookController,
   shopifyOrderWebhookController,
 } from './controllers/shopify.controller'
@@ -183,6 +184,7 @@ app.use(
 // Shopify webhooks require raw body for HMAC verification
 app.post('/api/webhooks/shopify/order-created', express.raw({ type: 'application/json' }), shopifyOrderWebhookController)
 app.post('/api/webhooks/shopify/compliance', express.raw({ type: 'application/json' }), shopifyComplianceWebhookController)
+app.post('/api/webhooks/shopify/app-uninstalled', express.raw({ type: 'application/json' }), shopifyAppUninstalledWebhookController)
 app.post('/api/webhook/shopify/orders', express.raw({ type: 'application/json' }), shopifyOrderWebhookController)
 app.post('/api/webhook/shopify/compliance', express.raw({ type: 'application/json' }), shopifyComplianceWebhookController)
 app.post('/api/webhook/woocommerce/orders', express.raw({ type: 'application/json' }), wooCommerceOrderWebhookController)

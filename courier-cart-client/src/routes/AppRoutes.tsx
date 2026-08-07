@@ -12,6 +12,7 @@ import { useAuth } from '../context/auth/AuthContext'
 import Login from '../pages/auth/Login'
 import { normalizeAwb } from '../utils/awb'
 import GlobalRedirectHandler from './WalletRedirectHandler'
+import { buildShopifyInstallPath, isEmbeddedShopifyContext } from '../utils/shopifyEmbedded'
 
 /* ---------- Lazy-loaded components ---------- */
 // Onboarding & Dashboard
@@ -40,6 +41,8 @@ const Invoices = lazy(() => import('../pages/billings/Invoices'))
 // Channels
 const Channels = lazy(() => import('../pages/channels/Channels'))
 const ChannelList = lazy(() => import('../pages/channels/ChannelList'))
+const ShopifyInstallPage = lazy(() => import('../pages/shopify-install/ShopifyInstallPage'))
+const ShopifyAppPolicyPage = lazy(() => import('../pages/shopify-install/ShopifyAppPolicyPage'))
 
 // Policies
 const PoliciesLayout = lazy(() => import('../pages/policy/PoliciesLayout'))
@@ -119,6 +122,14 @@ function PublicTrackingRoute({ forcePublic = false }: { forcePublic?: boolean })
   return <OrderTrackingForm />
 }
 
+function AppEntryRoute() {
+  if (isEmbeddedShopifyContext()) {
+    return <Navigate to={buildShopifyInstallPath()} replace />
+  }
+
+  return <Login />
+}
+
 export default function AppRoutes() {
   return (
     <BrowserRouter>
@@ -126,7 +137,9 @@ export default function AppRoutes() {
       <Suspense fallback={<FullScreenLoader />}>
         <Routes>
           {/* public */}
-          <Route path="/" element={<Login />} />
+          <Route path="/" element={<AppEntryRoute />} />
+          <Route path="/shopify/install" element={<ShopifyInstallPage />} />
+          <Route path="/shopify/policies/:policy" element={<ShopifyAppPolicyPage />} />
           <Route path="/track-order" element={<PublicTrackingRoute forcePublic />} />
           <Route path="/tracking" element={<PublicTrackingRoute />} />
           <Route path="/tracking/:awb" element={<PublicTrackingRoute />} />

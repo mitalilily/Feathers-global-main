@@ -5,6 +5,8 @@ import { users } from '../models/schema/users'
 import {
   SHOPIFY_API_VERSION,
   buildShopifyOAuthAuthorizeUrl,
+  claimShopifyManagedStoreForMerchant,
+  completeShopifyManagedInstall,
   completeShopifyOAuthInstall,
   connectShopifyStore,
   getConfiguredShopifyCredentials,
@@ -12,6 +14,7 @@ import {
   getShopifyComplianceWebhookAddress,
   getShopifyWebhookAddress,
   processShopifyComplianceWebhook,
+  processShopifyAppUninstalled,
   processShopifyWebhookOrder,
   probeShopifyStore,
   syncShopifyOrdersForUser,
@@ -19,9 +22,13 @@ import {
   isValidShopifyDomain,
   normalizeShopifyDomain,
   verifyShopifyOAuthState,
+  verifyShopifyInstallBootstrap,
   verifyShopifyOAuthQueryHmac,
   verifyShopifyWebhookSignatureForDomain,
 } from '../models/services/shopify.service'
+import { findUserById, saveRefreshToken } from '../models/services/userService'
+import { signAccessToken, signRefreshToken, verifyAccessToken } from '../utils/jwt'
+import { logShopifyInstallEvent } from '../models/services/shopifyInstallAudit.service'
 
 const ensureCanConnectForUser = async (actorUserId: string, targetUserId: string) => {
   if (actorUserId === targetUserId) return true
@@ -193,6 +200,134 @@ export const shopifyOAuthCallbackController = async (req: Request, res: Response
     })
     return res.redirect(302, redirectUrl)
   }
+}
+
+export const publicStartShopifyOAuthController = async (_req: Request, res: Response): Promise<any> =>
+  res.status(400).json({
+    success: false,
+    error: 'Open Feather Global from Shopify Admin to complete the secure embedded installation.',
+  })
+
+export const exchangeShopifySessionController = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const sessionToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
+    if (!sessionToken) {
+      return res.status(401).set('Cache-Control', 'no-store').json({
+        success: false,
+        error: 'Shopify session token is required',
+        code: 'SHOPIFY_SESSION_MISSING',
+      })
+    }
+    const result = await completeShopifyManagedInstall(sessionToken)
+    return res.status(200).set('Cache-Control', 'no-store').json({
+      success: true,
+      message: 'Shopify managed install completed successfully',
+      shop: result.shop,
+      bootstrap: result.bootstrap,
+      accountLinkAllowed: result.accountLinkAllowed,
+    })
+  } catch (error: any) {
+    const authFailure =
+      error?.response?.status === 401 ||
+      ['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(String(error?.name || '')) ||
+      /^Invalid Shopify session token/i.test(String(error?.message || ''))
+    return res.status(authFailure ? 401 : 400).set('Cache-Control', 'no-store').json({
+      success: false,
+      error: authFailure
+        ? 'Your Shopify session expired. Refresh the app and try again.'
+        : error?.message || 'Failed to complete Shopify managed install',
+      code: authFailure ? 'SHOPIFY_SESSION_INVALID' : 'SHOPIFY_INSTALL_FAILED',
+    })
+  }
+}
+
+export const exchangeShopifyBootstrapController = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const bootstrap = String(req.body?.bootstrap || '').trim()
+    if (!bootstrap) return res.status(400).json({ success: false, error: 'Shopify bootstrap token is required' })
+    const payload = verifyShopifyInstallBootstrap(bootstrap)
+    const user = await findUserById(payload.userId)
+    if (!user) return res.status(404).json({ success: false, error: 'Shopify merchant account not found' })
+    const accessToken = signAccessToken(user.id, user.role ?? 'customer')
+    const { token: refreshToken } = signRefreshToken(user.id, user.role ?? 'customer')
+    await saveRefreshToken(user.id, refreshToken, 7 * 24 * 60 * 60 * 1000)
+    return res.status(200).set('Cache-Control', 'no-store').json({
+      success: true,
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        onboardingComplete: user.onboardingComplete,
+      },
+      shop: payload.shop,
+      returnTo: payload.returnTo || '/channels/connected',
+    })
+  } catch (error: any) {
+    return res.status(400).set('Cache-Control', 'no-store').json({
+      success: false,
+      error: error?.message || 'Failed to exchange Shopify bootstrap token',
+    })
+  }
+}
+
+export const claimShopifyMerchantAccountController = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const sessionToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
+    const shiplifiAccessToken = String(req.headers['x-shiplifi-access-token'] || '').trim()
+    if (!sessionToken || !shiplifiAccessToken) {
+      return res.status(401).set('Cache-Control', 'no-store').json({
+        success: false,
+        error: 'Shopify and Feather Global sessions are required',
+      })
+    }
+    const targetSession = await verifyAccessToken(shiplifiAccessToken)
+    if (!targetSession?.sub || targetSession.role !== 'customer') {
+      return res.status(403).json({ success: false, error: 'A Feather Global merchant account is required' })
+    }
+    const result = await claimShopifyManagedStoreForMerchant({
+      sessionToken,
+      targetUserId: targetSession.sub,
+    })
+    return res.status(200).set('Cache-Control', 'no-store').json({
+      success: true,
+      message: 'Shopify store linked to your Feather Global account',
+      ...result,
+    })
+  } catch (error: any) {
+    return res.status(409).set('Cache-Control', 'no-store').json({
+      success: false,
+      error: error?.message || 'Unable to link this Shopify store',
+    })
+  }
+}
+
+const SHOPIFY_FRONTEND_AUDIT_EVENTS = new Set([
+  'install_page_opened',
+  'app_bridge_started',
+  'id_token_acquired',
+  'session_exchange_started',
+  'bootstrap_exchange_started',
+  'install_ui_completed',
+  'install_ui_failed',
+])
+
+export const shopifyInstallAuditController = async (req: Request, res: Response): Promise<any> => {
+  const event = String(req.body?.event || '').trim()
+  const shop = normalizeShopifyDomain(String(req.body?.shop || ''))
+  if (!SHOPIFY_FRONTEND_AUDIT_EVENTS.has(event) || !isValidShopifyDomain(shop)) {
+    return res.status(400).json({ success: false, error: 'Invalid Shopify install audit event' })
+  }
+  await logShopifyInstallEvent({
+    event,
+    status: event.endsWith('_failed') ? 'failed' : event.endsWith('_completed') ? 'passed' : 'info',
+    requestId: String((req as any).requestId || ''),
+    shop,
+    source: 'frontend',
+    detail: String(req.body?.detail || ''),
+  })
+  return res.status(204).send()
 }
 
 export const testShopifyConnectionController = async (_req: any, res: Response): Promise<any> => {
@@ -420,6 +555,27 @@ export const shopifyComplianceWebhookController = async (req: Request, res: Resp
     return res.status(500).json({
       success: false,
       error: error?.message || 'Failed to process Shopify compliance webhook',
+    })
+  }
+}
+
+export const shopifyAppUninstalledWebhookController = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const rawBody: Buffer = req.body as Buffer
+    const hmac = String(req.headers['x-shopify-hmac-sha256'] || '')
+    const shopDomain = String(req.headers['x-shopify-shop-domain'] || '')
+    if (!rawBody || !Buffer.isBuffer(rawBody)) {
+      return res.status(400).json({ success: false, error: 'Invalid webhook payload' })
+    }
+    if (!(await verifyShopifyWebhookSignatureForDomain(rawBody, hmac, shopDomain))) {
+      return res.status(401).json({ success: false, error: 'Invalid Shopify webhook signature' })
+    }
+    const result = await processShopifyAppUninstalled(shopDomain)
+    return res.status(200).json({ success: true, result })
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to process Shopify uninstall webhook',
     })
   }
 }

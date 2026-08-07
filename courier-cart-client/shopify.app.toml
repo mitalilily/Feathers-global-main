@@ -1,0 +1,32 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+name = "Feathers Global"
+application_url = "https://client.fgship.in/shopify/install"
+embedded = true
+client_id = "a64a918b0ecfc48d7f2402def3b8c92a"
+
+[auth]
+redirect_urls = [
+  "https://api.fgship.in/api/integrations/shopify/oauth/callback"
+]
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_orders,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,write_fulfillments"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "https://api.fgship.in/api/webhooks/shopify/order-created"
+  topics = [ "orders/create", "orders/updated", "orders/cancelled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "https://api.fgship.in/api/webhooks/shopify/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "https://api.fgship.in/api/webhooks/shopify/app-uninstalled"
+  topics = [ "app/uninstalled" ]

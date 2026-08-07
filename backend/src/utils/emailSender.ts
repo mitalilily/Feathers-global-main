@@ -468,3 +468,35 @@ export const sendKycStatusEmail = async (opts: {
 
   await sendEmail(to, subject, html)
 }
+
+export const sendShopifyCustomerDataExportEmail = async (opts: {
+  to: string
+  shopDomain: string
+  requestId: string
+  exportBuffer: Buffer
+}) => {
+  const { to, shopDomain, requestId, exportBuffer } = opts
+  const safeFileId = String(requestId || 'request').replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 80)
+  const html = renderEmailFrame({
+    eyebrow: 'Shopify privacy request',
+    title: 'Customer data export',
+    intro:
+      'Shopify sent Feather Global a customer data request for your store. The data held by Feather Global for that request is attached as a JSON file.',
+    body: renderDataTable([
+      { label: 'Store', value: escapeHtml(shopDomain) },
+      { label: 'Shopify request ID', value: escapeHtml(requestId) },
+      { label: 'Delivery status', value: 'Completed' },
+    ]),
+    outro:
+      'Store this export securely and share it only with the customer or authorized privacy personnel. Contact Feather Global support if you did not expect this request.',
+    footerNote: 'Privacy export generated automatically from the Shopify compliance webhook.',
+  })
+
+  await sendEmail(to, `Shopify customer data export ${requestId}`, html, [
+    {
+      buffer: exportBuffer,
+      filename: `shopify-customer-data-${safeFileId}.json`,
+      mimeType: 'application/json',
+    },
+  ])
+}

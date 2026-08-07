@@ -199,6 +199,7 @@ const migrationFiles = [
   'migration_add_label_generated_once.sql',
   'migration_add_email_notification_preferences.sql',
   'migration_add_shipping_rate_audit_log.sql',
+  'migration_add_shopify_compliance_requests.sql',
 ]
 
 const existingMigrations = migrationFiles

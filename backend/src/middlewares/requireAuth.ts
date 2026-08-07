@@ -1,8 +1,10 @@
 import { NextFunction, Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../models/client";
 import { employees } from "../models/schema/employees";
+import { stores } from "../models/schema/stores";
 import { findUserById } from "../models/services/userService";
+import { normalizeShopifyDomain, verifyShopifySessionToken } from '../models/services/shopify.service'
 import { verifyAccessToken } from "../utils/jwt";
 
 export const requireAuth = async (
@@ -11,13 +13,14 @@ export const requireAuth = async (
   next: NextFunction
 ) => {
   const auth = req.headers.authorization;
+  const shiplifiAccessToken = String(req.headers['x-shiplifi-access-token'] || '').trim();
 
-  if (!auth?.startsWith("Bearer ")) {
+  if (!shiplifiAccessToken && !auth?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Missing token" });
   }
 
   try {
-    const token = auth.split(" ")[1];
+    const token = shiplifiAccessToken || auth!.split(" ")[1];
     const decoded = await verifyAccessToken(token); // ✅ await here
 
     if (!decoded || typeof decoded !== 'object') {
@@ -69,6 +72,40 @@ export const requireAuth = async (
         employeeAdminId = employeeRecord.adminId;
         merchantUserId = employeeRecord.adminId;
       }
+    }
+
+    if (shiplifiAccessToken) {
+      const shopifySessionToken = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : '';
+      if (!shopifySessionToken) {
+        return res.status(401).set('Cache-Control', 'no-store').json({
+          error: 'Shopify session token is required',
+          code: 'SHOPIFY_SESSION_MISSING',
+        });
+      }
+
+      let shop: string;
+      try {
+        const shopifySession = verifyShopifySessionToken(shopifySessionToken);
+        shop = normalizeShopifyDomain(new URL(shopifySession.dest).hostname);
+      } catch {
+        return res.status(401).set('Cache-Control', 'no-store').json({
+          error: 'Shopify session expired or is invalid',
+          code: 'SHOPIFY_SESSION_INVALID',
+        });
+      }
+
+      const [binding] = await db
+        .select({ id: stores.id })
+        .from(stores)
+        .where(and(eq(stores.userId, user.id), eq(stores.domain, shop)))
+        .limit(1);
+      if (!binding) {
+        return res.status(403).set('Cache-Control', 'no-store').json({
+          error: 'Shopify store is not connected to this account',
+          code: 'SHOPIFY_SESSION_STORE_MISMATCH',
+        });
+      }
+      (req as any).shopifySession = { shop };
     }
 
     // Attach decoded token to request

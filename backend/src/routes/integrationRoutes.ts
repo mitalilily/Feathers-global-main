@@ -18,6 +18,11 @@ import {
 } from "../controllers/platformIntegration.controller";
 import {
   connectConfiguredShopifyStoreController,
+  claimShopifyMerchantAccountController,
+  exchangeShopifyBootstrapController,
+  exchangeShopifySessionController,
+  shopifyInstallAuditController,
+  publicStartShopifyOAuthController,
   shopifyOAuthCallbackController,
   shopifyOAuthInstallController,
   startShopifyOAuthController,
@@ -33,6 +38,11 @@ const router = Router();
 
 router.get('/shopify/oauth/callback', shopifyOAuthCallbackController)
 router.get('/shopify/oauth/install', shopifyOAuthInstallController)
+router.post('/shopify/oauth/session', exchangeShopifySessionController)
+router.post('/shopify/oauth/bootstrap', exchangeShopifyBootstrapController)
+router.post('/shopify/oauth/claim-account', claimShopifyMerchantAccountController)
+router.post('/shopify/oauth/audit', shopifyInstallAuditController)
+router.post('/shopify/oauth/public/start', publicStartShopifyOAuthController)
 
 router.use(requireAuth)
 

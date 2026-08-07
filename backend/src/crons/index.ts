@@ -10,6 +10,7 @@ import {
 import { pollCourierTracking } from './courierTracking'
 import { retryPendingSalesChannelStatusSync } from '../models/services/salesChannelSync.service'
 import { syncShopifyOrdersForAllStores } from '../models/services/shopify.service'
+import { processPendingShopifyDataRequests } from '../models/services/shopifyPrivacy.service'
 
 const parseTrackingProviders = () =>
   String(process.env.COURIER_TRACKING_POLL_PROVIDERS || '')
@@ -65,6 +66,17 @@ cron.schedule(process.env.SHOPIFY_ORDER_SYNC_CRON || '*/30 * * * *', async () =>
     }
   } catch (err) {
     console.error('[Cron] Shopify order refresh failed:', err)
+  }
+})
+
+cron.schedule(process.env.SHOPIFY_PRIVACY_QUEUE_CRON || '*/15 * * * *', async () => {
+  try {
+    const result = await processPendingShopifyDataRequests()
+    if (result.attempted > 0) {
+      console.log('[Cron] Shopify privacy request processing complete', result)
+    }
+  } catch (err) {
+    console.error('[Cron] Shopify privacy request processing failed:', err)
   }
 })
 

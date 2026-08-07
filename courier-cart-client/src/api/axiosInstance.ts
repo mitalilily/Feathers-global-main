@@ -1,5 +1,7 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios'
 import { clearAuthTokens, getAuthTokens, setAuthTokens } from './tokenVault'
+import { buildShopifyInstallPath, isEmbeddedShopifyContext } from '../utils/shopifyEmbedded'
+import { getShopifyIdToken } from '../utils/shopifyAppBridge'
 
 const DEFAULT_PRODUCTION_API_URL = 'https://api.fgship.in/api'
 
@@ -20,6 +22,7 @@ type AuthAwareRequestConfig = InternalAxiosRequestConfig & {
   _authSessionId?: string
   _retry?: boolean
   _sessionRetry?: boolean
+  _shopifySessionRetry?: boolean
 }
 
 const api = axios.create({
@@ -31,11 +34,11 @@ const api = axios.create({
 let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null
 let refreshPromiseSessionId: string | null = null
 
-const redirectToLogin = () => {
+const redirectToAuthentication = () => {
   if (typeof window === 'undefined') return
-  if (!window.location.pathname.includes('/login')) {
-    window.location.href = '/login'
-  }
+  window.location.href = isEmbeddedShopifyContext()
+    ? buildShopifyInstallPath(window.location.pathname)
+    : '/login'
 }
 
 const applyAccessToken = (cfg: AuthAwareRequestConfig, accessToken: string) => {
@@ -50,7 +53,7 @@ const applyAccessToken = (cfg: AuthAwareRequestConfig, accessToken: string) => {
 const clearCurrentSession = (expectedSessionId?: string | null) => {
   const cleared = clearAuthTokens(expectedSessionId)
   if (cleared) {
-    redirectToLogin()
+    redirectToAuthentication()
   } else {
     console.info('Ignored auth clear from a stale session request')
   }
@@ -76,12 +79,20 @@ const retryWithLatestSession = (cfg: AuthAwareRequestConfig) => {
 }
 
 /* ----- attach access token to every request ----- */
-api.interceptors.request.use((cfg) => {
+api.interceptors.request.use(async (cfg) => {
   const requestConfig = cfg as AuthAwareRequestConfig
   const { accessToken, sessionId } = getAuthTokens()
 
   requestConfig._authSessionId = sessionId
-  applyAccessToken(requestConfig, accessToken)
+  if (isEmbeddedShopifyContext()) {
+    if (accessToken) requestConfig.headers.set('X-Shiplifi-Access-Token', accessToken)
+    if (!requestConfig.url?.includes('/integrations/shopify/oauth/session')) {
+      const shopifySessionToken = await getShopifyIdToken()
+      requestConfig.headers.set('Authorization', `Bearer ${shopifySessionToken}`)
+    }
+  } else {
+    applyAccessToken(requestConfig, accessToken)
+  }
 
   return requestConfig
 })
@@ -98,6 +109,11 @@ api.interceptors.response.use(
 
     const responseCode = String(err.response?.data?.code || '').trim().toUpperCase()
     const currentAuth = getAuthTokens()
+
+    if (responseCode.startsWith('SHOPIFY_SESSION_') && !original._shopifySessionRetry) {
+      original._shopifySessionRetry = true
+      return api(original)
+    }
 
     // If a newer login/refresh happened after this request was sent, retry once
     // using the latest session instead of letting an old request clear fresh auth.
@@ -117,7 +133,11 @@ api.interceptors.response.use(
     // Skip refresh if:
     // 1. Already retried
     // 2. This is the refresh token endpoint itself (avoid infinite loop)
-    if (original._retry || original.url?.includes('/auth/refresh-token')) {
+    if (
+      original._retry ||
+      original.url?.includes('/integrations/shopify/oauth/session') ||
+      original.url?.includes('/auth/refresh-token')
+    ) {
       return Promise.reject(err)
     }
 

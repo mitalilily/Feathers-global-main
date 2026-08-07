@@ -37,6 +37,25 @@
     />
 
     <title>Feather Global</title>
+    <script>
+      ;(() => {
+        const markerKey = 'fg_shopify_app_client'
+        const params = new URLSearchParams(window.location.search)
+        const isNewAppEntry =
+          window.location.pathname.startsWith('/shopify/install') ||
+          params.get('fg_shopify_app') === 'new'
+
+        if (isNewAppEntry) sessionStorage.setItem(markerKey, 'new')
+        const useNewApp = isNewAppEntry || sessionStorage.getItem(markerKey) === 'new'
+        const meta = document.createElement('meta')
+        meta.name = 'shopify-api-key'
+        meta.content = useNewApp
+          ? 'a64a918b0ecfc48d7f2402def3b8c92a'
+          : '2d51ab15c8b649b6cfe0cafc9592ee69'
+        document.head.appendChild(meta)
+      })()
+    </script>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
     <!-- Razorpay Checkout -->
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   </head>

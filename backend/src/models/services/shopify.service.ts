@@ -1,9 +1,11 @@
 import axios from 'axios'
 import * as crypto from 'crypto'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, or, sql } from 'drizzle-orm'
+import jwt, { JwtPayload } from 'jsonwebtoken'
 import { db } from '../client'
 import { b2c_orders } from '../schema/b2cOrders'
 import { stores } from '../schema/stores'
+import { users } from '../schema/users'
 import {
   getCourierProviderDisplayName,
   getProviderMetaCourierName,
@@ -11,6 +13,12 @@ import {
 } from '../../utils/courierProvider'
 import { normalizeIndianPhoneForBooking } from '../../utils/functions'
 import {
+  decryptShopifyToken,
+  encryptShopifyOAuth,
+  encryptShopifyToken,
+} from '../../utils/shopifyTokenEncryption'
+import {
+  createUserWithWallet,
   ensurePlatformRegistration,
   setUserChannelIntegration,
   updateUserChannelIntegration,
@@ -18,6 +26,10 @@ import {
 } from './userService'
 import { recordSalesChannelSyncOutcome } from './salesChannelSyncAudit.service'
 import { deleteSalesChannelOrdersForStore } from './storeCleanup.service'
+import {
+  queueShopifyCustomerDataRequest,
+  redactShopifyComplianceRequestPayloads,
+} from './shopifyPrivacy.service'
 
 export const SHOPIFY_PLATFORM_ID = 1
 export const SHOPIFY_PLATFORM = {
@@ -31,6 +43,7 @@ const SHOPIFY_API_TIMEOUT_MS = Number(process.env.PLATFORM_API_TIMEOUT_MS || 150
 const SHOPIFY_WEBHOOK_TOPICS = ['ORDERS_CREATE', 'ORDERS_UPDATED', 'ORDERS_CANCELLED'] as const
 const SHOPIFY_ORDER_CREATED_WEBHOOK_PATH = '/api/webhooks/shopify/order-created'
 export const SHOPIFY_COMPLIANCE_WEBHOOK_PATH = '/api/webhooks/shopify/compliance'
+export const SHOPIFY_UNINSTALL_WEBHOOK_PATH = '/api/webhooks/shopify/app-uninstalled'
 const SHOPIFY_COMPLIANCE_TOPICS = [
   'customers/data_request',
   'customers/redact',
@@ -188,6 +201,15 @@ type ShopifyOAuthStatePayload = {
   issuedAt: number
 }
 
+type ShopifyInstallBootstrapPayload = {
+  nonce: string
+  shop: string
+  userId: string
+  returnTo?: string
+  issuedAt: number
+  expiresAt: number
+}
+
 type ShopifyAccessTokenResponse = {
   access_token?: string
   scope?: string
@@ -195,6 +217,35 @@ type ShopifyAccessTokenResponse = {
   refresh_token?: string
   refresh_token_expires_in?: number
 }
+
+type ShopifySessionTokenPayload = JwtPayload & {
+  aud: string
+  dest: string
+  iss: string
+  sub: string
+}
+
+type ShopifyMerchantIdentity = {
+  id: string
+  role: string | null
+  email: string | null
+  phone: string | null
+  googleId: string | null
+  pendingEmail: string | null
+  pendingPhone: string | null
+  passwordHash: string | null
+}
+
+const isEmptyShopifyBootstrapMerchant = (merchant?: ShopifyMerchantIdentity | null) =>
+  Boolean(
+    merchant?.role === 'customer' &&
+      !merchant.email &&
+      !merchant.phone &&
+      !merchant.googleId &&
+      !merchant.pendingEmail &&
+      !merchant.pendingPhone &&
+      !merchant.passwordHash,
+  )
 
 const shopifyTokenRefreshLocks = new Map<string, Promise<string>>()
 
@@ -219,26 +270,15 @@ export const isValidShopifyDomain = (domain?: string) =>
 const REQUIRED_SHOPIFY_OAUTH_SCOPES = [
   'read_orders',
   'write_orders',
-  'read_customers',
-  'read_products',
-  'read_webhooks',
-  'write_webhooks',
-  'read_fulfillments',
   'write_fulfillments',
-  'read_assigned_fulfillment_orders',
-  'write_assigned_fulfillment_orders',
   'read_merchant_managed_fulfillment_orders',
   'write_merchant_managed_fulfillment_orders',
-  'read_third_party_fulfillment_orders',
-  'write_third_party_fulfillment_orders',
-  'read_custom_fulfillment_services',
-  'write_custom_fulfillment_services',
 ] as const
 
 const parseShopifyScopes = () =>
   [
     ...REQUIRED_SHOPIFY_OAUTH_SCOPES,
-    ...String(process.env.SHOPIFY_SCOPES || process.env.SHOPIFY_OAUTH_SCOPES || '')
+    ...String(process.env.SHOPIFY_ADDITIONAL_SCOPES || '')
       .split(',')
       .map((scope) => scope.trim())
       .filter(Boolean),
@@ -281,7 +321,7 @@ export const getShopifyOAuthConfig = () => {
   ).trim()
 
   const sendScopeValue = String(
-    process.env.SHOPIFY_SEND_OAUTH_SCOPE ?? process.env.SHOPIFY_USE_LEGACY_INSTALL_FLOW ?? 'true',
+    process.env.SHOPIFY_SEND_OAUTH_SCOPE ?? process.env.SHOPIFY_USE_LEGACY_INSTALL_FLOW ?? 'false',
   )
     .trim()
     .toLowerCase()
@@ -300,6 +340,37 @@ export const getShopifyOAuthConfig = () => {
   }
 }
 
+type ShopifyAppCredentials = {
+  clientId: string
+  clientSecret: string
+}
+
+const getShopifyAppCredentialCandidates = (): ShopifyAppCredentials[] => {
+  const primary = getShopifyOAuthConfig()
+  const candidates = [
+    { clientId: primary.clientId, clientSecret: primary.clientSecret },
+    {
+      clientId: String(process.env.SHOPIFY_LEGACY_CLIENT_ID || '').trim(),
+      clientSecret: String(process.env.SHOPIFY_LEGACY_CLIENT_SECRET || '').trim(),
+    },
+  ]
+
+  return candidates.filter(
+    (candidate, index, all) =>
+      Boolean(candidate.clientId && candidate.clientSecret) &&
+      all.findIndex((other) => other.clientId === candidate.clientId) === index,
+  )
+}
+
+const getShopifyAppCredentialsForClientId = (clientId: string) =>
+  getShopifyAppCredentialCandidates().find((candidate) => candidate.clientId === clientId)
+
+const getShopifyAppCredentialsForStore = (store: ShopifyStore) => {
+  const oauth = getStoreOAuthMetadata(store)
+  const clientId = String(oauth.appClientId || store.apiKey || '').trim()
+  return getShopifyAppCredentialsForClientId(clientId) || getShopifyAppCredentialCandidates()[0]
+}
+
 const getShopifyOAuthStateSecret = () => {
   const config = getShopifyOAuthConfig()
   return String(process.env.SHOPIFY_OAUTH_STATE_SECRET || process.env.JWT_SECRET || config.clientSecret || '').trim()
@@ -310,6 +381,83 @@ const timingSafeEqualString = (left: string, right: string, encoding: BufferEnco
   const rightBuffer = Buffer.from(right, encoding)
   if (leftBuffer.length !== rightBuffer.length) return false
   return crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+const getShopifyBootstrapSecret = () => {
+  const config = getShopifyOAuthConfig()
+  return String(
+    process.env.SHOPIFY_BOOTSTRAP_SECRET ||
+      process.env.SHOPIFY_OAUTH_STATE_SECRET ||
+      config.clientSecret ||
+      '',
+  ).trim()
+}
+
+export const createShopifyInstallBootstrap = ({
+  shop,
+  userId,
+  returnTo,
+  ttlMs = 10 * 60 * 1000,
+}: {
+  shop: string
+  userId: string
+  returnTo?: string
+  ttlMs?: number
+}) => {
+  const secret = getShopifyBootstrapSecret()
+  if (!secret) throw new Error('SHOPIFY_CLIENT_SECRET or SHOPIFY_BOOTSTRAP_SECRET is not configured')
+  const issuedAt = Date.now()
+  const payload: ShopifyInstallBootstrapPayload = {
+    nonce: crypto.randomBytes(16).toString('hex'),
+    shop: normalizeShopifyDomain(shop),
+    userId,
+    returnTo,
+    issuedAt,
+    expiresAt: issuedAt + ttlMs,
+  }
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const signature = crypto.createHmac('sha256', secret).update(body).digest('base64url')
+  return `${body}.${signature}`
+}
+
+export const verifyShopifyInstallBootstrap = (token: string): ShopifyInstallBootstrapPayload => {
+  const secret = getShopifyBootstrapSecret()
+  if (!secret) throw new Error('SHOPIFY_CLIENT_SECRET or SHOPIFY_BOOTSTRAP_SECRET is not configured')
+  const [body, signature] = String(token || '').split('.')
+  if (!body || !signature) throw new Error('Invalid Shopify bootstrap token')
+  const expected = crypto.createHmac('sha256', secret).update(body).digest('base64url')
+  if (!timingSafeEqualString(expected, signature)) throw new Error('Invalid Shopify bootstrap token signature')
+  const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as ShopifyInstallBootstrapPayload
+  if (!payload?.userId || !payload?.shop || !payload?.issuedAt || !payload?.expiresAt) {
+    throw new Error('Invalid Shopify bootstrap token payload')
+  }
+  if (Date.now() > Number(payload.expiresAt)) throw new Error('Shopify bootstrap token expired')
+  if (!isValidShopifyDomain(payload.shop)) throw new Error('Invalid Shopify shop in bootstrap token')
+  return payload
+}
+
+export const verifyShopifySessionToken = (token: string): ShopifySessionTokenPayload => {
+  const normalizedToken = String(token || '').trim()
+  const decoded = jwt.decode(normalizedToken)
+  if (!decoded || typeof decoded === 'string') throw new Error('Invalid Shopify session token payload')
+  const audience = Array.isArray(decoded.aud) ? String(decoded.aud[0] || '') : String(decoded.aud || '')
+  const credentials = getShopifyAppCredentialsForClientId(audience)
+  if (!credentials) throw new Error('Shopify OAuth credentials are not configured')
+  const payload = jwt.verify(normalizedToken, credentials.clientSecret, {
+    algorithms: ['HS256'],
+    audience: credentials.clientId,
+    clockTolerance: 5,
+  })
+  if (typeof payload === 'string') throw new Error('Invalid Shopify session token payload')
+  const session = payload as ShopifySessionTokenPayload
+  const destination = new URL(String(session.dest || ''))
+  const issuer = new URL(String(session.iss || ''))
+  const shop = normalizeShopifyDomain(destination.hostname)
+  if (!isValidShopifyDomain(shop) || normalizeShopifyDomain(issuer.hostname) !== shop) {
+    throw new Error('Invalid Shopify session token shop')
+  }
+  if (!String(session.sub || '').trim()) throw new Error('Invalid Shopify session token user')
+  return session
 }
 
 export const createShopifyOAuthState = ({
@@ -454,6 +602,35 @@ const exchangeShopifyOAuthCode = async ({
   return response.data
 }
 
+const exchangeShopifySessionToken = async ({
+  shop,
+  sessionToken,
+  credentials,
+}: {
+  shop: string
+  sessionToken: string
+  credentials: ShopifyAppCredentials
+}): Promise<ShopifyAccessTokenResponse> => {
+  const params = new URLSearchParams({
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+    grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+    subject_token: sessionToken,
+    subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+    requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
+    expiring: '1',
+  })
+  const response = await axios.post<ShopifyAccessTokenResponse>(
+    `https://${normalizeShopifyDomain(shop)}/admin/oauth/access_token`,
+    params.toString(),
+    {
+      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: SHOPIFY_API_TIMEOUT_MS,
+    },
+  )
+  return response.data
+}
+
 export const completeShopifyOAuthInstall = async (query: Record<string, any>) => {
   const shop = normalizeShopifyDomain(String(query?.shop || ''))
   const code = String(query?.code || '')
@@ -498,6 +675,7 @@ export const completeShopifyOAuthInstall = async (query: Record<string, any>) =>
     userId: statePayload.userId,
     authMethod: 'oauth',
     oauth: {
+      appClientId: config.clientId,
       scope: scopeStatus.grantedScopes.join(','),
       missingScopes: scopeStatus.missingScopes,
       tokenType: config.useExpiringOfflineTokens ? 'expiring_offline' : 'offline',
@@ -518,6 +696,185 @@ export const completeShopifyOAuthInstall = async (query: Record<string, any>) =>
     returnTo: statePayload.returnTo,
     scope: scopeStatus.grantedScopes.join(','),
     missingScopes: scopeStatus.missingScopes,
+  }
+}
+
+export const completeShopifyManagedInstall = async (sessionToken: string) => {
+  const session = verifyShopifySessionToken(sessionToken)
+  const shop = normalizeShopifyDomain(new URL(session.dest).hostname)
+  const credentials = getShopifyAppCredentialsForClientId(String(session.aud || '').trim())
+  if (!credentials) throw new Error('Shopify app credentials do not match the session token')
+
+  const tokenResponse = await exchangeShopifySessionToken({ shop, sessionToken, credentials })
+  const accessToken = String(tokenResponse.access_token || '').trim()
+  const refreshToken = String(tokenResponse.refresh_token || '').trim()
+  if (!accessToken) throw new Error('Shopify did not return an Admin API access token')
+  if (!refreshToken) throw new Error('Shopify did not return an expiring offline refresh token')
+
+  const existingStore = await getStoreByDomain(shop)
+  if (existingStore) {
+    const existingOAuth = getStoreOAuthMetadata(existingStore)
+    const existingClientId = String(existingOAuth.appClientId || existingStore.apiKey || '').trim()
+    if (existingClientId && existingClientId !== credentials.clientId) {
+      throw new Error(
+        'This shop is connected through the existing Feather Global Shopify app. The new public app cannot replace that production connection automatically.',
+      )
+    }
+  }
+  let connectedUserId = String(existingStore?.userId || '').trim()
+  if (!connectedUserId) {
+    const bootstrapUser = await createUserWithWallet({
+      role: 'customer',
+      email: null,
+      phone: null,
+      emailVerified: true,
+      accountVerified: true,
+      onboardingStep: 0,
+      onboardingComplete: false,
+    } as any)
+    connectedUserId = bootstrapUser.id
+  }
+
+  const scopeStatus = getShopifyOAuthScopeStatus(tokenResponse.scope, getShopifyOAuthConfig().scopes)
+  const result = await connectShopifyStore({
+    storeUrl: shop,
+    adminApiAccessToken: accessToken,
+    apiKey: credentials.clientId,
+    apiSecretKey: credentials.clientSecret,
+    webhookSecret: credentials.clientSecret,
+    userId: connectedUserId,
+    settings: existingStore?.settings as Record<string, any> | undefined,
+    authMethod: 'managed_install',
+    oauth: {
+      appClientId: credentials.clientId,
+      scope: scopeStatus.grantedScopes.join(','),
+      missingScopes: scopeStatus.missingScopes,
+      tokenType: 'expiring_offline',
+      expiresIn: tokenResponse.expires_in,
+      expiresAt: toFutureIso(tokenResponse.expires_in),
+      refreshToken,
+      refreshTokenExpiresIn: tokenResponse.refresh_token_expires_in,
+      refreshTokenExpiresAt: toFutureIso(tokenResponse.refresh_token_expires_in),
+      installedAt: existingStore ? getStoreOAuthMetadata(existingStore).installedAt : new Date().toISOString(),
+      exchangedAt: new Date().toISOString(),
+      active: true,
+      shopifyUserId: session.sub,
+    },
+  })
+
+  return {
+    ...result,
+    shop,
+    userId: connectedUserId,
+    accountLinkAllowed: !existingStore,
+    bootstrap: createShopifyInstallBootstrap({
+      shop,
+      userId: connectedUserId,
+      returnTo: '/channels/connected',
+    }),
+  }
+}
+
+export const claimShopifyManagedStoreForMerchant = async ({
+  sessionToken,
+  targetUserId,
+}: {
+  sessionToken: string
+  targetUserId: string
+}) => {
+  const session = verifyShopifySessionToken(sessionToken)
+  const shop = normalizeShopifyDomain(new URL(session.dest).hostname)
+  const store = await getStoreByDomain(shop)
+  if (!store) throw new Error('Complete the Shopify installation before linking a Feather Global account')
+
+  const merchantColumns = {
+    id: users.id,
+    role: users.role,
+    email: users.email,
+    phone: users.phone,
+    googleId: users.googleId,
+    pendingEmail: users.pendingEmail,
+    pendingPhone: users.pendingPhone,
+    passwordHash: users.passwordHash,
+  }
+  const [targetMerchant] = await db
+    .select(merchantColumns)
+    .from(users)
+    .where(eq(users.id, targetUserId))
+    .limit(1)
+  if (!targetMerchant || targetMerchant.role !== 'customer') {
+    throw new Error('A valid Feather Global merchant account is required')
+  }
+  if (store.userId === targetMerchant.id) {
+    return {
+      shop,
+      movedOrders: 0,
+      bootstrap: createShopifyInstallBootstrap({ shop, userId: targetMerchant.id, returnTo: '/channels/connected' }),
+    }
+  }
+
+  const [currentOwner] = await db
+    .select(merchantColumns)
+    .from(users)
+    .where(eq(users.id, store.userId))
+    .limit(1)
+  if (!isEmptyShopifyBootstrapMerchant(currentOwner)) {
+    throw new Error('This Shopify store is already linked to another Feather Global merchant')
+  }
+
+  const storeOrderFilter = or(
+    sql`${b2c_orders.order_id} LIKE ${`shopify_${store.id}_%`}`,
+    sql`coalesce(${b2c_orders.provider_meta}->>'shopify_store_id', '') = ${store.id}`,
+  )
+  const storeOrders = await db
+    .select({
+      id: b2c_orders.id,
+      userId: b2c_orders.user_id,
+      awb: b2c_orders.awb_number,
+      freight: b2c_orders.freight_charges,
+      walletDebit: b2c_orders.wallet_debit_amount,
+    })
+    .from(b2c_orders)
+    .where(storeOrderFilter)
+  if (storeOrders.some((order) => order.userId !== currentOwner!.id)) {
+    throw new Error('Shopify order ownership is inconsistent; account linking was stopped')
+  }
+  if (
+    storeOrders.some((order) => {
+      const awb = String(order.awb || '').trim()
+      return Boolean(awb && !awb.startsWith('TEST')) || Number(order.freight || 0) !== 0 || Number(order.walletDebit || 0) !== 0
+    })
+  ) {
+    throw new Error('This store has already booked real or charged shipments and cannot change accounts')
+  }
+
+  await db.transaction(async (tx: any) => {
+    await tx.execute(sql`select id from stores where id = ${store.id} for update`)
+    const [lockedStore] = await tx.select({ userId: stores.userId }).from(stores).where(eq(stores.id, store.id)).limit(1)
+    if (lockedStore?.userId !== currentOwner!.id) throw new Error('Shopify store ownership changed while linking')
+    await tx
+      .update(stores)
+      .set({ userId: targetMerchant.id, updatedAt: new Date() })
+      .where(and(eq(stores.id, store.id), eq(stores.userId, currentOwner!.id)))
+    if (storeOrders.length) {
+      await tx
+        .update(b2c_orders)
+        .set({ user_id: targetMerchant.id, updated_at: new Date() })
+        .where(and(eq(b2c_orders.user_id, currentOwner!.id), storeOrderFilter))
+    }
+    await updateUserChannelIntegration(targetMerchant.id, SHOPIFY_PLATFORM_ID, tx)
+    const [remaining] = await tx
+      .select({ id: stores.id })
+      .from(stores)
+      .where(and(eq(stores.userId, currentOwner!.id), eq(stores.platformId, SHOPIFY_PLATFORM_ID)))
+      .limit(1)
+    if (!remaining) await setUserChannelIntegration(currentOwner!.id, SHOPIFY_PLATFORM_ID, false, tx)
+  })
+
+  return {
+    shop,
+    movedOrders: storeOrders.length,
+    bootstrap: createShopifyInstallBootstrap({ shop, userId: targetMerchant.id, returnTo: '/channels/connected' }),
   }
 }
 
@@ -988,7 +1345,8 @@ const toFutureIso = (seconds?: number) => {
 
 const getStoreOAuthMetadata = (store: ShopifyStore): Record<string, any> => {
   const metadata = ((store as any)?.metadata || {}) as Record<string, any>
-  return metadata.oauth && typeof metadata.oauth === 'object' ? metadata.oauth : {}
+  const oauth = metadata.oauth && typeof metadata.oauth === 'object' ? metadata.oauth : {}
+  return { ...oauth, refreshToken: decryptShopifyToken(oauth.refreshToken) }
 }
 
 const syncStoreOAuthState = (store: ShopifyStore, accessToken: string, metadata: Record<string, any>) => {
@@ -1033,9 +1391,13 @@ const refreshShopifyOfflineAccessToken = async (
   const refreshPromise = (async () => {
     const config = getShopifyOAuthConfig()
     const latestStore = (await getStoreById(String(store.id), tx)) || store
+    const credentials = getShopifyAppCredentialsForStore(latestStore)
+    if (!credentials) {
+      throw new Error(`Shopify app credentials are missing for ${store.domain}. Reconnect the Shopify store.`)
+    }
     const latestMetadata = ((latestStore as any)?.metadata || {}) as Record<string, any>
     const latestOauth = getStoreOAuthMetadata(latestStore)
-    const latestAccessToken = String(latestStore.adminApiAccessToken || '').trim()
+    const latestAccessToken = decryptShopifyToken(latestStore.adminApiAccessToken)
     const safetyBufferMs = Number(process.env.SHOPIFY_TOKEN_REFRESH_BUFFER_MS || 5 * 60 * 1000)
 
     if (!options.force && latestAccessToken && !shouldRefreshShopifyToken(latestOauth)) {
@@ -1046,7 +1408,7 @@ const refreshShopifyOfflineAccessToken = async (
     if (
       options.force &&
       latestAccessToken &&
-      latestAccessToken !== String(store.adminApiAccessToken || '').trim() &&
+      latestAccessToken !== decryptShopifyToken(store.adminApiAccessToken) &&
       !isShopifyTokenExpired(latestOauth.expiresAt, safetyBufferMs)
     ) {
       syncStoreOAuthState(store, latestAccessToken, latestMetadata)
@@ -1063,8 +1425,8 @@ const refreshShopifyOfflineAccessToken = async (
     }
 
     const params = new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     })
@@ -1119,22 +1481,24 @@ const refreshShopifyOfflineAccessToken = async (
       refreshedAt: new Date().toISOString(),
     }
 
+    const storedAccessToken = encryptShopifyToken(accessToken)
+    const storedOAuth = encryptShopifyOAuth(refreshedOAuth)
     const nextMetadata = {
       ...latestMetadata,
-      oauth: refreshedOAuth,
+      oauth: storedOAuth,
     }
 
     await tx
       .update(stores)
       .set({
-        adminApiAccessToken: accessToken,
+        adminApiAccessToken: storedAccessToken,
         metadata: nextMetadata,
         updatedAt: new Date(),
       })
       .where(eq(stores.id, latestStore.id))
 
-    syncStoreOAuthState(latestStore, accessToken, nextMetadata)
-    syncStoreOAuthState(store, accessToken, nextMetadata)
+    syncStoreOAuthState(latestStore, storedAccessToken, nextMetadata)
+    syncStoreOAuthState(store, storedAccessToken, nextMetadata)
 
     return accessToken
   })().finally(() => {
@@ -1148,7 +1512,7 @@ const refreshShopifyOfflineAccessToken = async (
 const getShopifyAccessTokenForStore = async (store: ShopifyStore, tx: any = db) => {
   const oauth = getStoreOAuthMetadata(store)
   if (!shouldRefreshShopifyToken(oauth)) {
-    const token = String(store.adminApiAccessToken || '').trim()
+    const token = decryptShopifyToken(store.adminApiAccessToken)
     if (!token) throw new Error(`Shopify access token is missing for ${store.domain}`)
     return token
   }
@@ -1212,6 +1576,12 @@ export const connectShopifyStore = async ({
     webhookSecret || apiSecretKey || process.env.SHOPIFY_WEBHOOK_SECRET || process.env.SHOPIFY_API_SECRET || '',
   ).trim()
   const normalizedSettings = normalizeShopifySettings(settings)
+  const storedAccessToken = encryptShopifyToken(adminApiAccessToken)
+  const storedSigningSecret = signingSecret ? encryptShopifyToken(signingSecret) : undefined
+  const storedOAuth = oauth ? encryptShopifyOAuth(oauth) : undefined
+  if (storedAccessToken.length > 255) {
+    throw new Error('Encrypted Shopify access token exceeds the database column limit')
+  }
   let savedStore: ShopifyStore | undefined
 
   await tx.transaction(async (innerTx: any) => {
@@ -1239,10 +1609,10 @@ export const connectShopifyStore = async ({
         phone: shopifyData.phone,
         zip: shopifyData.zip,
         apiKey: String(apiKey || '').trim() || (authMethod === 'oauth' ? 'shopify_oauth_app' : 'shopify_custom_app'),
-        adminApiAccessToken,
-        shopifyWebhookSecret: signingSecret || undefined,
+        adminApiAccessToken: storedAccessToken,
+        shopifyWebhookSecret: storedSigningSecret,
         authMethod: authMethod || 'legacy_custom_app',
-        oauth: oauth || undefined,
+        oauth: storedOAuth,
         graphqlId: shopifyData.graphqlId,
         primaryDomain: shopifyData.primaryDomain,
         storeInfo: shopifyData.raw,
@@ -1258,10 +1628,10 @@ export const connectShopifyStore = async ({
         settings: normalizedSettings,
         metadata: {
           ...(existingGlobalStore?.metadata || {}),
-          shopifyWebhookSecret: signingSecret || undefined,
+          shopifyWebhookSecret: storedSigningSecret,
           apiSecretKey: apiSecretKey ? 'configured' : undefined,
           authMethod: authMethod || 'legacy_custom_app',
-          oauth: oauth || undefined,
+          oauth: storedOAuth,
           graphqlId: shopifyData.graphqlId,
           primaryDomain: shopifyData.primaryDomain,
           storeInfo: shopifyData.raw,
@@ -2432,12 +2802,13 @@ const getStoreWebhookSecret = (store: ShopifyStore): string => {
     metadata.apiSecret,
     metadata.apiSecretKey,
     process.env.SHOPIFY_CLIENT_SECRET,
+    process.env.SHOPIFY_LEGACY_CLIENT_SECRET,
     process.env.SHOPIFY_WEBHOOK_SECRET,
     process.env.SHOPIFY_API_SECRET,
     process.env.SHOPIFY_API_SECRET_KEY,
   ]
   for (const candidate of candidates) {
-    const val = String(candidate || '').trim()
+    const val = decryptShopifyToken(candidate)
     if (val) return val
   }
   return ''
@@ -2452,11 +2823,12 @@ export const verifyShopifyWebhookSignatureForDomain = async (
   const store = await getStoreByDomain(shopDomain, tx)
   if (!store) {
     const configured = getConfiguredShopifyCredentials()
-    const fallbackSecret = String(
-      process.env.SHOPIFY_CLIENT_SECRET || configured.webhookSecret || '',
-    ).trim()
-    if (fallbackSecret) {
-      return verifyShopifyWebhookSignatureWithSecret(rawBody, receivedHmac, fallbackSecret)
+    const fallbackSecrets = [
+      ...getShopifyAppCredentialCandidates().map((candidate) => candidate.clientSecret),
+      String(configured.webhookSecret || '').trim(),
+    ].filter((secret, index, all) => Boolean(secret) && all.indexOf(secret) === index)
+    for (const fallbackSecret of fallbackSecrets) {
+      if (verifyShopifyWebhookSignatureWithSecret(rawBody, receivedHmac, fallbackSecret)) return true
     }
     return false
   }
@@ -2584,6 +2956,7 @@ export const processShopifyComplianceWebhook = async (
 
   if (normalizedTopic === 'customers/data_request') {
     const summary = await getShopifyDataRequestSummary({ store, payload, tx })
+    const queued = await queueShopifyCustomerDataRequest({ store, payload, tx })
     console.log('Shopify customer data request received', {
       shopDomain: normalizeShopifyDomain(shopDomain),
       storeId: store.id,
@@ -2591,15 +2964,17 @@ export const processShopifyComplianceWebhook = async (
       customerId: payload?.customer?.id,
       ...summary,
     })
-    return { success: true, action: 'data_request_logged', ...summary }
+    return { success: true, action: 'data_request_queued', ...summary, queued }
   }
 
   if (normalizedTopic === 'customers/redact') {
     await redactShopifyOrderCustomerData({ store, payload, scope: 'customer', tx })
+    await redactShopifyComplianceRequestPayloads({ store, tx })
     return { success: true, action: 'customer_data_redacted' }
   }
 
   if (normalizedTopic === 'shop/redact') {
+    await redactShopifyComplianceRequestPayloads({ store, tx })
     await deleteSalesChannelOrdersForStore(
       {
         id: String(store.id),
@@ -2714,6 +3089,46 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
   })
 
   return data?.order
+}
+
+export const processShopifyAppUninstalled = async (shopDomain: string, tx: any = db) => {
+  const store = await getStoreByDomain(shopDomain, tx)
+  if (!store) return { success: true, action: 'store_not_found' }
+
+  const metadata = ((store as any).metadata || {}) as Record<string, any>
+  const oauth = metadata.oauth && typeof metadata.oauth === 'object' ? metadata.oauth : {}
+  await tx
+    .update(stores)
+    .set({
+      adminApiAccessToken: '',
+      metadata: {
+        ...metadata,
+        oauth: {
+          ...oauth,
+          active: false,
+          refreshToken: null,
+          refreshTokenExpiresAt: null,
+          uninstalledAt: new Date().toISOString(),
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(stores.id, store.id))
+
+  const [remainingStore] = await tx
+    .select({ id: stores.id })
+    .from(stores)
+    .where(
+      and(
+        eq(stores.userId, store.userId),
+        eq(stores.platformId, SHOPIFY_PLATFORM_ID),
+        sql`${stores.id} <> ${store.id}`,
+        sql`coalesce(${stores.adminApiAccessToken}, '') <> ''`,
+      ),
+    )
+    .limit(1)
+  if (!remainingStore) await setUserChannelIntegration(store.userId, SHOPIFY_PLATFORM_ID, false, tx)
+  return { success: true, action: 'store_deactivated' }
 }
 
 const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName: string) => {

@@ -1,6 +1,6 @@
 # Shopify OAuth Integration Runbook
 
-This backend connects Shopify stores through the Shopify OAuth authorization code grant and then uses the GraphQL Admin API with the stored offline access token.
+This backend connects embedded Shopify stores through App Bridge session-token exchange, with signed authorization-code OAuth retained as a compatibility path. It uses only the GraphQL Admin API and one expiring offline token per store.
 
 ## Token Mode Decision
 
@@ -38,7 +38,7 @@ Create one Shiplifi app from the Shopify Dev Dashboard. The Shopify app's client
 Configure the app URL:
 
 ```text
-https://api.fgship.in/api/integrations/shopify/oauth/install
+https://client.fgship.in/shopify/install
 ```
 
 Configure the allowed redirection URL:
@@ -61,7 +61,7 @@ https://your-ngrok-domain.ngrok-free.app/api/integrations/shopify/oauth/callback
 API_URL=https://api.fgship.in
 SHOPIFY_CLIENT_ID=your_shopify_client_id
 SHOPIFY_CLIENT_SECRET=your_shopify_client_secret
-SHOPIFY_SCOPES=read_orders,write_orders,read_customers,read_webhooks,write_webhooks,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders
+SHOPIFY_SCOPES=read_orders,write_orders,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders
 SHOPIFY_API_VERSION=2026-07
 SHOPIFY_OAUTH_SUCCESS_URL=https://client.fgship.in/channels/connected
 SHOPIFY_SEND_OAUTH_SCOPE=false
@@ -76,7 +76,7 @@ The OAuth callback path defaults to:
 The public install handoff path for the Shopify app URL is:
 
 ```text
-/api/integrations/shopify/oauth/install
+/shopify/install
 ```
 
 The app registers Shopify order webhooks at:
