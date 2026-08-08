@@ -314,6 +314,35 @@ const getB2CGroupKey = (rate: any) =>
 const getB2BGroupKey = (rate: any) =>
   `${rate.courier_name}_${rate.plan_id}_${normalizeB2CShippingMode(rate.mode)}`
 
+const isProtectedXpressbeesSurfaceHalfKgIdentity = (params: {
+  courierId?: unknown
+  courierName?: unknown
+  serviceProvider?: unknown
+  mode?: unknown
+}) =>
+  Number(params.courierId) === 1 &&
+  normalizeB2CServiceProvider(params.serviceProvider) === 'xpressbees' &&
+  normalizeB2CShippingMode(params.mode) === 'surface' &&
+  String(params.courierName ?? '').toLowerCase().includes('xpressbees') &&
+  String(params.courierName ?? '').toLowerCase().includes('0.5')
+
+const shouldIgnoreStaleXpressbeesSurfaceHalfKgPreviousIdentity = (params: {
+  previousServiceProvider?: string | null
+  previousMode?: string | null
+  nextServiceProvider?: string | null
+  nextMode?: string | null
+  nextCourierId?: number
+  nextCourierName?: string
+}) =>
+  params.previousServiceProvider === 'xpressbees' &&
+  params.previousMode === 'surface' &&
+  !isProtectedXpressbeesSurfaceHalfKgIdentity({
+    courierId: params.nextCourierId,
+    courierName: params.nextCourierName,
+    serviceProvider: params.nextServiceProvider,
+    mode: params.nextMode,
+  })
+
 const hasMeaningfulSlabValue = (value: unknown) =>
   value !== undefined && value !== null && String(value).trim() !== ''
 
@@ -370,6 +399,32 @@ export const updateShippingRate = async (
     normalizeB2CServiceProvider(previous_service_provider) || normalizedServiceProvider
   const normalizedMode = normalizeB2CShippingMode(mode)
   const previousMode = normalizeB2CShippingMode(previous_mode ?? mode)
+  const useCurrentIdentityForLookup =
+    businessType === 'b2c' &&
+    shouldIgnoreStaleXpressbeesSurfaceHalfKgPreviousIdentity({
+      previousServiceProvider,
+      previousMode,
+      nextServiceProvider: normalizedServiceProvider,
+      nextMode: normalizedMode,
+      nextCourierId: courierId,
+      nextCourierName: courier_name,
+    })
+  const lookupServiceProvider = useCurrentIdentityForLookup
+    ? normalizedServiceProvider
+    : previousServiceProvider
+  const lookupMode = useCurrentIdentityForLookup ? normalizedMode : previousMode
+
+  if (useCurrentIdentityForLookup) {
+    console.warn(
+      '[updateShippingRate] Ignoring stale Xpressbees Surface 0.5 previous identity for non-Xpressbees save',
+      {
+        courierId,
+        courierName: courier_name,
+        serviceProvider: normalizedServiceProvider,
+        mode: normalizedMode,
+      },
+    )
+  }
 
       console.log(
         `[updateShippingRate] Saving service_provider from frontend: "${normalizedServiceProvider}" for courier_id: ${courierId}, courier_name: "${courier_name}"`,
@@ -408,9 +463,9 @@ export const updateShippingRate = async (
             eq(shippingRates.business_type, businessType),
             inArray(shippingRates.zone_id, zoneRows.map((zone) => zone.id)),
             inArray(shippingRates.type, disallowedRateTypes),
-            eq(sql`LOWER(${shippingRates.mode})`, previousMode),
-            previousServiceProvider
-              ? eq(sql`LOWER(${shippingRates.service_provider})`, previousServiceProvider)
+            eq(sql`LOWER(${shippingRates.mode})`, lookupMode),
+            lookupServiceProvider
+              ? eq(sql`LOWER(${shippingRates.service_provider})`, lookupServiceProvider)
               : sql`1=1`,
           ),
         )
@@ -436,7 +491,13 @@ export const updateShippingRate = async (
         const rateStr = toMoney(fallbackRate)
 
         const [existing] = await db
-          .select({ id: shippingRates.id })
+          .select({
+            id: shippingRates.id,
+            courierId: shippingRates.courier_id,
+            courierName: shippingRates.courier_name,
+            serviceProvider: shippingRates.service_provider,
+            mode: shippingRates.mode,
+          })
           .from(shippingRates)
           .where(
             and(
@@ -445,14 +506,35 @@ export const updateShippingRate = async (
               eq(shippingRates.business_type, businessType),
               eq(shippingRates.zone_id, zn.id),
               eq(shippingRates.type, type),
-              eq(sql`LOWER(${shippingRates.mode})`, previousMode),
-              previousServiceProvider
-                ? eq(sql`LOWER(${shippingRates.service_provider})`, previousServiceProvider)
+              eq(sql`LOWER(${shippingRates.mode})`, lookupMode),
+              lookupServiceProvider
+                ? eq(sql`LOWER(${shippingRates.service_provider})`, lookupServiceProvider)
                 : sql`1=1`,
             ),
           )
 
         if (existing) {
+          if (
+            isProtectedXpressbeesSurfaceHalfKgIdentity({
+              courierId: existing.courierId,
+              courierName: existing.courierName,
+              serviceProvider: existing.serviceProvider,
+              mode: existing.mode,
+            }) &&
+            !isProtectedXpressbeesSurfaceHalfKgIdentity({
+              courierId,
+              courierName: courier_name,
+              serviceProvider: normalizedServiceProvider,
+              mode: normalizedMode,
+            })
+          ) {
+            console.warn(
+              '[updateShippingRate] Refusing to rewrite Xpressbees Surface 0.5 row into another courier',
+              { existingRateId: existing.id, courierId, courierName: courier_name },
+            )
+            continue
+          }
+
           console.log(
             `[updateShippingRate] Updating existing rate ${existing.id} with service_provider: ${normalizedServiceProvider}`,
           )
