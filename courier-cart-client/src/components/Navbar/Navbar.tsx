@@ -25,6 +25,7 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const isCompactNavbar = useMediaQuery(theme.breakpoints.down('lg'))
+  const isPublicShopifyApp = document.documentElement.dataset.shopifyApp === 'public'
   const { isAuthenticated, user } = useAuth()
   const handlePinToggle = () => {
     onPinChange?.(!pinned)
@@ -127,9 +128,11 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
                 <QuickActions compact iconOverride={<FaBolt size={12} />} />
               </Box>
 
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <WalletMenu iconOnly iconOverride={<FaWallet size={12} />} />
-              </Box>
+              {!isPublicShopifyApp ? (
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <WalletMenu iconOnly iconOverride={<FaWallet size={12} />} />
+                </Box>
+              ) : null}
             </>
           ) : (
             <>
@@ -155,7 +158,7 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
                 />
               ) : null}{' '}
               <QuickActions />
-              <WalletMenu />
+              {!isPublicShopifyApp ? <WalletMenu /> : null}
             </>
           )}
           <UserMenu />

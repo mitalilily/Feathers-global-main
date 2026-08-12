@@ -6,5 +6,11 @@ export default defineConfig({
   plugins: [react()],
   build: {
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        shopifyApp: 'shopify-app.html',
+      },
+    },
   },
 })

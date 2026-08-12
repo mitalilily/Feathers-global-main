@@ -1,6 +1,14 @@
 // AppRoutes.tsx
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import {
+  BrowserRouter,
+  HashRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+} from 'react-router-dom'
 import RequireAuth from '../components/auth/wrapper/RequireAuth'
 import RequireEmployeePermission from '../components/auth/wrapper/RequireEmployeePermission'
 import RequireMerchantReady from '../components/auth/wrapper/RequireMerchantReady'
@@ -131,8 +139,11 @@ function AppEntryRoute() {
 }
 
 export default function AppRoutes() {
+  const Router =
+    document.documentElement.dataset.shopifyApp === 'public' ? HashRouter : BrowserRouter
+
   return (
-    <BrowserRouter>
+    <Router>
       <GlobalRedirectHandler />
       <Suspense fallback={<FullScreenLoader />}>
         <Routes>
@@ -244,6 +255,6 @@ export default function AppRoutes() {
           <Route path="*" element={<Login />} />
         </Routes>
       </Suspense>
-    </BrowserRouter>
+    </Router>
   )
 }
