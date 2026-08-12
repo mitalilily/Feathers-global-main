@@ -2729,10 +2729,16 @@ export const syncShopifyOrdersForUser = async (
   const result: SyncResult = { created: 0, updated: 0, skipped: 0 }
 
   for (const store of storesToSync) {
-    const orders = await fetchShopifyOrders(store as ShopifyStore, limit)
+    const typedStore = store as ShopifyStore
+    const accessToken = await getShopifyAccessTokenForStore(typedStore, tx)
+    await ensureShopifyOrderWebhooks({
+      storeUrl: typedStore.domain,
+      accessToken,
+    })
+    const orders = await fetchShopifyOrders(typedStore, limit)
     const settings = normalizeShopifySettings((store as any)?.settings || {})
     for (const order of orders) {
-      const state = await upsertFromShopifyOrder(store as ShopifyStore, order, settings, tx)
+      const state = await upsertFromShopifyOrder(typedStore, order, settings, tx)
       result[state] += 1
     }
   }
