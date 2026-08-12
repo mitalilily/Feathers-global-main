@@ -41,9 +41,20 @@
       ;(() => {
         const markerKey = 'fg_shopify_app_client'
         const params = new URLSearchParams(window.location.search)
+        let tokenClientId = ''
+        try {
+          const encodedPayload = params.get('id_token')?.split('.')[1]
+          if (encodedPayload) {
+            const base64 = encodedPayload.replace(/-/g, '+').replace(/_/g, '/')
+            tokenClientId = JSON.parse(atob(base64)).aud || ''
+          }
+        } catch {
+          tokenClientId = ''
+        }
         const isNewAppEntry =
           window.location.pathname.startsWith('/shopify/install') ||
-          params.get('fg_shopify_app') === 'new'
+          params.get('fg_shopify_app') === 'new' ||
+          tokenClientId === 'a64a918b0ecfc48d7f2402def3b8c92a'
 
         if (isNewAppEntry) sessionStorage.setItem(markerKey, 'new')
         const useNewApp = isNewAppEntry || sessionStorage.getItem(markerKey) === 'new'
