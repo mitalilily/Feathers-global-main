@@ -2,8 +2,11 @@ import { Stack } from '@mui/material'
 import AdminPageShell from '../../components/admin/AdminPageShell'
 import AllChannelOptions from '../../components/channels/AllChannelOptions'
 import UserConnectedChannels from '../../components/channels/UserConnectedChannels'
+import { isPublicShopifyAppEntry } from '../../utils/shopifyEntry'
 
 const Channels = () => {
+  const isPublicShopifyApp = isPublicShopifyAppEntry()
+
   return (
     <AdminPageShell
       title="Channel connection workspace"
@@ -17,7 +20,7 @@ const Channels = () => {
     >
       <Stack spacing={2} sx={{ p: { xs: 1.5, md: 2.2 } }}>
         <UserConnectedChannels />
-        <AllChannelOptions />
+        {!isPublicShopifyApp ? <AllChannelOptions /> : null}
       </Stack>
     </AdminPageShell>
   )

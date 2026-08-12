@@ -19,6 +19,7 @@ import CustomInput from '../UI/inputs/CustomInput'
 import CustomSelect from '../UI/inputs/CustomSelect'
 import CustomSwitch from '../UI/inputs/CustomSwitch'
 import CustomDialog from '../UI/modal/CustomModal'
+import { isPublicShopifyAppEntry } from '../../utils/shopifyEntry'
 import type { ShopifyForm } from './ShopifyIntegration'
 
 interface IShopifyConnectionModalProps {
@@ -50,6 +51,7 @@ const ShopifyConnectionModal = ({
 }: IShopifyConnectionModalProps) => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isPublicShopifyApp = isPublicShopifyAppEntry()
 
   return (
     <CustomDialog
@@ -60,7 +62,10 @@ const ShopifyConnectionModal = ({
       onClose={() => onSetOpen()}
       title={
         <Stack direction="row" alignItems="center" gap={2}>
-          <FaConnectdevelop /> Connect your Shopify store
+          <FaConnectdevelop />{' '}
+          {isPublicShopifyApp && isEditing
+            ? 'Shopify store settings'
+            : 'Connect your Shopify store'}
         </Stack>
       }
       footer={
@@ -104,19 +109,28 @@ const ShopifyConnectionModal = ({
               Shopify app authorization
             </Typography>
             <Typography variant="body2" color="text.secondary" mb={2}>
-              Connect with Shopify's current OAuth flow. Feather Global redirects you to
-              Shopify, Shopify asks the merchant to approve the configured scopes, and
-              the backend stores the access token securely.
+              {isPublicShopifyApp && isEditing
+                ? 'This store was authorized from Shopify admin. Its identity is managed by Shopify and cannot be changed here.'
+                : "Connect with Shopify's current OAuth flow. Feather Global redirects you to Shopify, Shopify asks the merchant to approve the configured scopes, and the backend stores the access token securely."}
             </Typography>
 
             <Stack spacing={1.5}>
-              <Alert severity="info" variant="outlined">
-                You only need the store's myshopify.com domain here. Do not paste Admin API
-                tokens or app secrets into this screen.
-              </Alert>
-              <Typography variant="body2" color="text.secondary">
-                Example: <strong>feather-global-test.myshopify.com</strong>
-              </Typography>
+              {isPublicShopifyApp && isEditing ? (
+                <Alert severity="success" variant="outlined">
+                  Connected securely through Shopify OAuth. No store domain, API token, or app
+                  secret is required.
+                </Alert>
+              ) : (
+                <>
+                  <Alert severity="info" variant="outlined">
+                    You only need the store's myshopify.com domain here. Do not paste Admin API
+                    tokens or app secrets into this screen.
+                  </Alert>
+                  <Typography variant="body2" color="text.secondary">
+                    Example: <strong>feather-global-test.myshopify.com</strong>
+                  </Typography>
+                </>
+              )}
               <Link
                 href="https://admin.shopify.com/"
                 target="_blank"
