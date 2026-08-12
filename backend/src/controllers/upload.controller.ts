@@ -13,6 +13,9 @@ import { getBucketName } from "../utils/functions";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { r2 } from "../config/r2Client";
+import { inArray } from "drizzle-orm";
+import { db } from "../models/client";
+import { kyc } from "../models/schema/kyc";
 
 const streamBodyToBuffer = async (body: any): Promise<Buffer> => {
   if (!body) return Buffer.alloc(0);
@@ -27,6 +30,53 @@ const streamBodyToBuffer = async (body: any): Promise<Buffer> => {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks);
+};
+
+const KYC_DOCUMENT_MIME_FIELDS = [
+  ["aadhaarUrl", "aadhaarMime"],
+  ["panCardUrl", "panCardMime"],
+  ["cancelledChequeUrl", "cancelledChequeMime"],
+  ["boardResolutionUrl", "boardResolutionMime"],
+  ["partnershipDeedUrl", "partnershipDeedMime"],
+  ["llpAgreementUrl", "llpAgreementMime"],
+  ["companyAddressProofUrl", "companyAddressProofMime"],
+  ["businessPanUrl", "businessPanMime"],
+  ["gstCertificateUrl", "gstCertificateMime"],
+] as const;
+
+const inferContentTypeFromKey = (key: string) => {
+  const normalized = String(key || "").split("?")[0].toLowerCase();
+  if (normalized.endsWith(".pdf")) return "application/pdf";
+  if (normalized.endsWith(".png")) return "image/png";
+  if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) return "image/jpeg";
+  if (normalized.endsWith(".webp")) return "image/webp";
+  return undefined;
+};
+
+const getKycDocumentMimeMap = async (keys: string[]) => {
+  const uniqueKeys = Array.from(new Set(keys.map((key) => String(key || "").trim()).filter(Boolean)));
+  const kycKeys = uniqueKeys.filter((key) => key.startsWith("kyc/"));
+  const mimeMap = new Map<string, string>();
+
+  if (!kycKeys.length) return mimeMap;
+
+  const conditions = KYC_DOCUMENT_MIME_FIELDS.map(
+    ([urlField]) => inArray((kyc as any)[urlField], kycKeys),
+  );
+
+  const rows = await db.query.kyc.findMany({
+    where: (record, { or }) => or(...conditions),
+  });
+
+  for (const row of rows as any[]) {
+    for (const [urlField, mimeField] of KYC_DOCUMENT_MIME_FIELDS) {
+      const key = String(row?.[urlField] || "").trim();
+      const mime = String(row?.[mimeField] || "").trim();
+      if (key && mime) mimeMap.set(key, mime);
+    }
+  }
+
+  return mimeMap;
 };
 
 export const createPresignedUrl = async (
@@ -222,13 +272,15 @@ export const getPresignedDownloadUrl = async (
     }
 
     if (Array.isArray(keys)) {
-      const urls = keys.map((key) =>
+      const normalizedKeys = keys.map((key) => String(key || "").trim());
+      const kycMimeMap = await getKycDocumentMimeMap(normalizedKeys);
+      const urls = normalizedKeys.map((key) =>
         createBackendDownloadUrl(String(key || ""), {
-          disposition: "attachment",
-          contentType: "application/pdf",
+          disposition: "inline",
+          contentType: kycMimeMap.get(key) || inferContentTypeFromKey(key) || "application/octet-stream",
         }),
       );
-      const missingFiles = keys.filter((_, index) => !urls[index]);
+      const missingFiles = normalizedKeys.filter((_, index) => !urls[index]);
       const foundCount = urls.filter(Boolean).length;
       const missingCount = missingFiles.length;
 
@@ -251,9 +303,14 @@ export const getPresignedDownloadUrl = async (
         message,
       });
     } else {
+      const normalizedKey = String(keys || "").trim();
+      const kycMimeMap = await getKycDocumentMimeMap([normalizedKey]);
       const result = createBackendDownloadUrl(String(keys), {
-        disposition: "attachment",
-        contentType: "application/pdf",
+        disposition: "inline",
+        contentType:
+          kycMimeMap.get(normalizedKey) ||
+          inferContentTypeFromKey(normalizedKey) ||
+          "application/octet-stream",
       });
       if (!result || result === null) {
         return res.status(404).json({ 
