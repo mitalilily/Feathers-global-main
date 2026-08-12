@@ -56,7 +56,10 @@
           params.get('fg_shopify_app') === 'new' ||
           tokenClientId === 'a64a918b0ecfc48d7f2402def3b8c92a'
 
-        if (isNewAppEntry) sessionStorage.setItem(markerKey, 'new')
+        if (isNewAppEntry) {
+          sessionStorage.setItem(markerKey, 'new')
+          sessionStorage.setItem('fg_public_shopify_app', '1')
+        }
         const useNewApp = isNewAppEntry || sessionStorage.getItem(markerKey) === 'new'
         if (useNewApp && sessionStorage.getItem('fg_public_shopify_app') === '1') {
           document.documentElement.dataset.shopifyApp = 'public'
