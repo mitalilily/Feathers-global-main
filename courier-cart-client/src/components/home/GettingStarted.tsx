@@ -2,6 +2,7 @@ import { Box, Button, Grid, LinearProgress, Stack, Typography } from '@mui/mater
 import { MdOutlineFactCheck, MdVerifiedUser } from 'react-icons/md'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/auth/AuthContext'
+import { isShopifyReviewerAccount } from '../../utils/reviewerAccount'
 
 const BRAND_PRIMARY = '#047b85'
 const BRAND_ACCENT = '#ff821c'
@@ -19,6 +20,10 @@ const cardSx = {
 const GettingStarted = () => {
   const { walletBalance, user } = useAuth()
   const navigate = useNavigate()
+  const hideWallet = isShopifyReviewerAccount(
+    user?.companyInfo?.contactEmail,
+    user?.companyInfo?.companyEmail,
+  )
 
   const isKycDone = user?.domesticKyc?.status === 'verified'
   const progress = isKycDone ? 100 : 55
@@ -33,7 +38,7 @@ const GettingStarted = () => {
       </Stack>
 
       <Grid container spacing={1.5}>
-        <Grid size={{ xs: 12, md: 6 }}>
+        {!hideWallet && <Grid size={{ xs: 12, md: 6 }}>
           <Box sx={cardSx}>
             <Stack spacing={1.2}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -67,9 +72,9 @@ const GettingStarted = () => {
               </Stack>
             </Stack>
           </Box>
-        </Grid>
+        </Grid>}
 
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={{ xs: 12, md: hideWallet ? 12 : 6 }}>
           <Box sx={cardSx}>
             <Stack spacing={1.2}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">

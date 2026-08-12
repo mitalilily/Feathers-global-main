@@ -28,6 +28,8 @@ import TopDestinationsCard from '../../components/dashboard/TopDestinationsCard'
 import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import { useMerchantDashboardStats } from '../../hooks/useDashboard'
 import { useDashboardPreferences } from '../../hooks/useDashboardPreferences'
+import { useAuth } from '../../context/auth/AuthContext'
+import { isShopifyReviewerAccount } from '../../utils/reviewerAccount'
 
 // Widget mapping
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,6 +61,13 @@ export default function Dashboard() {
   const { data: stats, isLoading, error, refetch, isRefetching } = useMerchantDashboardStats()
   const { data: preferences } = useDashboardPreferences()
   const { canViewDashboardWalletBalance } = useEmployeePermissions()
+  const { user } = useAuth()
+  const canShowWallet =
+    canViewDashboardWalletBalance &&
+    !isShopifyReviewerAccount(
+      user?.companyInfo?.contactEmail,
+      user?.companyInfo?.companyEmail,
+    )
   const [ChartComponent, setChartComponent] = useState<
     typeof import('react-apexcharts').default | null
   >(null)
@@ -155,7 +164,7 @@ export default function Dashboard() {
       })
     }
 
-    if (canViewDashboardWalletBalance && financial.walletBalance < 1000) {
+    if (canShowWallet && financial.walletBalance < 1000) {
       recs.push({
         message: 'Low wallet balance. Recharge to avoid service interruptions',
         action: 'Recharge Wallet',
@@ -187,7 +196,7 @@ export default function Dashboard() {
     actions.ndrCount,
     actions.pendingInvoices,
     actions.rtoCount,
-    canViewDashboardWalletBalance,
+    canShowWallet,
     financial.walletBalance,
     todayOps.pending,
   ])
@@ -197,13 +206,13 @@ export default function Dashboard() {
     const order = preferences?.widgetOrder || DEFAULT_WIDGETS
     const visibility = preferences?.widgetVisibility || {}
     return order.filter((widgetId) => {
-      if (widgetId === 'financialHealth' && !canViewDashboardWalletBalance) {
+      if (widgetId === 'financialHealth' && !canShowWallet) {
         return false
       }
 
       return visibility[widgetId] !== false
     })
-  }, [canViewDashboardWalletBalance, preferences])
+  }, [canShowWallet, preferences])
 
   // Memoized widget props
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

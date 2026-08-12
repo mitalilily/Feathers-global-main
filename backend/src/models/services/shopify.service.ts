@@ -365,6 +365,47 @@ const getShopifyAppCredentialCandidates = (): ShopifyAppCredentials[] => {
 const getShopifyAppCredentialsForClientId = (clientId: string) =>
   getShopifyAppCredentialCandidates().find((candidate) => candidate.clientId === clientId)
 
+export const assertShopifyAppInstallIsolation = ({
+  incomingClientId,
+  primaryClientId,
+  existingClientId,
+  hasExistingStore = Boolean(existingClientId),
+}: {
+  incomingClientId: string
+  primaryClientId: string
+  existingClientId?: string | null
+  hasExistingStore?: boolean
+}) => {
+  const incoming = String(incomingClientId || '').trim()
+  const primary = String(primaryClientId || '').trim()
+  const existing = String(existingClientId || '').trim()
+
+  if (!incoming || !primary) {
+    throw new Error('Shopify app identity is not configured')
+  }
+
+  if (!hasExistingStore) {
+    if (incoming !== primary) {
+      throw new Error(
+        'This legacy Shopify app can only continue an existing production connection. New stores must install the current Feather Global public app.',
+      )
+    }
+    return
+  }
+
+  if (!existing) {
+    throw new Error(
+      'This shop has an existing Shopify connection without a verified app identity. Its production connection was left unchanged.',
+    )
+  }
+
+  if (existing !== incoming) {
+    throw new Error(
+      'This shop is already connected through a different Feather Global Shopify app. Its existing production connection was left unchanged.',
+    )
+  }
+}
+
 const getShopifyAppCredentialsForStore = (store: ShopifyStore) => {
   const oauth = getStoreOAuthMetadata(store)
   const clientId = String(oauth.appClientId || store.apiKey || '').trim()
@@ -705,22 +746,23 @@ export const completeShopifyManagedInstall = async (sessionToken: string) => {
   const credentials = getShopifyAppCredentialsForClientId(String(session.aud || '').trim())
   if (!credentials) throw new Error('Shopify app credentials do not match the session token')
 
+  const existingStore = await getStoreByDomain(shop)
+  const existingClientId = existingStore
+    ? String(getStoreOAuthMetadata(existingStore).appClientId || existingStore.apiKey || '').trim()
+    : ''
+  assertShopifyAppInstallIsolation({
+    incomingClientId: credentials.clientId,
+    primaryClientId: getShopifyOAuthConfig().clientId,
+    existingClientId,
+    hasExistingStore: Boolean(existingStore),
+  })
+
   const tokenResponse = await exchangeShopifySessionToken({ shop, sessionToken, credentials })
   const accessToken = String(tokenResponse.access_token || '').trim()
   const refreshToken = String(tokenResponse.refresh_token || '').trim()
   if (!accessToken) throw new Error('Shopify did not return an Admin API access token')
   if (!refreshToken) throw new Error('Shopify did not return an expiring offline refresh token')
 
-  const existingStore = await getStoreByDomain(shop)
-  if (existingStore) {
-    const existingOAuth = getStoreOAuthMetadata(existingStore)
-    const existingClientId = String(existingOAuth.appClientId || existingStore.apiKey || '').trim()
-    if (existingClientId && existingClientId !== credentials.clientId) {
-      throw new Error(
-        'This shop is connected through the existing Feather Global Shopify app. The new public app cannot replace that production connection automatically.',
-      )
-    }
-  }
   let connectedUserId = String(existingStore?.userId || '').trim()
   if (!connectedUserId) {
     const bootstrapUser = await createUserWithWallet({
@@ -786,6 +828,13 @@ export const claimShopifyManagedStoreForMerchant = async ({
   const shop = normalizeShopifyDomain(new URL(session.dest).hostname)
   const store = await getStoreByDomain(shop)
   if (!store) throw new Error('Complete the Shopify installation before linking a Feather Global account')
+
+  assertShopifyAppInstallIsolation({
+    incomingClientId: String(session.aud || '').trim(),
+    primaryClientId: getShopifyOAuthConfig().clientId,
+    existingClientId: String(getStoreOAuthMetadata(store).appClientId || store.apiKey || '').trim(),
+    hasExistingStore: true,
+  })
 
   const merchantColumns = {
     id: users.id,

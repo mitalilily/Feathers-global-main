@@ -84,6 +84,7 @@ const main = async () => {
 
   const {
     buildShopifyOAuthAuthorizeUrl,
+    assertShopifyAppInstallIsolation,
     getShopifyOAuthConfig,
     normalizeShopifyDomain,
     verifyShopifyOAuthQueryHmac,
@@ -145,6 +146,40 @@ const main = async () => {
   }
   const hmac = callbackHmac(callbackQuery, config.clientSecret)
   assert.equal(verifyShopifyOAuthQueryHmac({ ...callbackQuery, hmac }), true)
+
+  assert.doesNotThrow(() =>
+    assertShopifyAppInstallIsolation({
+      incomingClientId: config.clientId,
+      primaryClientId: config.clientId,
+    }),
+  )
+  assert.doesNotThrow(() =>
+    assertShopifyAppInstallIsolation({
+      incomingClientId: 'legacy_client_id',
+      primaryClientId: config.clientId,
+      existingClientId: 'legacy_client_id',
+    }),
+  )
+  assert.throws(() =>
+    assertShopifyAppInstallIsolation({
+      incomingClientId: 'legacy_client_id',
+      primaryClientId: config.clientId,
+    }),
+  )
+  assert.throws(() =>
+    assertShopifyAppInstallIsolation({
+      incomingClientId: config.clientId,
+      primaryClientId: config.clientId,
+      existingClientId: 'legacy_client_id',
+    }),
+  )
+  assert.throws(() =>
+    assertShopifyAppInstallIsolation({
+      incomingClientId: config.clientId,
+      primaryClientId: config.clientId,
+      hasExistingStore: true,
+    }),
+  )
 
   console.log('Shopify OAuth smoke check passed')
   console.log(

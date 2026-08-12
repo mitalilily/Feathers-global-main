@@ -5,6 +5,7 @@ import { FiPlus } from 'react-icons/fi'
 import { useAuth } from '../../context/auth/AuthContext'
 import useEmployeePermissions from '../../hooks/User/useEmployeePermissions'
 import { useWalletBalance } from '../../hooks/useWalletBalance'
+import { isShopifyReviewerAccount } from '../../utils/reviewerAccount'
 import AddMoneyDialog from '../AddMoneyDialog'
 
 const BRAND_PRIMARY = '#047b85'
@@ -18,13 +19,18 @@ interface WalletMenuProps {
 const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
   const [dialogOpen, setDialogOpen] = useState(false)
 
-  const { walletBalance, setWalletBalance } = useAuth()
+  const { walletBalance, setWalletBalance, user } = useAuth()
   const { canRechargeWallet, canViewWallet } = useEmployeePermissions()
+  const hideWallet = isShopifyReviewerAccount(
+    user?.companyInfo?.contactEmail,
+    user?.companyInfo?.companyEmail,
+  )
 
-  const { data, isLoading } = useWalletBalance(canViewWallet)
+  const { data, isLoading } = useWalletBalance(canViewWallet && !hideWallet)
 
   // ✅ Only set balance in context after render
   useEffect(() => {
+    if (hideWallet) return
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const balance = Number((data as any)?.data?.balance ?? data) // handle both shapes
     if (!isNaN(balance)) {
@@ -32,9 +38,9 @@ const WalletMenu = ({ iconOnly = false, iconOverride }: WalletMenuProps) => {
     } else {
       setWalletBalance(0)
     }
-  }, [data, setWalletBalance])
+  }, [data, hideWallet, setWalletBalance])
 
-  if (!canViewWallet) return null
+  if (!canViewWallet || hideWallet) return null
 
   const handleOpen = () => {
     if (!canRechargeWallet) return

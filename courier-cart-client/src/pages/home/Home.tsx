@@ -32,6 +32,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useMerchantDashboardStats } from '../../hooks/useDashboard'
 import OpsAnalyticsSection from '../../components/dashboard/OpsAnalyticsSection'
+import { isShopifyReviewerAccount } from '../../utils/reviewerAccount'
 
 const BRAND_PRIMARY = '#047b85'
 const BRAND_TEXT = '#111827'
@@ -60,6 +61,10 @@ const formatDelta = (value: number, suffix = '%') => {
 const Home = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const hideWallet = isShopifyReviewerAccount(
+    user?.companyInfo?.contactEmail,
+    user?.companyInfo?.companyEmail,
+  )
   const todayDateInput = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [selectedDate, setSelectedDate] = useState(todayDateInput)
   const {
@@ -628,7 +633,7 @@ const Home = () => {
               Billing Overview
             </Typography>
             <Stack spacing={1.4}>
-              <Box sx={{ p: 1.4, borderRadius: 2, bgcolor: alpha(BRAND_PRIMARY, 0.05) }}>
+              {!hideWallet && <Box sx={{ p: 1.4, borderRadius: 2, bgcolor: alpha(BRAND_PRIMARY, 0.05) }}>
                 <Typography
                   sx={{
                     fontSize: '0.74rem',
@@ -645,7 +650,7 @@ const Home = () => {
                 >
                   {formatCurrency(financial.walletBalance)}
                 </Typography>
-              </Box>
+              </Box>}
               <Stack spacing={1}>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography sx={{ fontSize: '0.8rem', color: TEXT_MUTED }}>
