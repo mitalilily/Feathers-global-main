@@ -5,6 +5,9 @@ application_url = "https://client.fgship.in/shopify-app.html"
 embedded = true
 client_id = "a64a918b0ecfc48d7f2402def3b8c92a"
 
+[app_preferences]
+url = "https://client.fgship.in/shopify-app.html#/settings"
+
 [auth]
 redirect_urls = [
   "https://api.fgship.in/api/integrations/shopify/oauth/callback"
