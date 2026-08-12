@@ -136,6 +136,16 @@ const UserConnectedChannels = () => {
                   { limit: 100, storeId: row?.id },
                   {
                     onSuccess: (data: any) => {
+                      if (isShopify && data?.reconnectRequired) {
+                        toast.open({
+                          message:
+                            data?.error ||
+                            'Shopify authorization needs to be renewed. Opening Shopify Admin…',
+                          severity: 'warning',
+                        })
+                        if (data?.reconnectUrl) window.location.assign(String(data.reconnectUrl))
+                        return
+                      }
                       toast.open({
                         message: `${label} sync complete: ${data?.created ?? 0} created, ${data?.updated ?? 0} updated`,
                         severity: 'success',

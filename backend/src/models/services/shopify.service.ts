@@ -44,6 +44,7 @@ const SHOPIFY_WEBHOOK_TOPICS = ['ORDERS_CREATE', 'ORDERS_UPDATED', 'ORDERS_CANCE
 const SHOPIFY_ORDER_CREATED_WEBHOOK_PATH = '/api/webhooks/shopify/order-created'
 export const SHOPIFY_COMPLIANCE_WEBHOOK_PATH = '/api/webhooks/shopify/compliance'
 export const SHOPIFY_UNINSTALL_WEBHOOK_PATH = '/api/webhooks/shopify/app-uninstalled'
+export const SHOPIFY_REAUTHORIZATION_REQUIRED_CODE = 'SHOPIFY_REAUTHORIZATION_REQUIRED'
 const SHOPIFY_COMPLIANCE_TOPICS = [
   'customers/data_request',
   'customers/redact',
@@ -51,6 +52,30 @@ const SHOPIFY_COMPLIANCE_TOPICS = [
 ] as const
 
 type ShopifyStore = typeof stores.$inferSelect
+
+export class ShopifyReauthorizationRequiredError extends Error {
+  readonly code = SHOPIFY_REAUTHORIZATION_REQUIRED_CODE
+  readonly statusCode = 409
+  readonly reconnectRequired = true
+  readonly shop: string
+  readonly reconnectUrl: string
+
+  constructor(shop: string, reason?: string) {
+    const normalizedShop = normalizeShopifyDomain(shop)
+    super(
+      reason ||
+        `Shopify authorization needs to be renewed for ${normalizedShop}. Open Feather Global from Shopify Admin to reconnect.`,
+    )
+    this.name = 'ShopifyReauthorizationRequiredError'
+    this.shop = normalizedShop
+    const storeHandle = normalizedShop.replace(/\.myshopify\.com$/i, '')
+    const clientId = getShopifyOAuthConfig().clientId
+    this.reconnectUrl =
+      storeHandle && clientId
+        ? `https://admin.shopify.com/store/${encodeURIComponent(storeHandle)}/apps/${encodeURIComponent(clientId)}`
+        : 'https://admin.shopify.com/'
+  }
+}
 
 type SyncResult = {
   created: number
@@ -875,32 +900,34 @@ export const claimShopifyManagedStoreForMerchant = async ({
     sql`${b2c_orders.order_id} LIKE ${`shopify_${store.id}_%`}`,
     sql`coalesce(${b2c_orders.provider_meta}->>'shopify_store_id', '') = ${store.id}`,
   )
-  const storeOrders = await db
-    .select({
-      id: b2c_orders.id,
-      userId: b2c_orders.user_id,
-      awb: b2c_orders.awb_number,
-      freight: b2c_orders.freight_charges,
-      walletDebit: b2c_orders.wallet_debit_amount,
-    })
-    .from(b2c_orders)
-    .where(storeOrderFilter)
-  if (storeOrders.some((order) => order.userId !== currentOwner!.id)) {
-    throw new Error('Shopify order ownership is inconsistent; account linking was stopped')
-  }
-  if (
-    storeOrders.some((order) => {
-      const awb = String(order.awb || '').trim()
-      return Boolean(awb && !awb.startsWith('TEST')) || Number(order.freight || 0) !== 0 || Number(order.walletDebit || 0) !== 0
-    })
-  ) {
-    throw new Error('This store has already booked real or charged shipments and cannot change accounts')
-  }
-
+  let movedOrders = 0
   await db.transaction(async (tx: any) => {
     await tx.execute(sql`select id from stores where id = ${store.id} for update`)
     const [lockedStore] = await tx.select({ userId: stores.userId }).from(stores).where(eq(stores.id, store.id)).limit(1)
     if (lockedStore?.userId !== currentOwner!.id) throw new Error('Shopify store ownership changed while linking')
+
+    const storeOrders = await tx
+      .select({
+        id: b2c_orders.id,
+        userId: b2c_orders.user_id,
+        awb: b2c_orders.awb_number,
+        freight: b2c_orders.freight_charges,
+        walletDebit: b2c_orders.wallet_debit_amount,
+      })
+      .from(b2c_orders)
+      .where(storeOrderFilter)
+    if (storeOrders.some((order: any) => order.userId !== currentOwner!.id)) {
+      throw new Error('Shopify order ownership is inconsistent; account linking was stopped')
+    }
+    if (
+      storeOrders.some((order: any) => {
+        const awb = String(order.awb || '').trim()
+        return Boolean(awb && !awb.startsWith('TEST')) || Number(order.freight || 0) !== 0 || Number(order.walletDebit || 0) !== 0
+      })
+    ) {
+      throw new Error('This store has already booked real or charged shipments and cannot change accounts')
+    }
+
     await tx
       .update(stores)
       .set({ userId: targetMerchant.id, updatedAt: new Date() })
@@ -911,6 +938,7 @@ export const claimShopifyManagedStoreForMerchant = async ({
         .set({ user_id: targetMerchant.id, updated_at: new Date() })
         .where(and(eq(b2c_orders.user_id, currentOwner!.id), storeOrderFilter))
     }
+    movedOrders = storeOrders.length
     await updateUserChannelIntegration(targetMerchant.id, SHOPIFY_PLATFORM_ID, tx)
     const [remaining] = await tx
       .select({ id: stores.id })
@@ -922,7 +950,7 @@ export const claimShopifyManagedStoreForMerchant = async ({
 
   return {
     shop,
-    movedOrders: storeOrders.length,
+    movedOrders,
     bootstrap: createShopifyInstallBootstrap({ shop, userId: targetMerchant.id, returnTo: '/channels/connected' }),
   }
 }
@@ -1442,7 +1470,10 @@ const refreshShopifyOfflineAccessToken = async (
     const latestStore = (await getStoreById(String(store.id), tx)) || store
     const credentials = getShopifyAppCredentialsForStore(latestStore)
     if (!credentials) {
-      throw new Error(`Shopify app credentials are missing for ${store.domain}. Reconnect the Shopify store.`)
+      throw new ShopifyReauthorizationRequiredError(
+        store.domain,
+        'Shopify app credentials changed. Open Feather Global from Shopify Admin to reconnect this store.',
+      )
     }
     const latestMetadata = ((latestStore as any)?.metadata || {}) as Record<string, any>
     const latestOauth = getStoreOAuthMetadata(latestStore)
@@ -1464,13 +1495,17 @@ const refreshShopifyOfflineAccessToken = async (
       return latestAccessToken
     }
 
+    if (latestOauth.active === false || latestOauth.reconnectRequired === true) {
+      throw new ShopifyReauthorizationRequiredError(store.domain)
+    }
+
     if (isShopifyTokenExpired(latestOauth.refreshTokenExpiresAt)) {
-      throw new Error(`Shopify refresh token expired for ${store.domain}. Reconnect the Shopify store.`)
+      throw new ShopifyReauthorizationRequiredError(store.domain)
     }
 
     const refreshToken = String(latestOauth.refreshToken || '').trim()
     if (!refreshToken) {
-      throw new Error(`Shopify refresh token is missing for ${store.domain}. Reconnect the Shopify store.`)
+      throw new ShopifyReauthorizationRequiredError(store.domain)
     }
 
     const params = new URLSearchParams({
@@ -1480,17 +1515,47 @@ const refreshShopifyOfflineAccessToken = async (
       refresh_token: refreshToken,
     })
 
-    const response = await axios.post<ShopifyAccessTokenResponse>(
-      `https://${normalizeShopifyDomain(latestStore.domain)}/admin/oauth/access_token`,
-      params.toString(),
-      {
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/x-www-form-urlencoded',
+    let response
+    try {
+      response = await axios.post<ShopifyAccessTokenResponse>(
+        `https://${normalizeShopifyDomain(latestStore.domain)}/admin/oauth/access_token`,
+        params.toString(),
+        {
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          timeout: SHOPIFY_API_TIMEOUT_MS,
         },
-        timeout: SHOPIFY_API_TIMEOUT_MS,
-      },
-    )
+      )
+    } catch (error: any) {
+      const status = Number(error?.response?.status || 0)
+      const providerCode = String(error?.response?.data?.error || '').trim().toLowerCase()
+      const providerMessage = String(error?.response?.data?.error_description || '').trim().toLowerCase()
+      const tokenWasRejected =
+        [400, 401].includes(status) &&
+        (['invalid_request', 'invalid_grant', 'invalid_token'].includes(providerCode) ||
+          /refresh[_ ]token|access token|reauthor/i.test(providerMessage))
+
+      if (!tokenWasRejected) throw error
+
+      const disconnectedOAuth = encryptShopifyOAuth({
+        ...latestOauth,
+        active: false,
+        reconnectRequired: true,
+        invalidatedAt: new Date().toISOString(),
+        invalidationReason: providerCode || 'token_rejected',
+      })
+      const disconnectedMetadata = { ...latestMetadata, oauth: disconnectedOAuth }
+      await tx
+        .update(stores)
+        .set({ metadata: disconnectedMetadata, updatedAt: new Date() })
+        .where(eq(stores.id, latestStore.id))
+      syncStoreOAuthState(latestStore, latestStore.adminApiAccessToken, disconnectedMetadata)
+      syncStoreOAuthState(store, store.adminApiAccessToken, disconnectedMetadata)
+
+      throw new ShopifyReauthorizationRequiredError(store.domain)
+    }
 
     const accessToken = String(response.data?.access_token || '').trim()
     if (!accessToken) {
@@ -1560,6 +1625,9 @@ const refreshShopifyOfflineAccessToken = async (
 
 const getShopifyAccessTokenForStore = async (store: ShopifyStore, tx: any = db) => {
   const oauth = getStoreOAuthMetadata(store)
+  if (oauth.active === false || oauth.reconnectRequired === true) {
+    throw new ShopifyReauthorizationRequiredError(store.domain)
+  }
   if (!shouldRefreshShopifyToken(oauth)) {
     const token = decryptShopifyToken(store.adminApiAccessToken)
     if (!token) throw new Error(`Shopify access token is missing for ${store.domain}`)

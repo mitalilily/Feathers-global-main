@@ -4,6 +4,7 @@ import { db } from '../models/client'
 import { users } from '../models/schema/users'
 import {
   SHOPIFY_API_VERSION,
+  SHOPIFY_REAUTHORIZATION_REQUIRED_CODE,
   buildShopifyOAuthAuthorizeUrl,
   claimShopifyManagedStoreForMerchant,
   completeShopifyManagedInstall,
@@ -465,6 +466,19 @@ export const syncShopifyOrdersController = async (req: any, res: Response): Prom
       ...result,
     })
   } catch (error: any) {
+    if (error?.code === SHOPIFY_REAUTHORIZATION_REQUIRED_CODE || error?.reconnectRequired === true) {
+      console.warn('Shopify sync requires merchant reauthorization', {
+        shop: error?.shop,
+        code: SHOPIFY_REAUTHORIZATION_REQUIRED_CODE,
+      })
+      return res.status(200).set('Cache-Control', 'no-store').json({
+        success: false,
+        reconnectRequired: true,
+        code: SHOPIFY_REAUTHORIZATION_REQUIRED_CODE,
+        error: error?.message || 'Open Feather Global from Shopify Admin to reconnect this store.',
+        reconnectUrl: error?.reconnectUrl || 'https://admin.shopify.com/',
+      })
+    }
     console.error('Shopify sync failed:', error)
     return res.status(500).json({
       success: false,
