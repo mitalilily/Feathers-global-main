@@ -41,6 +41,22 @@
       ;(() => {
         const markerKey = 'fg_shopify_app_client'
         const params = new URLSearchParams(window.location.search)
+        const safeSessionStorage = {
+          getItem(key) {
+            try {
+              return window.sessionStorage.getItem(key)
+            } catch {
+              return null
+            }
+          },
+          setItem(key, value) {
+            try {
+              window.sessionStorage.setItem(key, value)
+            } catch {
+              // Embedded browsers can block storage; query parameters still identify the app.
+            }
+          },
+        }
         let tokenClientId = ''
         try {
           const encodedPayload = params.get('id_token')?.split('.')[1]
@@ -57,11 +73,11 @@
           tokenClientId === 'a64a918b0ecfc48d7f2402def3b8c92a'
 
         if (isNewAppEntry) {
-          sessionStorage.setItem(markerKey, 'new')
-          sessionStorage.setItem('fg_public_shopify_app', '1')
+          safeSessionStorage.setItem(markerKey, 'new')
+          safeSessionStorage.setItem('fg_public_shopify_app', '1')
         }
-        const useNewApp = isNewAppEntry || sessionStorage.getItem(markerKey) === 'new'
-        if (useNewApp && sessionStorage.getItem('fg_public_shopify_app') === '1') {
+        const useNewApp = isNewAppEntry || safeSessionStorage.getItem(markerKey) === 'new'
+        if (useNewApp && safeSessionStorage.getItem('fg_public_shopify_app') === '1') {
           document.documentElement.dataset.shopifyApp = 'public'
         }
         const meta = document.createElement('meta')
@@ -70,9 +86,18 @@
           ? 'a64a918b0ecfc48d7f2402def3b8c92a'
           : '2d51ab15c8b649b6cfe0cafc9592ee69'
         document.head.appendChild(meta)
+
+        const shop = String(params.get('shop') || '').trim().toLowerCase()
+        const isEmbeddedShopifyPage =
+          /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop) &&
+          (params.get('embedded') === '1' || Boolean(params.get('host')))
+        if (isEmbeddedShopifyPage) {
+          const appBridge = document.createElement('script')
+          appBridge.src = 'https://cdn.shopify.com/shopifycloud/app-bridge.js'
+          document.head.appendChild(appBridge)
+        }
       })()
     </script>
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
     <!-- Razorpay Checkout -->
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   </head>
