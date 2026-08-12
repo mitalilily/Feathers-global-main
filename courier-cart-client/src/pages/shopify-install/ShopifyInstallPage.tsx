@@ -134,6 +134,8 @@ const ShopifyInstallPage = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const handledRef = useRef(false)
+  const locationSearchRef = useRef(location.search)
+  locationSearchRef.current = location.search
   const [status, setStatus] = useState<
     'idle' | 'starting' | 'exchanging' | 'choose-account' | 'linking' | 'error'
   >('idle')
@@ -226,13 +228,14 @@ const ShopifyInstallPage = () => {
   const retryConnection = () => {
     setPendingInstall(null)
     setLinkError('')
-    const params = new URLSearchParams(location.search)
+    const params = new URLSearchParams(locationSearchRef.current)
     if (params.get('shopify') === 'error') {
       params.delete('shopify')
       params.delete('message')
       handledRef.current = false
       const search = params.toString()
       navigate(`${location.pathname}${search ? `?${search}` : ''}`, { replace: true })
+      setRetryAttempt((attempt) => attempt + 1)
       return
     }
 
@@ -247,7 +250,7 @@ const ShopifyInstallPage = () => {
 
     let active = true
 
-    const params = new URLSearchParams(location.search)
+    const params = new URLSearchParams(locationSearchRef.current)
     const bootstrap = params.get('bootstrap') || ''
     const shop = normalizeShopifyStoreUrl(params.get('shop') || '')
     const host = params.get('host') || ''
@@ -380,7 +383,6 @@ const ShopifyInstallPage = () => {
     finishShopifyInstall,
     isAuthenticated,
     loading,
-    location.search,
     navigate,
     retryAttempt,
     showInstallError,
