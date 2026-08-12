@@ -1,4 +1,17 @@
+import {
+  getSessionStorageItem,
+  setSessionStorageItem,
+} from './safeSessionStorage'
+
 const PUBLIC_SHOPIFY_ENTRY_KEY = 'fg_public_shopify_app'
+let publicShopifyEntry = false
+
+const persistPublicShopifyEntry = () => {
+  setSessionStorageItem(PUBLIC_SHOPIFY_ENTRY_KEY, '1')
+}
+
+const readPersistedPublicShopifyEntry = () =>
+  getSessionStorageItem(PUBLIC_SHOPIFY_ENTRY_KEY) === '1'
 
 export const isPublicShopifyAppEntry = () => {
   const isDedicatedEntry =
@@ -6,9 +19,10 @@ export const isPublicShopifyAppEntry = () => {
   const isMarkedEntry = document.documentElement.dataset.shopifyApp === 'public'
 
   if (isDedicatedEntry || isMarkedEntry) {
-    window.sessionStorage.setItem(PUBLIC_SHOPIFY_ENTRY_KEY, '1')
+    publicShopifyEntry = true
+    persistPublicShopifyEntry()
     return true
   }
 
-  return window.sessionStorage.getItem(PUBLIC_SHOPIFY_ENTRY_KEY) === '1'
+  return publicShopifyEntry || readPersistedPublicShopifyEntry()
 }

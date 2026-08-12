@@ -16,6 +16,7 @@ import { FiFileText, FiLock, FiMail, FiSend, FiShield } from 'react-icons/fi'
 import { BRAND } from '../../config/brand'
 import { useRequestOtp } from '../../hooks/useOTP'
 import { TERMS_AND_CONDITIONS } from '../../utils/constants'
+import { getSessionStorageItem, setSessionStorageItem } from '../../utils/safeSessionStorage'
 import CustomCheckbox from '../UI/inputs/CustomCheckbox'
 import CustomModal from '../UI/modal/CustomModal'
 import { toast } from '../UI/Toast'
@@ -76,7 +77,7 @@ const tabButtonSx = {
 }
 
 export default function PhoneForm() {
-  const activeEmail = sessionStorage.getItem('activeEmail')
+    const activeEmail = getSessionStorageItem('activeEmail')
   const [authMode, setAuthMode] = useState<AuthMode>('otp')
   const [otpStep, setOtpStep] = useState<number>(0)
   const [passwordStep, setPasswordStep] = useState<number>(0)
@@ -117,7 +118,7 @@ export default function PhoneForm() {
             console.log('[AUTH OTP]', { email: normalizedEmail, otp: otpFromResponse })
           }
           setDebugOtp(otpFromResponse)
-          sessionStorage.setItem('preferredMethod', 'email_otp')
+        setSessionStorageItem('preferredMethod', 'email_otp')
           setOtpStep(1)
         },
         onError: (err: any) => {

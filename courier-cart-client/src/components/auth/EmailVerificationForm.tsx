@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { FiEdit2, FiMail } from 'react-icons/fi'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useVerifyEmailOtp } from '../../hooks/useRequestPasswordLogin'
+import { setSessionStorageItem } from '../../utils/safeSessionStorage'
 import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
 import CustomInput from '../UI/inputs/CustomInput'
 import { toast } from '../UI/Toast'
@@ -69,7 +70,7 @@ export default function EmailVerificationForm({
         onSuccess: ({ token, refreshToken, user }) => {
           setTokens(token, refreshToken, user)
           setUserId(user?.id)
-          sessionStorage.setItem('activeEmail', email)
+          setSessionStorageItem('activeEmail', email)
           setError('')
           toast.open({
             message: 'Email verified successfully',

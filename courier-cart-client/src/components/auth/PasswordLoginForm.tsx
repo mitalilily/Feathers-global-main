@@ -18,6 +18,7 @@ import { MdInfoOutline } from 'react-icons/md'
 import { BRAND } from '../../config/brand'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useRequestPasswordLogin } from '../../hooks/useRequestPasswordLogin'
+import { getSessionStorageItem, setSessionStorageItem } from '../../utils/safeSessionStorage'
 import CustomCheckbox from '../UI/inputs/CustomCheckbox'
 import { toast } from '../UI/Toast'
 import EmailVerificationForm from './EmailVerificationForm'
@@ -143,7 +144,7 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
     setTouched({ email: true, password: true })
 
     if (!emailError && !passwordError) {
-      sessionStorage.setItem('preferredMethod', 'password')
+          setSessionStorageItem('preferredMethod', 'password')
 
       requestPasswordLogin(
         { email: emailForm.email, password: emailForm.password },
@@ -367,7 +368,7 @@ export default function PasswordLoginForm({ setStep, step, setOpenTerms }: IPass
       <PasswordResetDialog
         open={openPasswordReset}
         onClose={() => setOpenPasswordReset(false)}
-        initialEmail={emailForm.email || sessionStorage.getItem('activeEmail') || ''}
+            initialEmail={emailForm.email || getSessionStorageItem('activeEmail')}
       />
     </>
   )

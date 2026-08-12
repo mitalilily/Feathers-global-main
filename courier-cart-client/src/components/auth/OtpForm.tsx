@@ -4,6 +4,7 @@ import { FiEdit2, FiRefreshCcw } from 'react-icons/fi'
 import { BRAND } from '../../config/brand'
 import { useAuth } from '../../context/auth/AuthContext'
 import { useRequestOtp, useVerifyOtp } from '../../hooks/useOTP'
+import { setSessionStorageItem } from '../../utils/safeSessionStorage'
 import CustomIconLoadingButton from '../UI/button/CustomLoadingButton'
 import { toast } from '../UI/Toast'
 
@@ -112,7 +113,7 @@ export default function OtpForm({ email, debugOtp, onDebugOtpChange, onEditEmail
       { email, otp },
       {
         onSuccess: ({ token, refreshToken, user }) => {
-          sessionStorage.setItem('activeEmail', email)
+          setSessionStorageItem('activeEmail', email)
           setUserId(user?.id)
           setTokens(token, refreshToken, user)
         },

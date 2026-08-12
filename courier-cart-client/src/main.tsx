@@ -10,6 +10,7 @@ import { ToastProvider } from "./components/UI/Toast.tsx";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { AuthProvider } from "./context/auth/AuthContext.tsx";
 import ErrorBoundary from "./components/UI/ErrorBoundary.tsx";
+import { getSessionStorageItem, setSessionStorageItem } from "./utils/safeSessionStorage.ts";
 
 const clientId = import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID;
 const CHUNK_RELOAD_KEY = "__chunk_reload_attempted__";
@@ -23,9 +24,9 @@ const isChunkLoadError = (message?: string) => {
 };
 
 const tryReloadForChunkError = () => {
-  const alreadyAttempted = sessionStorage.getItem(CHUNK_RELOAD_KEY) === "1";
+  const alreadyAttempted = getSessionStorageItem(CHUNK_RELOAD_KEY) === "1";
   if (alreadyAttempted) return;
-  sessionStorage.setItem(CHUNK_RELOAD_KEY, "1");
+  setSessionStorageItem(CHUNK_RELOAD_KEY, "1");
   window.location.reload();
 };
 
