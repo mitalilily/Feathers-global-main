@@ -30,6 +30,24 @@ const logIntegrationError = (label: string, error: any) => {
   })
 }
 
+const redactShopifyStoreForClient = (store: any) => {
+  if (Number(store?.platformId) !== PLATFORMS.SHOPIFY) return store
+
+  const metadata = { ...(store?.metadata || {}) }
+  const oauth = { ...(metadata.oauth || {}) }
+
+  delete metadata.apiSecretKey
+  delete metadata.shopifyWebhookSecret
+  delete oauth.refreshToken
+  metadata.oauth = oauth
+
+  const safeStore = { ...store, metadata }
+  delete safeStore.apiKey
+  delete safeStore.adminApiAccessToken
+
+  return safeStore
+}
+
 const resolveIntegrationUserId = async (req: Request, requestedUserId?: string) => {
   const actorUserId = (req as any)?.user?.sub
   const targetUserId = String(requestedUserId || '').trim() || actorUserId
@@ -290,7 +308,7 @@ export const getUserStoreIntegrations = async (
   }
 
   try {
-    const stores = await getStoresByUserId(userId);
+    const stores = (await getStoresByUserId(userId)).map(redactShopifyStoreForClient);
 
     res.status(200).json({
       success: true,
