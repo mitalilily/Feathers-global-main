@@ -3120,6 +3120,14 @@ export const processShopifyWebhookOrder = async (
   payload: any,
   tx: any = db,
 ) => {
+  const normalizedShopDomain = normalizeShopifyDomain(shopDomain)
+  await tx.execute(sql`
+    select id
+    from stores
+    where domain = ${normalizedShopDomain}
+      and platform_id = ${SHOPIFY_PLATFORM_ID}
+    for update
+  `)
   const store = await getStoreByDomain(shopDomain, tx)
   if (!store) {
     return { success: false, reason: 'store_not_found' }

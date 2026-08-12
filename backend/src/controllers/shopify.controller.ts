@@ -534,7 +534,9 @@ export const shopifyOrderWebhookController = async (req: Request, res: Response)
     }
 
     const payload = JSON.parse(rawBody.toString('utf8') || '{}')
-    const result = await processShopifyWebhookOrder(shopDomain, topic, payload)
+    const result = await db.transaction((tx: any) =>
+      processShopifyWebhookOrder(shopDomain, topic, payload, tx),
+    )
     return res.status(200).json({ success: true, result })
   } catch (error: any) {
     console.error('Shopify webhook handling failed:', error)
