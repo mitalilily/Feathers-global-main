@@ -7,6 +7,36 @@ const REFRESH_TOKEN_KEY = 'cc_refresh'
 const AUTH_SESSION_KEY = 'cc_auth_session'
 const SESSION_USER_KEY = 'cc_session_user'
 
+const readLocalStorage = (key: string) => {
+  if (typeof window === 'undefined') return ''
+
+  try {
+    return window.localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+const writeLocalStorage = (key: string, value: string) => {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // Embedded Shopify sessions must still work when third-party storage is blocked.
+  }
+}
+
+const removeLocalStorage = (key: string) => {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // The in-memory session is cleared below even when browser storage is unavailable.
+  }
+}
+
 export const AUTH_STORAGE_KEYS = [
   ACCESS_TOKEN_KEY,
   REFRESH_TOKEN_KEY,
@@ -29,8 +59,8 @@ const createAuthSessionId = () => {
 }
 
 const persistSessionId = (sessionId: string) => {
-  if (typeof window === 'undefined' || !sessionId) return
-  localStorage.setItem(AUTH_SESSION_KEY, sessionId)
+  if (!sessionId) return
+  writeLocalStorage(AUTH_SESSION_KEY, sessionId)
 }
 
 const normalizeStoredTokens = (stored: AuthTokenSnapshot): AuthTokenSnapshot => {
@@ -61,9 +91,9 @@ const readStoredTokens = (): AuthTokenSnapshot => {
   }
 
   return normalizeStoredTokens({
-    accessToken: localStorage.getItem(ACCESS_TOKEN_KEY) || '',
-    refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || '',
-    sessionId: localStorage.getItem(AUTH_SESSION_KEY) || '',
+    accessToken: readLocalStorage(ACCESS_TOKEN_KEY) || access,
+    refreshToken: readLocalStorage(REFRESH_TOKEN_KEY) || refresh,
+    sessionId: readLocalStorage(AUTH_SESSION_KEY) || session,
   })
 }
 
@@ -83,9 +113,9 @@ export const setAuthTokens = (accessToken: string, refreshToken: string): AuthTo
   session = sessionId
 
   if (typeof window !== 'undefined') {
-    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
-    localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
-    localStorage.setItem(AUTH_SESSION_KEY, sessionId)
+    writeLocalStorage(ACCESS_TOKEN_KEY, accessToken)
+    writeLocalStorage(REFRESH_TOKEN_KEY, refreshToken)
+    writeLocalStorage(AUTH_SESSION_KEY, sessionId)
   }
 
   return { accessToken, refreshToken, sessionId }
@@ -95,18 +125,17 @@ export const getStoredSessionUser = <T>() => {
   if (typeof window === 'undefined') return null
 
   try {
-    const rawValue = localStorage.getItem(SESSION_USER_KEY)
+    const rawValue = readLocalStorage(SESSION_USER_KEY)
     return rawValue ? (JSON.parse(rawValue) as T) : null
   } catch (error) {
     console.warn('Failed to parse stored session user', error)
-    localStorage.removeItem(SESSION_USER_KEY)
+    removeLocalStorage(SESSION_USER_KEY)
     return null
   }
 }
 
 export const setStoredSessionUser = <T>(user: T) => {
-  if (typeof window === 'undefined') return
-  localStorage.setItem(SESSION_USER_KEY, JSON.stringify(user))
+  writeLocalStorage(SESSION_USER_KEY, JSON.stringify(user))
 }
 
 export const isCurrentAuthSession = (sessionId?: string | null) => {
@@ -124,10 +153,10 @@ export const clearAuthTokens = (expectedSessionId?: string | null) => {
   session = ''
 
   if (typeof window !== 'undefined') {
-    localStorage.removeItem(ACCESS_TOKEN_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-    localStorage.removeItem(AUTH_SESSION_KEY)
-    localStorage.removeItem(SESSION_USER_KEY)
+    removeLocalStorage(ACCESS_TOKEN_KEY)
+    removeLocalStorage(REFRESH_TOKEN_KEY)
+    removeLocalStorage(AUTH_SESSION_KEY)
+    removeLocalStorage(SESSION_USER_KEY)
   }
 
   return true
