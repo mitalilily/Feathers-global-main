@@ -83,6 +83,15 @@ api.interceptors.request.use(async (cfg) => {
   const requestConfig = cfg as AuthAwareRequestConfig
   const { accessToken, sessionId } = getAuthTokens()
 
+  if (typeof FormData !== 'undefined' && requestConfig.data instanceof FormData) {
+    if (typeof requestConfig.headers.delete === 'function') {
+      requestConfig.headers.delete('Content-Type')
+    } else {
+      delete (requestConfig.headers as Record<string, unknown>)['Content-Type']
+      delete (requestConfig.headers as Record<string, unknown>)['content-type']
+    }
+  }
+
   requestConfig._authSessionId = sessionId
   if (isEmbeddedShopifyContext()) {
     if (accessToken) requestConfig.headers.set('X-Shiplifi-Access-Token', accessToken)
