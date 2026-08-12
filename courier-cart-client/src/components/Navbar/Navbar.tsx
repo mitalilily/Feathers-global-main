@@ -10,6 +10,7 @@ import GlobalSearch from './GlobalSearch'
 import QuickActions from './QuickActions'
 import UserMenu from './UserMenu'
 import WalletMenu from './WalletMenu'
+import { isPublicShopifyAppEntry } from '../../utils/shopifyEntry'
 
 interface NavbarProps {
   handleDrawerToggle: () => void
@@ -25,7 +26,7 @@ export default function Navbar({ handleDrawerToggle, pinned = false, onPinChange
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const isCompactNavbar = useMediaQuery(theme.breakpoints.down('lg'))
-  const isPublicShopifyApp = document.documentElement.dataset.shopifyApp === 'public'
+  const isPublicShopifyApp = isPublicShopifyAppEntry()
   const { isAuthenticated, user } = useAuth()
   const handlePinToggle = () => {
     onPinChange?.(!pinned)

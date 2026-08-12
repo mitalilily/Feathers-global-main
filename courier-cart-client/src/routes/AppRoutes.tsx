@@ -21,6 +21,7 @@ import Login from '../pages/auth/Login'
 import { normalizeAwb } from '../utils/awb'
 import GlobalRedirectHandler from './WalletRedirectHandler'
 import { buildShopifyInstallPath, isEmbeddedShopifyContext } from '../utils/shopifyEmbedded'
+import { isPublicShopifyAppEntry } from '../utils/shopifyEntry'
 
 /* ---------- Lazy-loaded components ---------- */
 // Onboarding & Dashboard
@@ -139,8 +140,7 @@ function AppEntryRoute() {
 }
 
 export default function AppRoutes() {
-  const Router =
-    document.documentElement.dataset.shopifyApp === 'public' ? HashRouter : BrowserRouter
+  const Router = isPublicShopifyAppEntry() ? HashRouter : BrowserRouter
 
   return (
     <Router>
