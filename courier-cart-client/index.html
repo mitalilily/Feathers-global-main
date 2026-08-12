@@ -47,6 +47,9 @@
 
         if (isNewAppEntry) sessionStorage.setItem(markerKey, 'new')
         const useNewApp = isNewAppEntry || sessionStorage.getItem(markerKey) === 'new'
+        if (useNewApp && sessionStorage.getItem('fg_public_shopify_app') === '1') {
+          document.documentElement.dataset.shopifyApp = 'public'
+        }
         const meta = document.createElement('meta')
         meta.name = 'shopify-api-key'
         meta.content = useNewApp
