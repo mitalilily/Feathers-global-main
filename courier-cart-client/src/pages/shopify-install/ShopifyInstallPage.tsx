@@ -134,6 +134,7 @@ const ShopifyInstallPage = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const handledRef = useRef(false)
+  const mountedRef = useRef(true)
   const locationSearchRef = useRef(location.search)
   locationSearchRef.current = location.search
   const [status, setStatus] = useState<
@@ -144,6 +145,13 @@ const ShopifyInstallPage = () => {
   const [pendingInstall, setPendingInstall] = useState<PendingShopifyInstall | null>(null)
   const [merchantCredentials, setMerchantCredentials] = useState({ email: '', password: '' })
   const [linkError, setLinkError] = useState('')
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const finishShopifyInstall = useCallback(
     async ({ bootstrap, shop, next }: PendingShopifyInstall) => {
@@ -248,8 +256,6 @@ const ShopifyInstallPage = () => {
   useEffect(() => {
     if (loading || handledRef.current) return
 
-    let active = true
-
     const params = new URLSearchParams(locationSearchRef.current)
     const bootstrap = params.get('bootstrap') || ''
     const shop = normalizeShopifyStoreUrl(params.get('shop') || '')
@@ -266,13 +272,10 @@ const ShopifyInstallPage = () => {
 
       finishShopifyInstall({ bootstrap, shop, next })
         .catch((error: unknown) => {
-          if (!active) return
+          if (!mountedRef.current) return
           showInstallError(error, shop, 'Failed to finalize Shopify install')
         })
-
-      return () => {
-        active = false
-      }
+      return
     }
 
     if (shopifyStatus === 'connected') {
@@ -310,7 +313,7 @@ const ShopifyInstallPage = () => {
 
       withConnectionTimeout(exchangeEmbeddedShopifySession(shop))
         .then(async (sessionResult) => {
-          if (!active) return
+          if (!mountedRef.current) return
           if (!sessionResult?.bootstrap) {
             throw new Error('Shopify install could not be finalized')
           }
@@ -331,12 +334,10 @@ const ShopifyInstallPage = () => {
           })
         })
         .catch((error: unknown) => {
-          if (!active) return
+          if (!mountedRef.current) return
           showInstallError(error, shop, 'Failed to finalize Shopify install')
         })
-      return () => {
-        active = false
-      }
+      return
     }
 
     if (!shop) {
@@ -360,7 +361,7 @@ const ShopifyInstallPage = () => {
 
     withConnectionTimeout(startRequest)
       .then((result) => {
-        if (!active) return
+        if (!mountedRef.current) return
         const authUrl = result?.authUrl || result?.data?.authUrl
         if (!authUrl) {
           throw new Error('Shopify authorization URL was not returned')
@@ -368,17 +369,13 @@ const ShopifyInstallPage = () => {
         window.location.assign(authUrl)
       })
       .catch((error: unknown) => {
-        if (!active) return
+        if (!mountedRef.current) return
         const apiError = error as ApiError
         const errorMessage = getConnectionErrorMessage(apiError, 'Error starting Shopify connection')
         setStatus('error')
         setMessage(errorMessage)
         toast.open({ message: errorMessage, severity: 'error' })
       })
-
-    return () => {
-      active = false
-    }
   }, [
     finishShopifyInstall,
     isAuthenticated,
