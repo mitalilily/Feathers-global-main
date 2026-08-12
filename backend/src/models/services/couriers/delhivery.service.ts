@@ -577,29 +577,39 @@ export class DelhiveryService {
         responseData?.serviceable === false ||
         !successPackage
       ) {
-        console.error('❌ Delhivery manifest rejected', {
-          order: orderNumber,
-          response: responseData,
-          packageFailures: packageFailuresWithRemarks,
-        })
+        console.error(
+          '❌ Delhivery manifest rejected',
+          JSON.stringify(
+            {
+              order: orderNumber,
+              response: responseData,
+              packageFailures: packageFailuresWithRemarks,
+            },
+            null,
+            2,
+          ),
+        )
 
+        // Delhivery commonly returns a generic top-level `rmk` while the
+        // package-level remarks contain the actionable validation error.
+        const packageFailureReason = packageFailuresWithRemarks
+          .map((pkg) => {
+            const joinedRemarks = pkg.remarks.join(' | ')
+            return (
+              joinedRemarks ||
+              pkg?.message ||
+              pkg?.reason ||
+              pkg?.rmk ||
+              `status=${pkg?.status ?? 'unknown'}`
+            )
+          })
+          .filter(Boolean)
+          .join(' | ')
         const failureReason =
+          packageFailureReason ||
           responseData?.message ||
           responseData?.status_message ||
           normalizeRemarks(responseData?.rmk).join(' | ') ||
-          packageFailuresWithRemarks
-            .map((pkg) => {
-              const joinedRemarks = pkg.remarks.join(' | ')
-              return (
-                joinedRemarks ||
-                pkg?.message ||
-                pkg?.reason ||
-                pkg?.rmk ||
-                `status=${pkg?.status ?? 'unknown'}`
-              )
-            })
-            .filter(Boolean)
-            .join(' | ') ||
           'Delhivery reported a failure during shipment creation.'
         throw new DelhiveryManifestError(502, failureReason, responseData)
       }
