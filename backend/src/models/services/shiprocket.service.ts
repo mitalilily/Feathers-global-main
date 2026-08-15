@@ -10501,14 +10501,22 @@ interface OrderFilters {
 
 const b2cOrderNumberSequenceSql = sql<number>`
   COALESCE(
-    NULLIF(substring(COALESCE(${b2c_orders.order_number}, '') from '([0-9]+)\\D*$'), '')::numeric,
+    CASE
+      WHEN length(COALESCE(substring(COALESCE(${b2c_orders.order_number}, '') from '([0-9]+)\\D*$'), '')) BETWEEN 1 AND 9
+      THEN substring(COALESCE(${b2c_orders.order_number}, '') from '([0-9]+)\\D*$')::numeric
+      ELSE 0
+    END,
     0
   )
 `
 
 const b2bOrderNumberSequenceSql = sql<number>`
   COALESCE(
-    NULLIF(substring(COALESCE(${b2b_orders.order_number}, '') from '([0-9]+)\\D*$'), '')::numeric,
+    CASE
+      WHEN length(COALESCE(substring(COALESCE(${b2b_orders.order_number}, '') from '([0-9]+)\\D*$'), '')) BETWEEN 1 AND 9
+      THEN substring(COALESCE(${b2b_orders.order_number}, '') from '([0-9]+)\\D*$')::numeric
+      ELSE 0
+    END,
     0
   )
 `
