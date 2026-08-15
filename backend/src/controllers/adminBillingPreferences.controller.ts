@@ -23,6 +23,16 @@ export class AdminBillingPreferencesController {
         return
       }
 
+      let parsedCustomFrequencyDays: number | null = null
+      if (frequency === 'custom') {
+        const candidateCustomFrequencyDays = Number(customFrequencyDays || 0)
+        if (!Number.isInteger(candidateCustomFrequencyDays) || candidateCustomFrequencyDays < 1) {
+          res.status(400).json({ message: 'Custom frequency days must be a positive integer' })
+          return
+        }
+        parsedCustomFrequencyDays = candidateCustomFrequencyDays
+      }
+
       // Ensure user exists
       const [user] = await db
         .select({ id: users.id })
@@ -35,8 +45,8 @@ export class AdminBillingPreferencesController {
 
       await BillingPreferencesService.upsert(userId, {
         frequency,
-        autoGenerate,
-        customFrequencyDays,
+        autoGenerate: frequency === 'manual' ? false : Boolean(autoGenerate),
+        customFrequencyDays: parsedCustomFrequencyDays,
       })
 
       res.json({ message: 'Billing preference updated successfully for user' })
@@ -59,13 +69,23 @@ export class AdminBillingPreferencesController {
         return
       }
 
+      let parsedCustomFrequencyDays: number | null = null
+      if (frequency === 'custom') {
+        const candidateCustomFrequencyDays = Number(customFrequencyDays || 0)
+        if (!Number.isInteger(candidateCustomFrequencyDays) || candidateCustomFrequencyDays < 1) {
+          res.status(400).json({ message: 'Custom frequency days must be a positive integer' })
+          return
+        }
+        parsedCustomFrequencyDays = candidateCustomFrequencyDays
+      }
+
       const allUsers = await db.select({ id: users.id }).from(users)
 
       for (const u of allUsers) {
         await BillingPreferencesService.upsert(u.id, {
           frequency,
-          autoGenerate,
-          customFrequencyDays,
+          autoGenerate: frequency === 'manual' ? false : Boolean(autoGenerate),
+          customFrequencyDays: parsedCustomFrequencyDays,
         })
       }
 
@@ -76,5 +96,3 @@ export class AdminBillingPreferencesController {
     }
   }
 }
-
-

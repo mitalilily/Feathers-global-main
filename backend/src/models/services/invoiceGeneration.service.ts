@@ -23,10 +23,12 @@ import { presignDownload, uploadBufferToStorage } from './upload.service'
 interface GenerateInvoiceParams {
   startDate: Date
   endDate: Date
+  allowDuplicateOrders?: boolean
+  invoiceType?: 'weekly' | 'monthly_summary' | 'manual'
 }
 
 const formatAmount = (value: number) => `Rs. ${Number(value || 0).toFixed(2)}`
-const BILLABLE_ORDER_STATUSES = [
+export const BILLABLE_ORDER_STATUSES = [
   'shipment_created',
   'booked',
   'pickup_initiated',
@@ -39,9 +41,225 @@ const BILLABLE_ORDER_STATUSES = [
   'rto_delivered',
 ] as const
 
+const formatDateYmd = (value: Date) => dayjs(value).format('YYYY-MM-DD')
+
+const formatEmailError = (err: unknown) =>
+  String((err as any)?.message || err || 'Failed to send invoice email').slice(0, 1000)
+
+const normalizeInvoiceOrderNumbers = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v || '').trim()).filter(Boolean)
+  }
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed)
+        ? parsed.map((v) => String(v || '').trim()).filter(Boolean)
+        : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+export const getBillableOrderNumbersForRange = async (
+  sellerId: string,
+  startDate: Date,
+  endDate: Date,
+) => {
+  const billableStatuses = [...BILLABLE_ORDER_STATUSES]
+  const [b2cRows, b2bRows] = await Promise.all([
+    db
+      .select({ orderNumber: b2c_orders.order_number })
+      .from(b2c_orders)
+      .where(
+        and(
+          eq(b2c_orders.user_id, sellerId),
+          between(b2c_orders.created_at, startDate, endDate),
+          inArray(b2c_orders.order_status, billableStatuses),
+        ),
+      ),
+    db
+      .select({ orderNumber: b2b_orders.order_number })
+      .from(b2b_orders)
+      .where(
+        and(
+          eq(b2b_orders.user_id, sellerId),
+          between(b2b_orders.created_at, startDate, endDate),
+          inArray(b2b_orders.order_status, billableStatuses),
+        ),
+      ),
+  ])
+
+  return Array.from(
+    new Set(
+      [...b2cRows, ...b2bRows]
+        .map((row) => String(row.orderNumber || '').trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+export const findDuplicateInvoiceByOrderNumbers = async (
+  sellerId: string,
+  candidateOrderNumbers: string[],
+) => {
+  const candidateSet = new Set(
+    candidateOrderNumbers.map((v) => String(v || '').trim()).filter(Boolean),
+  )
+  if (!candidateSet.size) return null
+
+  const existing = await db
+    .select({
+      invoiceNo: billingInvoices.invoiceNo,
+      billingStart: billingInvoices.billingStart,
+      billingEnd: billingInvoices.billingEnd,
+      orderNumbers: billingInvoices.orderNumbers,
+    })
+    .from(billingInvoices)
+    .where(eq(billingInvoices.sellerId, sellerId))
+
+  for (const inv of existing) {
+    const overlap = normalizeInvoiceOrderNumbers(inv.orderNumbers).filter((orderNumber) =>
+      candidateSet.has(orderNumber),
+    )
+    if (overlap.length > 0) {
+      return {
+        invoiceNo: inv.invoiceNo,
+        billingStart: inv.billingStart,
+        billingEnd: inv.billingEnd,
+        overlapCount: overlap.length,
+        sampleOrderNumber: overlap[0],
+      }
+    }
+  }
+
+  return null
+}
+
+export const findInvoiceForExactPeriod = async (
+  sellerId: string,
+  startDate: Date,
+  endDate: Date,
+) => {
+  const [existingInvoice] = await db
+    .select({
+      id: billingInvoices.id,
+      invoiceNo: billingInvoices.invoiceNo,
+      status: billingInvoices.status,
+    })
+    .from(billingInvoices)
+    .where(
+      and(
+        eq(billingInvoices.sellerId, sellerId),
+        sql`${billingInvoices.billingStart} = ${formatDateYmd(startDate)}::date`,
+        sql`${billingInvoices.billingEnd} = ${formatDateYmd(endDate)}::date`,
+      ),
+    )
+    .limit(1)
+
+  return existingInvoice || null
+}
+
+export async function sendBillingInvoiceReadyNotification(invoiceId: string) {
+  const [invoice] = await db
+    .select()
+    .from(billingInvoices)
+    .where(eq(billingInvoices.id, invoiceId))
+    .limit(1)
+
+  if (!invoice) {
+    throw new Error('Invoice not found')
+  }
+
+  const [sellerUser] = await db.select().from(users).where(eq(users.id, invoice.sellerId)).limit(1)
+  const [sellerRow] = await db
+    .select()
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, invoice.sellerId))
+    .limit(1)
+
+  const sellerEmail = sellerRow?.companyInfo?.contactEmail || sellerUser?.email
+  const attemptedAt = new Date()
+
+  await db
+    .update(billingInvoices)
+    .set({ emailLastAttemptAt: attemptedAt, emailError: null, updatedAt: attemptedAt })
+    .where(eq(billingInvoices.id, invoice.id))
+
+  if (!sellerEmail) {
+    await db
+      .update(billingInvoices)
+      .set({
+        emailError: 'Seller email not available',
+        updatedAt: new Date(),
+      })
+      .where(eq(billingInvoices.id, invoice.id))
+
+    return { sent: false, reason: 'Seller email not available' }
+  }
+
+  let pdfSignedUrl: string | undefined
+  let csvSignedUrl: string | undefined
+
+  try {
+    const signedUrls = await presignDownload([invoice.pdfUrl, invoice.csvUrl])
+    pdfSignedUrl =
+      Array.isArray(signedUrls) && signedUrls.length > 0 ? signedUrls[0] || undefined : undefined
+    csvSignedUrl =
+      Array.isArray(signedUrls) && signedUrls.length > 1 ? signedUrls[1] || undefined : undefined
+  } catch (presignErr: any) {
+    console.error(
+      `Failed to presign URLs for invoice ${invoice.invoiceNo} (email will be sent without download links):`,
+      presignErr?.message || presignErr,
+    )
+  }
+
+  const sellerName =
+    sellerRow?.companyInfo?.businessName || sellerUser?.email?.split('@')[0] || 'Seller'
+
+  try {
+    await sendInvoiceReadyEmail({
+      to: sellerEmail,
+      sellerName,
+      invoiceNo: invoice.invoiceNo,
+      periodStart: dayjs(invoice.billingStart as any).format('DD MMM YYYY'),
+      periodEnd: dayjs(invoice.billingEnd as any).format('DD MMM YYYY'),
+      totalAmount: Number(invoice.totalAmount || 0),
+      pdfUrl: pdfSignedUrl,
+      csvUrl: csvSignedUrl,
+      attachFiles: false,
+      preferSignedUrls: true,
+    })
+
+    await db
+      .update(billingInvoices)
+      .set({ emailSentAt: new Date(), emailError: null, updatedAt: new Date() })
+      .where(eq(billingInvoices.id, invoice.id))
+
+    console.log(`📧 Invoice email sent to ${sellerEmail} for invoice ${invoice.invoiceNo}`)
+    return { sent: true, to: sellerEmail }
+  } catch (emailErr: any) {
+    const emailError = formatEmailError(emailErr)
+    await db
+      .update(billingInvoices)
+      .set({ emailError, updatedAt: new Date() })
+      .where(eq(billingInvoices.id, invoice.id))
+
+    console.error(`Failed to send invoice email for ${invoice.invoiceNo}:`, emailError)
+    return { sent: false, reason: emailError }
+  }
+}
+
 export const generateInvoiceForUser = async (
   userId: string,
-  { startDate, endDate }: GenerateInvoiceParams,
+  {
+    startDate,
+    endDate,
+    allowDuplicateOrders = false,
+    invoiceType = 'monthly_summary',
+  }: GenerateInvoiceParams,
 ) => {
   console.log(
     `🧾 Generating invoice for ${userId} (${dayjs(startDate).format('DD MMM')} → ${dayjs(
@@ -88,6 +306,22 @@ export const generateInvoiceForUser = async (
   }
 
   // 2️⃣ Totals
+  const orderNumbers = allOrders.map((o) => o.order_number || o.order_id || '').filter(Boolean)
+
+  if (!allowDuplicateOrders) {
+    const existingPeriodInvoice = await findInvoiceForExactPeriod(userId, startDate, endDate)
+    if (existingPeriodInvoice) {
+      throw new Error(`Invoice already exists for this period: ${existingPeriodInvoice.invoiceNo}`)
+    }
+
+    const duplicateByOrders = await findDuplicateInvoiceByOrderNumbers(userId, orderNumbers)
+    if (duplicateByOrders) {
+      throw new Error(
+        `Invoice already exists for same order numbers in invoice ${duplicateByOrders.invoiceNo} (overlap: ${duplicateByOrders.overlapCount}, e.g. ${duplicateByOrders.sampleOrderNumber})`,
+      )
+    }
+  }
+
   let totalShipping = 0
   let totalOtherCharges = 0 // Other charges from serviceability API
   let totalTransaction = 0 // customer-facing, excluded from billing
@@ -987,9 +1221,6 @@ export const generateInvoiceForUser = async (
     }),
   ])
 
-  // Extract order numbers from all orders
-  const orderNumbers = allOrders.map((o) => o.order_number || o.order_id || '').filter(Boolean)
-
   const pdfKey = pdfUpload.key
   const csvKey = csvUpload.key
 
@@ -1007,7 +1238,7 @@ export const generateInvoiceForUser = async (
       igst,
       totalAmount,
       gstRate,
-      type: 'monthly_summary',
+      type: invoiceType,
       status: 'pending',
       pdfUrl: pdfKey, // Store key only, not full URL
       csvUrl: csvKey, // Store key only, not full URL
@@ -1016,23 +1247,6 @@ export const generateInvoiceForUser = async (
       updatedAt: new Date(),
     } as any)
     .returning()
-
-  // Presign URLs for email (don't fail invoice generation if presigning fails)
-  let pdfSignedUrl: string | undefined = undefined
-  let csvSignedUrl: string | undefined = undefined
-  try {
-    const signedUrls = await presignDownload([pdfKey, csvKey])
-    pdfSignedUrl =
-      Array.isArray(signedUrls) && signedUrls.length > 0 ? signedUrls[0] || undefined : undefined
-    csvSignedUrl =
-      Array.isArray(signedUrls) && signedUrls.length > 1 ? signedUrls[1] || undefined : undefined
-  } catch (presignErr: any) {
-    console.error(
-      `Failed to presign URLs for invoice ${invoiceNo} (email will be sent without download links):`,
-      presignErr?.message || presignErr,
-    )
-    // Don't fail invoice generation if presigning fails - email just won't have download links
-  }
 
   // Auto-record wallet payment equal to invoice total (since orders were paid via wallet)
   try {
@@ -1054,27 +1268,9 @@ export const generateInvoiceForUser = async (
   }
 
   // Send email (don't fail invoice generation if email fails)
-  const sellerEmail = sellerRow?.companyInfo?.contactEmail || sellerUser?.email
-  if (sellerEmail) {
-    try {
-      await sendInvoiceReadyEmail({
-        to: sellerEmail,
-        sellerName: billTo,
-        invoiceNo,
-        periodStart: dayjs(startDate).format('DD MMM YYYY'),
-        periodEnd: dayjs(endDate).format('DD MMM YYYY'),
-        totalAmount,
-        pdfUrl: pdfSignedUrl,
-        csvUrl: csvSignedUrl,
-        attachFiles: false,
-        preferSignedUrls: true,
-      })
-      console.log(`📧 Invoice email sent to ${sellerEmail} for invoice ${invoiceNo}`)
-    } catch (emailErr: any) {
-      console.error(`Failed to send invoice email for ${invoiceNo}:`, emailErr?.message || emailErr)
-      // Don't fail invoice generation if email fails
-    }
-  }
+  await sendBillingInvoiceReadyNotification(invoice.id).catch((emailErr) => {
+    console.error(`Failed to send invoice email for ${invoiceNo}:`, emailErr?.message || emailErr)
+  })
 
   console.log(
     `✅ Invoice generated: ${invoiceNo} → ${formatAmount(totalAmount)} (${allOrders.length} orders)`,

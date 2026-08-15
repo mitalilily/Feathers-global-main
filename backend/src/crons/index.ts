@@ -1,4 +1,5 @@
 import cron from 'node-cron'
+import { retryFailedBillingInvoiceEmails } from './billingInvoiceEmailRetry'
 import { generateAutoBillingInvoices } from './invoiceGenerator'
 import { processPendingWebhooks } from './processPendingWebhooks'
 import { reconcileWalletTopups } from './reconcileWalletTopups'
@@ -81,6 +82,17 @@ cron.schedule(process.env.SHOPIFY_PRIVACY_QUEUE_CRON || '*/15 * * * *', async ()
 })
 
 cron.schedule('0 2 * * *', () => generateAutoBillingInvoices())
+
+cron.schedule(process.env.BILLING_INVOICE_EMAIL_RETRY_CRON || '15 * * * *', async () => {
+  try {
+    const result = await retryFailedBillingInvoiceEmails()
+    if (result.attempted > 0 || result.failed > 0) {
+      console.log('[Cron] Billing invoice email retry complete', result)
+    }
+  } catch (err) {
+    console.error('[Cron] Billing invoice email retry failed:', err)
+  }
+})
 
 // Send daily weight reconciliation summaries at 8 AM.
 cron.schedule('0 8 * * *', async () => {

@@ -1222,7 +1222,11 @@ export async function generateManualInvoice(req: any, res: Response) {
       })
     }
 
-    const result = await generateInvoiceForUser(userId, { startDate: start, endDate: end })
+    const result = await generateInvoiceForUser(userId, {
+      startDate: start,
+      endDate: end,
+      invoiceType: 'manual',
+    })
 
     if (!result) {
       return res.status(400).json({ error: 'No orders found for the selected period' })
@@ -1314,7 +1318,11 @@ export async function adminGenerateManualInvoice(req: any, res: Response) {
       endDate: endDateYmd,
     })
 
-    const result = await generateInvoiceForUser(userId, { startDate: start, endDate: end })
+    const result = await generateInvoiceForUser(userId, {
+      startDate: start,
+      endDate: end,
+      invoiceType: 'manual',
+    })
 
     if (!result) {
       return res.status(400).json({ error: 'No orders found for the selected period' })

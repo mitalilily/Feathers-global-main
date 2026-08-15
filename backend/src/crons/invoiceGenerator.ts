@@ -1,11 +1,106 @@
 import dayjs from 'dayjs'
-import { and, between, desc, eq, sql } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { db } from '../models/client'
 import { billingInvoices } from '../models/schema/billingInvoices'
-import { generateInvoiceForUser } from '../models/services/invoiceGeneration.service'
-import { b2b_orders, b2c_orders, billingPreferences, users } from '../schema/schema'
+import {
+  findDuplicateInvoiceByOrderNumbers,
+  findInvoiceForExactPeriod,
+  generateInvoiceForUser,
+  getBillableOrderNumbersForRange,
+} from '../models/services/invoiceGeneration.service'
+import { billingPreferences, users } from '../schema/schema'
 
-// 🕑 Runs every day at 2 AM
+type BillingFrequency = 'weekly' | 'monthly' | 'manual' | 'custom'
+
+const getInvoiceTypeForFrequency = (frequency: BillingFrequency) =>
+  frequency === 'weekly' ? 'weekly' : frequency === 'manual' ? 'manual' : 'monthly_summary'
+
+const normalizeFrequency = (frequency?: string | null): BillingFrequency => {
+  if (frequency === 'weekly' || frequency === 'manual' || frequency === 'custom') return frequency
+  return 'monthly'
+}
+
+const getIntervalDays = (frequency: BillingFrequency, customFrequencyDays?: number | null) => {
+  if (frequency === 'weekly') return 7
+  if (frequency === 'custom') return customFrequencyDays || null
+  return 30
+}
+
+const nextCompleteBillingPeriod = ({
+  frequency,
+  customFrequencyDays,
+  lastBillingEnd,
+  today,
+  force,
+}: {
+  frequency: BillingFrequency
+  customFrequencyDays?: number | null
+  lastBillingEnd?: Date | string | null
+  today: dayjs.Dayjs
+  force: boolean
+}) => {
+  if (frequency === 'monthly') {
+    if (lastBillingEnd) {
+      const start = dayjs(lastBillingEnd).add(1, 'day').startOf('day')
+      const naturalEnd = start.endOf('month')
+      const canGenerate = today.isAfter(naturalEnd.startOf('day'))
+
+      if (!canGenerate && !force) {
+        return {
+          shouldGenerate: false,
+          reason: `next monthly billing period closes ${naturalEnd.format('DD MMM YYYY')}`,
+        }
+      }
+
+      return {
+        shouldGenerate: true,
+        startDate: start.toDate(),
+        endDate: (force ? today.endOf('day') : naturalEnd).toDate(),
+      }
+    }
+
+    const previousMonth = today.subtract(1, 'month')
+    return {
+      shouldGenerate: true,
+      startDate: previousMonth.startOf('month').toDate(),
+      endDate: previousMonth.endOf('month').toDate(),
+    }
+  }
+
+  const intervalDays = getIntervalDays(frequency, customFrequencyDays)
+  if (!intervalDays || intervalDays <= 0) {
+    return { shouldGenerate: false, reason: 'custom frequency has no valid day interval' }
+  }
+
+  if (lastBillingEnd) {
+    const start = dayjs(lastBillingEnd).add(1, 'day').startOf('day')
+    const naturalEnd = start.add(intervalDays - 1, 'day').endOf('day')
+    const canGenerate = today.isAfter(naturalEnd.startOf('day'))
+
+    if (!canGenerate && !force) {
+      return {
+        shouldGenerate: false,
+        reason: `next ${frequency} billing period closes ${naturalEnd.format('DD MMM YYYY')}`,
+      }
+    }
+
+    return {
+      shouldGenerate: true,
+      startDate: start.toDate(),
+      endDate: (force ? today.endOf('day') : naturalEnd).toDate(),
+    }
+  }
+
+  const end = today.subtract(1, 'day').endOf('day')
+  const start = end.subtract(intervalDays - 1, 'day').startOf('day')
+  return {
+    shouldGenerate: true,
+    startDate: start.toDate(),
+    endDate: end.toDate(),
+  }
+}
+
+// Runs every day at 2 AM.
 export const generateAutoBillingInvoices = async ({ force = false } = {}) => {
   console.log('🧾 Running automated invoice generation cron:', new Date().toISOString())
 
@@ -15,7 +110,6 @@ export const generateAutoBillingInvoices = async ({ force = false } = {}) => {
     for (const user of allUsers) {
       const userId = user.id
 
-      // Fetch preference
       const [pref] = await db
         .select()
         .from(billingPreferences)
@@ -23,32 +117,24 @@ export const generateAutoBillingInvoices = async ({ force = false } = {}) => {
         .limit(1)
 
       const autoGenerate = pref?.autoGenerate ?? true
-      const frequency = pref?.frequency ?? 'monthly'
+      const frequency = normalizeFrequency(pref?.frequency)
       const customFrequencyDays = pref?.customFrequencyDays ?? null
 
-      // Skip if auto-generate is disabled (unless force)
       if (!autoGenerate && !force) {
         console.log(`⏭️ Skipping user ${userId}: auto-generate disabled`)
         continue
       }
 
-      // Skip if frequency is 'manual' (unless force)
       if (frequency === 'manual' && !force) {
         console.log(`⏭️ Skipping user ${userId}: manual billing frequency`)
         continue
       }
 
-      // Calculate interval days based on frequency
-      let intervalDays = 30 // default monthly
-      if (frequency === 'weekly') intervalDays = 7
-      else if (frequency === 'monthly') intervalDays = 30
-      else if (frequency === 'custom' && customFrequencyDays) intervalDays = customFrequencyDays
-      else if (frequency === 'custom' && !customFrequencyDays) {
-        console.log(`⚠️ Skipping user ${userId}: custom frequency but no customFrequencyDays set`)
+      if (frequency === 'custom' && (!customFrequencyDays || customFrequencyDays <= 0)) {
+        console.log(`⚠️ Skipping user ${userId}: invalid custom billing frequency`)
         continue
       }
 
-      // Get last invoice to determine next billing period
       const [lastInvoice] = await db
         .select()
         .from(billingInvoices)
@@ -56,83 +142,65 @@ export const generateAutoBillingInvoices = async ({ force = false } = {}) => {
         .orderBy(desc(billingInvoices.billingEnd))
         .limit(1)
 
-      const today = dayjs().startOf('day')
-      let startDate: Date
-      let endDate: Date
-      let shouldGenerate = false
+      const period = nextCompleteBillingPeriod({
+        frequency,
+        customFrequencyDays,
+        lastBillingEnd: lastInvoice?.billingEnd,
+        today: dayjs().startOf('day'),
+        force,
+      })
 
-      if (lastInvoice?.billingEnd) {
-        // Use the billing end date of the last invoice to determine the next period
-        const lastBillingEnd = dayjs(lastInvoice.billingEnd).startOf('day')
-        const nextBillingStart = lastBillingEnd.add(1, 'day').startOf('day')
-        const nextBillingEnd = nextBillingStart.add(intervalDays - 1, 'day').endOf('day')
-
-        // Generate if today is on or after the next billing end date
-        shouldGenerate = today.isAfter(nextBillingEnd) || today.isSame(nextBillingEnd, 'day')
-
-        if (shouldGenerate || force) {
-          startDate = nextBillingStart.toDate()
-          endDate = today.endOf('day').toDate()
-        } else {
-          console.log(
-            `⏭️ Skipping user ${userId}: next billing period ends ${nextBillingEnd.format(
-              'DD MMM YYYY',
-            )} (today: ${today.format('DD MMM YYYY')})`,
-          )
-          continue
-        }
-      } else {
-        // No previous invoice - generate from intervalDays ago to today
-        startDate = today.subtract(intervalDays, 'day').startOf('day').toDate()
-        endDate = today.endOf('day').toDate()
-        shouldGenerate = true
+      if (!period.shouldGenerate || !period.startDate || !period.endDate) {
+        console.log(`⏭️ Skipping user ${userId}: ${period.reason || 'billing period not due yet'}`)
+        continue
       }
 
-      // ✅ allow force regenerate
-      if (!shouldGenerate && !force) continue
+      const orderNumbers = await getBillableOrderNumbersForRange(
+        userId,
+        period.startDate,
+        period.endDate,
+      )
 
-      // Check orders...
-      const [b2cCount] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(b2c_orders)
-        .where(
-          and(
-            eq(b2c_orders.user_id, userId),
-            between(b2c_orders.created_at, startDate, endDate),
-            eq(b2c_orders.order_status, 'pickup_initiated'),
-          ),
+      if (orderNumbers.length === 0) {
+        console.log(
+          `⚠️ Skipping user ${userId}: no billable orders in ${dayjs(period.startDate).format(
+            'DD MMM YYYY',
+          )} → ${dayjs(period.endDate).format('DD MMM YYYY')}`,
         )
+        continue
+      }
 
-      const [b2bCount] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(b2b_orders)
-        .where(
-          and(
-            eq(b2b_orders.user_id, userId),
-            between(b2b_orders.created_at, startDate, endDate),
-            eq(b2b_orders.order_status, 'pickup_initiated'),
-          ),
+      const existingPeriodInvoice = await findInvoiceForExactPeriod(
+        userId,
+        period.startDate,
+        period.endDate,
+      )
+      if (existingPeriodInvoice) {
+        console.log(
+          `⏭️ Skipping user ${userId}: invoice already exists for this period (${existingPeriodInvoice.invoiceNo})`,
         )
+        continue
+      }
 
-      const totalOrders = (b2cCount?.count ?? 0) + (b2bCount?.count ?? 0)
-      if (totalOrders === 0) {
-        console.log(`⚠️ Skipping user ${userId}: no delivered orders in this period.`)
+      const duplicateByOrders = await findDuplicateInvoiceByOrderNumbers(userId, orderNumbers)
+      if (duplicateByOrders) {
+        console.log(
+          `⏭️ Skipping user ${userId}: ${orderNumbers.length} candidate orders overlap invoice ${duplicateByOrders.invoiceNo} (${duplicateByOrders.overlapCount} overlap, e.g. ${duplicateByOrders.sampleOrderNumber})`,
+        )
         continue
       }
 
       console.log(
-        `🧾 Generating invoice for user ${userId} (${totalOrders} orders, ${frequency} frequency, period: ${dayjs(
-          startDate,
-        ).format('DD MMM YYYY')} → ${dayjs(endDate).format('DD MMM YYYY')})`,
+        `🧾 Generating invoice for user ${userId} (${orderNumbers.length} orders, ${frequency}, period: ${dayjs(
+          period.startDate,
+        ).format('DD MMM YYYY')} → ${dayjs(period.endDate).format('DD MMM YYYY')})`,
       )
 
-      // 🧹 Optional: if forcing, delete previous invoice in same range
-      if (force && lastInvoice) {
-        await db.delete(billingInvoices).where(eq(billingInvoices.id, lastInvoice.id))
-        console.log(`🗑️ Deleted old invoice ${lastInvoice.invoiceNo} for ${userId}`)
-      }
-
-      await generateInvoiceForUser(userId, { startDate, endDate })
+      await generateInvoiceForUser(userId, {
+        startDate: period.startDate,
+        endDate: period.endDate,
+        invoiceType: getInvoiceTypeForFrequency(frequency),
+      })
     }
 
     console.log('✅ Invoice generation cron completed successfully')

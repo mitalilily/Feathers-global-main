@@ -48,6 +48,10 @@ export const billingInvoices = pgTable('billingInvoices', {
 
   orderNumbers: jsonb('order_numbers').$type<string[]>(), // Store order numbers for quick reference
 
+  emailSentAt: timestamp('email_sent_at'),
+  emailLastAttemptAt: timestamp('email_last_attempt_at'),
+  emailError: text('email_error'),
+
   isDisputed: boolean('is_disputed').default(false),
   remarks: text('remarks'),
 

@@ -31,10 +31,20 @@ export class BillingPreferencesController {
         return
       }
 
+      let parsedCustomFrequencyDays: number | null = null
+      if (frequency === 'custom') {
+        const candidateCustomFrequencyDays = Number(customFrequencyDays || 0)
+        if (!Number.isInteger(candidateCustomFrequencyDays) || candidateCustomFrequencyDays < 1) {
+          res.status(400).json({ message: 'Custom frequency days must be a positive integer' })
+          return
+        }
+        parsedCustomFrequencyDays = candidateCustomFrequencyDays
+      }
+
       const result = await BillingPreferencesService.upsert(userId, {
         frequency,
-        autoGenerate,
-        customFrequencyDays,
+        autoGenerate: frequency === 'manual' ? false : Boolean(autoGenerate),
+        customFrequencyDays: parsedCustomFrequencyDays,
       })
 
       res.json({

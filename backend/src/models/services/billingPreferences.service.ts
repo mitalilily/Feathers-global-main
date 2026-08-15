@@ -25,7 +25,7 @@ export class BillingPreferencesService {
       .where(eq(billingPreferences.userId, userId))
       .limit(1)
 
-    if (existing) {
+    if (existing.length > 0) {
       await db
         .update(billingPreferences)
         .set({
