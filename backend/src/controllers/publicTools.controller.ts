@@ -75,6 +75,12 @@ const mapPublicRates = (couriers: any[]) =>
     provider_code: getOpaqueProviderCode(courier.integration_type),
   }))
 
+const sendPublicTrackingMiss = (res: Response, message: string) =>
+  res.status(200).json({
+    success: false,
+    message,
+  })
+
 export const getPublicTrackingController = async (req: Request, res: Response) => {
   try {
     const { awb, orderId, orderNumber, contact } = req.query
@@ -90,10 +96,7 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
     if (publicOrderIdentifier && !contact) {
       const order = await findPublicOrderByIdentifier(publicOrderIdentifier)
       if (!order) {
-        return res.status(404).json({
-          success: false,
-          message: `No order found for Order ID: ${publicOrderIdentifier}`,
-        })
+        return sendPublicTrackingMiss(res, `No order found for Order ID: ${publicOrderIdentifier}`)
       }
 
       awbNumber = String(
@@ -104,10 +107,7 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
           '',
       ).trim()
       if (!awbNumber) {
-        return res.status(404).json({
-          success: false,
-          message: 'AWB number is not available for this order yet',
-        })
+        return sendPublicTrackingMiss(res, 'AWB number is not available for this order yet')
       }
     }
 
@@ -117,10 +117,7 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
       const isPhone = /^\d{7,15}$/.test(contactStr)
 
       if (!isEmail && !isPhone) {
-        return res.status(400).json({
-          success: false,
-          message: 'Contact must be a valid email or phone number',
-        })
+        return sendPublicTrackingMiss(res, 'Contact must be a valid email or phone number')
       }
 
       const orderData = await trackByOrderService({
@@ -131,18 +128,12 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
 
       awbNumber = orderData?.awb_number ?? ''
       if (!awbNumber) {
-        return res.status(404).json({
-          success: false,
-          message: 'AWB number not found for this order',
-        })
+        return sendPublicTrackingMiss(res, 'AWB number not found for this order')
       }
     }
 
     if (!awbNumber) {
-      return res.status(400).json({
-        success: false,
-        message: "Provide either 'awb' or ('orderNumber' with 'contact')",
-      })
+      return sendPublicTrackingMiss(res, "Provide either 'awb' or ('orderNumber' with 'contact')")
     }
 
     const trackingData = await trackByAwbService(awbNumber)
@@ -150,6 +141,9 @@ export const getPublicTrackingController = async (req: Request, res: Response) =
   } catch (error: any) {
     console.error('Public tracking error:', error)
     const statusCode = Number(error?.status || error?.statusCode || error?.response?.status || 500)
+    if (statusCode === 400 || statusCode === 404) {
+      return sendPublicTrackingMiss(res, error?.message || 'No tracking information found')
+    }
     return res.status(statusCode >= 400 && statusCode < 600 ? statusCode : 500).json({
       success: false,
       message: error?.message || 'Failed to fetch tracking information',
