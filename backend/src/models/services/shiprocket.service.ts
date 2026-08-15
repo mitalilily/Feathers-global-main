@@ -10499,6 +10499,20 @@ interface OrderFilters {
   sortOrder?: 'asc' | 'desc'
 }
 
+const b2cOrderNumberSequenceSql = sql<number>`
+  COALESCE(
+    NULLIF(regexp_replace(COALESCE(${b2c_orders.order_number}, ''), '\\D', '', 'g'), '')::numeric,
+    0
+  )
+`
+
+const b2bOrderNumberSequenceSql = sql<number>`
+  COALESCE(
+    NULLIF(regexp_replace(COALESCE(${b2b_orders.order_number}, ''), '\\D', '', 'g'), '')::numeric,
+    0
+  )
+`
+
 const excludeUnbookedShopifyImportSql = sql`NOT (
   (
     ${b2c_orders.order_id} LIKE 'shopify_%'
@@ -10673,13 +10687,11 @@ export const getB2COrdersByUserService = async (
     return { orders: [], totalCount: 0, totalPages: 0 }
   }
 
-  // Fetch paginated results
-  const sortBy = filters.sortBy || 'created_at'
   const sortOrder = filters.sortOrder === 'asc' ? 'asc' : 'desc'
-  const orderByClause =
-    sortBy === 'created_at' && sortOrder === 'asc'
-      ? asc(b2c_orders.created_at)
-      : desc(b2c_orders.created_at)
+  const orderByClauses =
+    sortOrder === 'asc'
+      ? [asc(b2cOrderNumberSequenceSql), asc(b2c_orders.created_at), asc(b2c_orders.id)]
+      : [desc(b2cOrderNumberSequenceSql), desc(b2c_orders.created_at), desc(b2c_orders.id)]
 
   const ordersRaw = await db
     .select({
@@ -10697,7 +10709,7 @@ export const getB2COrdersByUserService = async (
     })
     .from(b2c_orders)
     .where(whereCondition)
-    .orderBy(orderByClause)
+    .orderBy(...orderByClauses)
     .limit(limit)
     .offset(offset)
 
@@ -10768,11 +10780,17 @@ export const getB2BOrdersByUserService = async (
 
   if (total === 0) return { orders: [], totalCount: 0, totalPages: 0 }
 
+  const b2bSortOrder = filters.sortOrder === 'asc' ? 'asc' : 'desc'
+  const b2bOrderByClauses =
+    b2bSortOrder === 'asc'
+      ? [asc(b2bOrderNumberSequenceSql), asc(b2b_orders.order_date), asc(b2b_orders.id)]
+      : [desc(b2bOrderNumberSequenceSql), desc(b2b_orders.order_date), desc(b2b_orders.id)]
+
   const ordersRaw = await db
     .select(b2bOrderListSelect)
     .from(b2b_orders)
     .where(whereCondition)
-    .orderBy(desc(b2b_orders.order_date))
+    .orderBy(...b2bOrderByClauses)
     .limit(limit)
     .offset(offset)
 

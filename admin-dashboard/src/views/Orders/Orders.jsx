@@ -308,7 +308,7 @@ const Orders = () => {
         </Text>
         <HStack spacing={3} align="center">
           <Text fontSize="sm" color="gray.500">
-            Sort by Created At
+            Sort by Order ID
           </Text>
           <Select
             size="sm"
@@ -324,8 +324,8 @@ const Orders = () => {
               setPage(1)
             }}
           >
-            <option value="desc">Newest first</option>
-            <option value="asc">Oldest first</option>
+            <option value="desc">Highest Order ID first</option>
+            <option value="asc">Lowest Order ID first</option>
           </Select>
         </HStack>
       </Flex>

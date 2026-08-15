@@ -29,6 +29,16 @@ type CombinedOrderPageRow = {
 
 const DEFAULT_PAGE_LIMIT = 10
 
+const buildOrderNumberSequenceExpression = (alias: 'b2c' | 'b2b') => sql<number>`
+  COALESCE(
+    NULLIF(
+      regexp_replace(COALESCE(${sql.raw(`${alias}.order_number`)}, ''), '\\D', '', 'g'),
+      ''
+    )::numeric,
+    0
+  )
+`
+
 const buildStatusCondition = (qualifiedColumn: string, status?: string | string[]) => {
   if (!status) return null
 
@@ -251,15 +261,25 @@ const fetchCombinedOrderPageRows = async ({
   const pageResult = (await db.execute(sql`
     SELECT id, type, user_id, created_at
     FROM (
-      SELECT b2c.id, 'b2c'::text AS type, b2c.user_id, b2c.created_at
+      SELECT
+        b2c.id,
+        'b2c'::text AS type,
+        b2c.user_id,
+        b2c.created_at,
+        ${buildOrderNumberSequenceExpression('b2c')} AS order_sequence
       FROM b2c_orders AS b2c
       WHERE ${sql.join(b2cConditions, sql` AND `)}
       UNION ALL
-      SELECT b2b.id, 'b2b'::text AS type, b2b.user_id, b2b.created_at
+      SELECT
+        b2b.id,
+        'b2b'::text AS type,
+        b2b.user_id,
+        b2b.created_at,
+        ${buildOrderNumberSequenceExpression('b2b')} AS order_sequence
       FROM b2b_orders AS b2b
       WHERE ${sql.join(b2bConditions, sql` AND `)}
     ) AS combined_orders
-    ORDER BY created_at ${sortOrder}
+    ORDER BY order_sequence ${sortOrder}, created_at ${sortOrder}, id ${sortOrder}
     LIMIT ${safeLimit}
     OFFSET ${offset}
   `)) as any

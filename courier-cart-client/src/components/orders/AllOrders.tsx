@@ -2057,7 +2057,7 @@ const AllOrders = () => {
       >
         <Box sx={{ width: { xs: '100%', sm: 220 } }}>
           <CustomSelect
-            label="Sort by Created At"
+            label="Sort by Order ID"
             value={filters.sortOrder || 'desc'}
             onSelect={(value) => {
               const sortOrder = (value as 'asc' | 'desc') || 'desc'
@@ -2071,8 +2071,8 @@ const AllOrders = () => {
               setBulkFeedback(null)
             }}
             items={[
-              { key: 'desc', label: 'Newest first' },
-              { key: 'asc', label: 'Oldest first' },
+              { key: 'desc', label: 'Highest Order ID first' },
+              { key: 'asc', label: 'Lowest Order ID first' },
             ]}
           />
         </Box>
