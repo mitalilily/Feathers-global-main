@@ -32,7 +32,7 @@ const DEFAULT_PAGE_LIMIT = 10
 const buildOrderNumberSequenceExpression = (alias: 'b2c' | 'b2b') => sql<number>`
   COALESCE(
     NULLIF(
-      regexp_replace(COALESCE(${sql.raw(`${alias}.order_number`)}, ''), '\\D', '', 'g'),
+      substring(COALESCE(${sql.raw(`${alias}.order_number`)}, '') from '([0-9]+)\\D*$'),
       ''
     )::numeric,
     0

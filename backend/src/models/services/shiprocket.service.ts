@@ -10501,14 +10501,14 @@ interface OrderFilters {
 
 const b2cOrderNumberSequenceSql = sql<number>`
   COALESCE(
-    NULLIF(regexp_replace(COALESCE(${b2c_orders.order_number}, ''), '\\D', '', 'g'), '')::numeric,
+    NULLIF(substring(COALESCE(${b2c_orders.order_number}, '') from '([0-9]+)\\D*$'), '')::numeric,
     0
   )
 `
 
 const b2bOrderNumberSequenceSql = sql<number>`
   COALESCE(
-    NULLIF(regexp_replace(COALESCE(${b2b_orders.order_number}, ''), '\\D', '', 'g'), '')::numeric,
+    NULLIF(substring(COALESCE(${b2b_orders.order_number}, '') from '([0-9]+)\\D*$'), '')::numeric,
     0
   )
 `
