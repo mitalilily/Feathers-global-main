@@ -3125,7 +3125,7 @@ export const processShopifyWebhookOrder = async (
     select id
     from stores
     where domain = ${normalizedShopDomain}
-      and platform_id = ${SHOPIFY_PLATFORM_ID}
+      and "platformId" = ${SHOPIFY_PLATFORM_ID}
     for update
   `)
   const store = await getStoreByDomain(shopDomain, tx)
@@ -3174,7 +3174,8 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
         status?: string
         displayStatus?: string | null
         events?: {
-          nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
+          edges?: Array<{ node?: { id: string; status?: string | null; happenedAt?: string | null } | null }>
+          nodes?: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
         }
         trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
       }>
@@ -3201,10 +3202,12 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
             status
             displayStatus
             events(first: 10) {
-              nodes {
-                id
-                status
-                happenedAt
+              edges {
+                node {
+                  id
+                  status
+                  happenedAt
+                }
               }
             }
             trackingInfo(first: 10) {
@@ -3283,7 +3286,8 @@ const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName
           status?: string
           displayStatus?: string | null
           events?: {
-            nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
+            edges?: Array<{ node?: { id: string; status?: string | null; happenedAt?: string | null } | null }>
+            nodes?: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
           }
           trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
         }>
@@ -3313,10 +3317,12 @@ const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName
               status
               displayStatus
               events(first: 10) {
-                nodes {
-                  id
-                  status
-                  happenedAt
+                edges {
+                  node {
+                    id
+                    status
+                    happenedAt
+                  }
                 }
               }
               trackingInfo(first: 10) {
@@ -3395,7 +3401,8 @@ const getShopifyFulfillmentForStatusSync = async (store: ShopifyStore, fulfillme
       status?: string | null
       displayStatus?: string | null
       events?: {
-        nodes: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
+        edges?: Array<{ node?: { id: string; status?: string | null; happenedAt?: string | null } | null }>
+        nodes?: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
       }
       trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
     } | null
@@ -3408,10 +3415,12 @@ const getShopifyFulfillmentForStatusSync = async (store: ShopifyStore, fulfillme
           status
           displayStatus
           events(first: 10) {
-            nodes {
-              id
-              status
-              happenedAt
+            edges {
+              node {
+                id
+                status
+                happenedAt
+              }
             }
           }
           trackingInfo(first: 10) {
@@ -3636,8 +3645,17 @@ const mapShopifyFulfillmentEventStatus = (orderStatus: unknown): string | null =
   return null
 }
 
+const getShopifyFulfillmentEvents = (fulfillment: any) => {
+  const events = fulfillment?.events || {}
+  if (Array.isArray(events.nodes)) return events.nodes
+  if (Array.isArray(events.edges)) {
+    return events.edges.map((edge: any) => edge?.node).filter(Boolean)
+  }
+  return []
+}
+
 const fulfillmentHasEventStatus = (fulfillment: any, status: string) => {
-  const events = Array.isArray(fulfillment?.events?.nodes) ? fulfillment.events.nodes : []
+  const events = getShopifyFulfillmentEvents(fulfillment)
   return events.some((event: any) => String(event?.status || '').toUpperCase() === status)
 }
 
@@ -3652,7 +3670,7 @@ const shopifyFulfillmentEventPriority: Record<string, number> = {
 }
 
 const getLatestShopifyFulfillmentEvent = (fulfillment: any) => {
-  const events = Array.isArray(fulfillment?.events?.nodes) ? fulfillment.events.nodes : []
+  const events = getShopifyFulfillmentEvents(fulfillment)
   return events
     .map((event: any) => ({
       ...event,
