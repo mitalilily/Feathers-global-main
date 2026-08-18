@@ -8261,12 +8261,7 @@ export const createB2CShipmentService = async (
           }
         }
 
-        const xpressbeesReverseParams: ShipmentParams = {
-          ...params,
-          consignee: params.consignee,
-          pickup: reversePickupAddress,
-          rto: reverseReturnAddress,
-        }
+        const xpressbeesReverseParams: ShipmentParams = reverseProviderParams
 
         shipmentData = await xpressbees.createReverseShipment({
           order_id: originalOrder?.order_number || params.order_number,
@@ -8279,7 +8274,9 @@ export const createB2CShipmentService = async (
             state: xpressbeesReverseParams.consignee?.state,
             pincode: xpressbeesReverseParams.consignee?.pincode,
             phone: xpressbeesReverseParams.consignee?.phone,
-            alternate_phone: xpressParams?.consignee?.alternate_phone,
+            alternate_phone:
+              (xpressbeesReverseParams.consignee as any)?.alternate_phone ||
+              xpressParams?.consignee?.alternate_phone,
           },
           pickup: xpressbeesReverseParams.pickup,
           rto: xpressbeesReverseParams.rto,
