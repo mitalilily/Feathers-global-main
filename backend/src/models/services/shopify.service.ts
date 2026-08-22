@@ -697,6 +697,35 @@ const exchangeShopifySessionToken = async ({
   return response.data
 }
 
+export const exchangeShopifyClientCredentials = async ({
+  shop,
+  clientId,
+  clientSecret,
+}: {
+  shop: string
+  clientId: string
+  clientSecret: string
+}): Promise<ShopifyAccessTokenResponse> => {
+  const params = new URLSearchParams({
+    client_id: String(clientId || '').trim(),
+    client_secret: String(clientSecret || '').trim(),
+    grant_type: 'client_credentials',
+  })
+
+  const response = await axios.post<ShopifyAccessTokenResponse>(
+    `https://${normalizeShopifyDomain(shop)}/admin/oauth/access_token`,
+    params.toString(),
+    {
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      timeout: SHOPIFY_API_TIMEOUT_MS,
+    },
+  )
+  return response.data
+}
+
 export const completeShopifyOAuthInstall = async (query: Record<string, any>) => {
   const shop = normalizeShopifyDomain(String(query?.shop || ''))
   const code = String(query?.code || '')

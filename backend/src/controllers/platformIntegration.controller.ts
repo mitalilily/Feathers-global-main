@@ -4,7 +4,12 @@ import {
   integrateWithMagento,
   integrateWithWix,
 } from "../models/services/PlatformIntegration.service";
-import { connectShopifyStore } from "../models/services/shopify.service";
+import {
+  connectShopifyStore,
+  ensureShopifyOrderWebhooks,
+  exchangeShopifyClientCredentials,
+  syncShopifyOrdersForUser,
+} from "../models/services/shopify.service";
 import { connectWooCommerceStore } from "../models/services/woocommerce.service";
 import { updateUserChannelIntegration, upsertStore } from "../models/services/userService";
 import { db } from "../models/client";
@@ -72,18 +77,11 @@ export const integrateShopifyStore = async (
   req: Request,
   res: Response
 ): Promise<any> => {
-  if (String(process.env.SHOPIFY_ALLOW_LEGACY_MANUAL_AUTH || '').toLowerCase() !== 'true') {
-    return res.status(410).json({
-      success: false,
-      error: 'Manual Shopify Admin API token connection is no longer supported. Connect Shopify through OAuth.',
-      migrationPath: '/api/integrations/shopify/oauth/start',
-    });
-  }
-
   const {
     storeUrl,
     domain,
     apiKey,
+    clientId,
     apiSecretKey,
     apiSecret,
     clientSecret,
@@ -96,34 +94,114 @@ export const integrateShopifyStore = async (
     settings,
   } = req.body;
   const normalizedAccessToken = adminApiAccessToken || accessToken || token;
+  const normalizedClientId = clientId || apiKey;
   const normalizedSecret = webhookSecret || apiSecretKey || apiSecret || clientSecret;
 
   try {
     const userId = await resolveIntegrationUserId(req, targetUserId || bodyUserId);
 
-    if ((!storeUrl && !domain) || !normalizedAccessToken || !userId) {
+    const hasStaticToken = Boolean(String(normalizedAccessToken || '').trim());
+    const hasClientCredentials = Boolean(
+      String(normalizedClientId || '').trim() && String(normalizedSecret || '').trim(),
+    );
+
+    if ((!storeUrl && !domain) || (!hasStaticToken && !hasClientCredentials) || !normalizedSecret || !userId) {
       return res.status(400).json({
         error: "Missing required fields",
-        required: ["storeUrl/domain", "adminApiAccessToken/accessToken", "authenticated user"],
+        required: [
+          "storeUrl/domain",
+          "adminApiAccessToken/accessToken OR clientId/apiKey",
+          "apiSecretKey/clientSecret/webhookSecret",
+          "authenticated user",
+        ],
       });
     }
 
+    const shopDomain = storeUrl ?? domain;
+    let resolvedAccessToken = String(normalizedAccessToken || '').trim();
+    let oauthMetadata: Record<string, any> | undefined;
+    if (!resolvedAccessToken) {
+      const tokenResponse = await exchangeShopifyClientCredentials({
+        shop: shopDomain,
+        clientId: normalizedClientId,
+        clientSecret: normalizedSecret,
+      });
+      resolvedAccessToken = String(tokenResponse.access_token || '').trim();
+      if (!resolvedAccessToken) {
+        throw new Error('Shopify did not return an Admin API access token from client credentials');
+      }
+      oauthMetadata = {
+        appClientId: String(normalizedClientId || '').trim(),
+        appClientSecret: normalizedSecret,
+        tokenType: 'client_credentials',
+        scope: tokenResponse.scope,
+        expiresIn: tokenResponse.expires_in,
+        expiresAt: tokenResponse.expires_in
+          ? new Date(Date.now() + Number(tokenResponse.expires_in) * 1000).toISOString()
+          : undefined,
+        installedAt: new Date().toISOString(),
+        active: true,
+      };
+    }
+
     const result = await connectShopifyStore({
-      storeUrl: storeUrl ?? domain,
-      apiKey,
+      storeUrl: shopDomain,
+      apiKey: normalizedClientId,
       apiSecretKey: normalizedSecret,
       webhookSecret: normalizedSecret,
-      adminApiAccessToken: normalizedAccessToken,
+      adminApiAccessToken: resolvedAccessToken,
       userId,
       settings,
+      authMethod: oauthMetadata ? 'merchant_dev_dashboard_custom_app' : 'merchant_custom_app',
+      oauth: oauthMetadata,
     });
 
+    const warnings: string[] = [];
+    let webhooks: Record<string, unknown> | null = null;
+    const [orderWebhookResult] = await Promise.allSettled([
+      ensureShopifyOrderWebhooks({
+        storeUrl: shopDomain,
+        accessToken: resolvedAccessToken,
+      }),
+    ]);
+
+    webhooks = {
+      order: orderWebhookResult.status === 'fulfilled' ? orderWebhookResult.value : null,
+      compliance: {
+        skipped: true,
+        reason: 'Merchant custom-app connections use Shopify order webhooks only.',
+      },
+    };
+
+    if (orderWebhookResult.status === 'rejected') {
+      warnings.push(
+        orderWebhookResult.reason?.message
+          ? `Store connected, but Shopify order webhook registration failed: ${orderWebhookResult.reason.message}`
+          : 'Store connected, but Shopify order webhook registration failed',
+      );
+    }
+
+    let sync: Awaited<ReturnType<typeof syncShopifyOrdersForUser>> | null = null;
+    try {
+      sync = await syncShopifyOrdersForUser(userId, 50, result.store?.id);
+    } catch (syncError: any) {
+      warnings.push(
+        syncError?.message
+          ? `Store connected, but initial order sync failed: ${syncError.message}`
+          : 'Store connected, but initial order sync failed',
+      );
+    }
+
+    if (result.warning) warnings.push(result.warning);
+
     return res.status(200).json({
+      success: true,
       message: "Shopify integration successful!",
       data: result.shopifyData,
       store: result.store,
-      webhooks: result.webhooks,
-      warning: result.warning,
+      webhooks,
+      sync,
+      warning: warnings.length ? warnings.join(' ') : null,
     });
   } catch (error: any) {
     logIntegrationError("Error integrating Shopify:", error);

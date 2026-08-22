@@ -26,6 +26,8 @@ export const useIntegrateShopify = () => {
   });
 };
 
+export const useIntegrateShopifyCustomApp = useIntegrateShopify;
+
 export const useStartShopifyOAuth = () => {
   return useMutation({
     mutationFn: startShopifyOAuth,
