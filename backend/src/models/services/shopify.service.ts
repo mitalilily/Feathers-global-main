@@ -218,6 +218,13 @@ type ConnectShopifyStoreParams = {
   tx?: any
 }
 
+const isShopifyStoreInactiveForTransfer = (store?: ShopifyStore | null) => {
+  if (!store) return false
+  const oauth = getStoreOAuthMetadata(store)
+  const accessToken = String((store as any)?.adminApiAccessToken || '').trim()
+  return !accessToken || oauth.active === false || oauth.reconnectRequired === true
+}
+
 type ShopifyOAuthStatePayload = {
   nonce: string
   shop: string
@@ -1739,8 +1746,42 @@ export const connectShopifyStore = async ({
       .where(and(eq(stores.id, shopifyData.id), eq(stores.platformId, SHOPIFY_PLATFORM_ID)))
       .limit(1)
 
-    if (existingGlobalStore && existingGlobalStore.userId !== userId) {
+    const canTransferInactiveStore =
+      existingGlobalStore &&
+      existingGlobalStore.userId !== userId &&
+      isShopifyStoreInactiveForTransfer(existingGlobalStore as ShopifyStore)
+
+    if (existingGlobalStore && existingGlobalStore.userId !== userId && !canTransferInactiveStore) {
       throw new Error('This Shopify store is already connected to another merchant account')
+    }
+
+    if (canTransferInactiveStore) {
+      const previousOwnerId = String(existingGlobalStore!.userId || '').trim()
+
+      await innerTx
+        .update(stores)
+        .set({
+          userId,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(stores.id, shopifyData.id), eq(stores.platformId, SHOPIFY_PLATFORM_ID)))
+
+      const [remainingPreviousOwnerStore] = await innerTx
+        .select({ id: stores.id })
+        .from(stores)
+        .where(
+          and(
+            eq(stores.userId, previousOwnerId),
+            eq(stores.platformId, SHOPIFY_PLATFORM_ID),
+            sql`${stores.id} <> ${shopifyData.id}`,
+            sql`coalesce(${stores.adminApiAccessToken}, '') <> ''`,
+          ),
+        )
+        .limit(1)
+
+      if (!remainingPreviousOwnerStore) {
+        await setUserChannelIntegration(previousOwnerId, SHOPIFY_PLATFORM_ID, false, innerTx)
+      }
     }
 
     await upsertStore(
