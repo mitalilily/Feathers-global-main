@@ -3243,10 +3243,6 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
         id: string
         status?: string
         displayStatus?: string | null
-        events?: {
-          edges?: Array<{ node?: { id: string; status?: string | null; happenedAt?: string | null } | null }>
-          nodes?: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
-        }
         trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
       }>
     } | null
@@ -3271,15 +3267,6 @@ const getShopifyOrderForStatusSync = async (store: ShopifyStore, shopifyOrderId:
             id
             status
             displayStatus
-            events(first: 10) {
-              edges {
-                node {
-                  id
-                  status
-                  happenedAt
-                }
-              }
-            }
             trackingInfo(first: 10) {
               company
               number
@@ -3355,10 +3342,6 @@ const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName
           id: string
           status?: string
           displayStatus?: string | null
-          events?: {
-            edges?: Array<{ node?: { id: string; status?: string | null; happenedAt?: string | null } | null }>
-            nodes?: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
-          }
           trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
         }>
       }>
@@ -3386,15 +3369,6 @@ const getShopifyOrderByNameForStatusSync = async (store: ShopifyStore, orderName
               id
               status
               displayStatus
-              events(first: 10) {
-                edges {
-                  node {
-                    id
-                    status
-                    happenedAt
-                  }
-                }
-              }
               trackingInfo(first: 10) {
                 company
                 number
@@ -3470,10 +3444,6 @@ const getShopifyFulfillmentForStatusSync = async (store: ShopifyStore, fulfillme
       id: string
       status?: string | null
       displayStatus?: string | null
-      events?: {
-        edges?: Array<{ node?: { id: string; status?: string | null; happenedAt?: string | null } | null }>
-        nodes?: Array<{ id: string; status?: string | null; happenedAt?: string | null }>
-      }
       trackingInfo?: Array<{ company?: string | null; number?: string | null; url?: string | null }>
     } | null
   }>({
@@ -3484,15 +3454,6 @@ const getShopifyFulfillmentForStatusSync = async (store: ShopifyStore, fulfillme
           id
           status
           displayStatus
-          events(first: 10) {
-            edges {
-              node {
-                id
-                status
-                happenedAt
-              }
-            }
-          }
           trackingInfo(first: 10) {
             company
             number
