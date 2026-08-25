@@ -20,6 +20,7 @@ export const decryptShopifyToken = (value: unknown) => {
 export const encryptShopifyOAuth = (oauth: Record<string, any> = {}) => ({
   ...oauth,
   refreshToken: oauth.refreshToken ? encryptShopifyToken(oauth.refreshToken) : oauth.refreshToken,
+  appClientSecret: oauth.appClientSecret ? encryptShopifyToken(oauth.appClientSecret) : oauth.appClientSecret,
 })
 export const encryptShopifyStoreMetadata = (metadata: Record<string, any> = {}) => ({
   ...metadata,

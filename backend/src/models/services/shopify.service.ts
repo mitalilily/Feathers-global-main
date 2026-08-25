@@ -1459,7 +1459,11 @@ const toFutureIso = (seconds?: number) => {
 const getStoreOAuthMetadata = (store: ShopifyStore): Record<string, any> => {
   const metadata = ((store as any)?.metadata || {}) as Record<string, any>
   const oauth = metadata.oauth && typeof metadata.oauth === 'object' ? metadata.oauth : {}
-  return { ...oauth, refreshToken: decryptShopifyToken(oauth.refreshToken) }
+  return {
+    ...oauth,
+    refreshToken: decryptShopifyToken(oauth.refreshToken),
+    appClientSecret: decryptShopifyToken(oauth.appClientSecret),
+  }
 }
 
 const syncStoreOAuthState = (store: ShopifyStore, accessToken: string, metadata: Record<string, any>) => {
@@ -1482,14 +1486,149 @@ const isShopifyTokenExpired = (expiresAt?: unknown, safetyBufferMs = 0) => {
 }
 
 const shouldRefreshShopifyToken = (oauth: Record<string, any>) => {
-  if (oauth.tokenType !== 'expiring_offline') return false
-  if (!String(oauth.refreshToken || '').trim()) return false
-
-  const expiresAtMs = oauth.expiresAt ? new Date(oauth.expiresAt).getTime() : 0
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return true
-
   const safetyBufferMs = Number(process.env.SHOPIFY_TOKEN_REFRESH_BUFFER_MS || 5 * 60 * 1000)
-  return expiresAtMs - Date.now() <= safetyBufferMs
+
+  if (oauth.tokenType === 'expiring_offline') {
+    if (!String(oauth.refreshToken || '').trim()) return false
+
+    const expiresAtMs = oauth.expiresAt ? new Date(oauth.expiresAt).getTime() : 0
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return true
+
+    return expiresAtMs - Date.now() <= safetyBufferMs
+  }
+
+  if (oauth.tokenType === 'client_credentials') {
+    return isShopifyTokenExpired(oauth.expiresAt, safetyBufferMs)
+  }
+
+  return false
+}
+
+const refreshShopifyClientCredentialsAccessToken = async (
+  store: ShopifyStore,
+  tx: any = db,
+  options: { force?: boolean } = {},
+) => {
+  const lockKey = `${getShopifyRefreshLockKey(store)}:client-credentials`
+  const existingRefresh = shopifyTokenRefreshLocks.get(lockKey)
+  if (existingRefresh) return existingRefresh
+
+  const refreshPromise = (async () => {
+    const latestStore = (await getStoreById(String(store.id), tx)) || store
+    const latestMetadata = ((latestStore as any)?.metadata || {}) as Record<string, any>
+    const latestOauth = getStoreOAuthMetadata(latestStore)
+    const latestAccessToken = decryptShopifyToken(latestStore.adminApiAccessToken)
+    const safetyBufferMs = Number(process.env.SHOPIFY_TOKEN_REFRESH_BUFFER_MS || 5 * 60 * 1000)
+
+    if (!options.force && latestAccessToken && !shouldRefreshShopifyToken(latestOauth)) {
+      syncStoreOAuthState(store, latestAccessToken, latestMetadata)
+      return latestAccessToken
+    }
+
+    if (
+      options.force &&
+      latestAccessToken &&
+      latestAccessToken !== decryptShopifyToken(store.adminApiAccessToken) &&
+      !isShopifyTokenExpired(latestOauth.expiresAt, safetyBufferMs)
+    ) {
+      syncStoreOAuthState(store, latestAccessToken, latestMetadata)
+      return latestAccessToken
+    }
+
+    if (latestOauth.active === false || latestOauth.reconnectRequired === true) {
+      throw new ShopifyReauthorizationRequiredError(store.domain)
+    }
+
+    const clientId = String(latestOauth.appClientId || latestStore.apiKey || '').trim()
+    const clientSecret = String(latestOauth.appClientSecret || '').trim()
+    if (!clientId || !clientSecret) {
+      throw new ShopifyReauthorizationRequiredError(
+        store.domain,
+        'Shopify custom app credentials are unavailable. Reconnect the store to continue status sync.',
+      )
+    }
+
+    let response
+    try {
+      response = await exchangeShopifyClientCredentials({
+        shop: latestStore.domain,
+        clientId,
+        clientSecret,
+      })
+    } catch (error: any) {
+      const status = Number(error?.response?.status || 0)
+      const providerCode = String(error?.response?.data?.error || '').trim().toLowerCase()
+      const providerMessage = String(error?.response?.data?.error_description || '').trim().toLowerCase()
+      const tokenWasRejected =
+        [400, 401].includes(status) &&
+        (['invalid_request', 'invalid_grant', 'invalid_token', 'unauthorized_client'].includes(providerCode) ||
+          /access token|client credentials|client secret|reauthor/i.test(providerMessage))
+
+      if (!tokenWasRejected) throw error
+
+      const disconnectedOAuth = encryptShopifyOAuth({
+        ...latestOauth,
+        active: false,
+        reconnectRequired: true,
+        invalidatedAt: new Date().toISOString(),
+        invalidationReason: providerCode || 'token_rejected',
+      })
+      const disconnectedMetadata = { ...latestMetadata, oauth: disconnectedOAuth }
+      await tx
+        .update(stores)
+        .set({ metadata: disconnectedMetadata, updatedAt: new Date() })
+        .where(eq(stores.id, latestStore.id))
+      syncStoreOAuthState(latestStore, latestStore.adminApiAccessToken, disconnectedMetadata)
+      syncStoreOAuthState(store, store.adminApiAccessToken, disconnectedMetadata)
+
+      throw new ShopifyReauthorizationRequiredError(store.domain)
+    }
+
+    const accessToken = String(response?.access_token || '').trim()
+    if (!accessToken) {
+      throw new Error(`Shopify client-credentials exchange did not return an access token for ${store.domain}`)
+    }
+
+    const refreshedScopes = normalizeScopeList(response?.scope).join(',')
+    const refreshedOAuth = {
+      ...latestOauth,
+      appClientId: clientId,
+      appClientSecret: clientSecret,
+      tokenType: 'client_credentials',
+      scope: refreshedScopes || latestOauth.scope,
+      expiresIn: response?.expires_in,
+      expiresAt: toFutureIso(response?.expires_in),
+      refreshedAt: new Date().toISOString(),
+      active: true,
+      reconnectRequired: false,
+    }
+
+    const storedAccessToken = encryptShopifyToken(accessToken)
+    const storedOAuth = encryptShopifyOAuth(refreshedOAuth)
+    const nextMetadata = {
+      ...latestMetadata,
+      oauth: storedOAuth,
+    }
+
+    await tx
+      .update(stores)
+      .set({
+        adminApiAccessToken: storedAccessToken,
+        metadata: nextMetadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(stores.id, latestStore.id))
+
+    syncStoreOAuthState(latestStore, storedAccessToken, nextMetadata)
+    syncStoreOAuthState(store, storedAccessToken, nextMetadata)
+
+    return accessToken
+  })().finally(() => {
+    shopifyTokenRefreshLocks.delete(lockKey)
+  })
+
+  shopifyTokenRefreshLocks.set(lockKey, refreshPromise)
+  return refreshPromise
 }
 
 const refreshShopifyOfflineAccessToken = async (
@@ -1670,6 +1809,10 @@ const getShopifyAccessTokenForStore = async (store: ShopifyStore, tx: any = db) 
     return token
   }
 
+  if (oauth.tokenType === 'client_credentials') {
+    return refreshShopifyClientCredentialsAccessToken(store, tx)
+  }
+
   return refreshShopifyOfflineAccessToken(store, tx)
 }
 
@@ -1700,6 +1843,9 @@ const shopifyStoreGraphqlRequest = async <T = any>({
       return await request(await getShopifyAccessTokenForStore(store, tx))
     } catch (error: any) {
       const oauth = getStoreOAuthMetadata(store)
+      if (error?.statusCode === 401 && oauth.tokenType === 'client_credentials') {
+        return request(await refreshShopifyClientCredentialsAccessToken(store, tx, { force: true }))
+      }
       if (error?.statusCode === 401 && String(oauth.refreshToken || '').trim()) {
         return request(await refreshShopifyOfflineAccessToken(store, tx, { force: true }))
       }
