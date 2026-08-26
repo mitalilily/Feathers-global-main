@@ -60,6 +60,16 @@ const buildGeneratedLabelCondition = (alias: 'b2c' | 'b2b') => sql`(
   OR NULLIF(BTRIM(COALESCE(${sql.raw(`${alias}.label`)}, '')), '') IS NOT NULL
 )`
 
+const buildCourierAssignedCondition = (alias: 'b2c' | 'b2b') => sql`(
+  (
+    ${sql.raw(`${alias}.courier_id`)} IS NOT NULL
+    OR NULLIF(BTRIM(COALESCE(${sql.raw(`${alias}.courier_partner`)}, '')), '') IS NOT NULL
+  )
+  AND LOWER(COALESCE(${sql.raw(`${alias}.courier_partner`)}, '')) <> 'shopify'
+  AND NOT ${buildGeneratedLabelCondition(alias)}
+  AND LOWER(COALESCE(${sql.raw(`${alias}.order_status`)}, '')) NOT IN ('pending', 'draft', 'cancelled', 'cancellation_requested')
+)`
+
 const buildSearchCondition = (alias: 'b2c' | 'b2b', search?: string) => {
   const trimmed = String(search || '').trim()
   if (!trimmed) return null
@@ -183,7 +193,14 @@ const buildOrderConditions = (alias: 'b2c' | 'b2b', filters: CombinedOrderFilter
   }
 
   const statusCondition = buildStatusCondition(`${alias}.order_status`, filters.status)
-  if (statusCondition) {
+  const normalizedStatuses = normalizeStatusFilter(filters.status)
+  if (normalizedStatuses.includes('courier_assigned')) {
+    conditions.push(buildCourierAssignedCondition(alias))
+    const otherStatuses = normalizedStatuses.filter((value) => value !== 'courier_assigned')
+    if (otherStatuses.length > 0) {
+      conditions.push(sql`${sql.raw(`${alias}.order_status`)} IN (${sql.join(otherStatuses.map((value) => sql`${value}`), sql`, `)})`)
+    }
+  } else if (statusCondition) {
     conditions.push(statusCondition)
     if (shouldExcludeUnbookedShopifyImportsForStatus(filters.status)) {
       conditions.push(buildExcludeUnbookedShopifyImportCondition(alias))

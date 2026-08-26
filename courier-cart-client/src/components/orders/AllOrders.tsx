@@ -1654,7 +1654,7 @@ const AllOrders = () => {
     { label: 'Shipment Booking', stages: [
       { label: 'New', value: 'pending,manifest_failed' },
       { label: 'Draft', value: 'draft' },
-      { label: 'Courier Assigned', value: 'booked,shipment_created' },
+      { label: 'Courier Assigned', value: 'courier_assigned' },
       { label: 'Pickups & Manifests', value: 'pickup_initiated,manifest_generated' },
     ] },
     { label: 'Shipment Journey', stages: [

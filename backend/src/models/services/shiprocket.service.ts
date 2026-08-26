@@ -10551,6 +10551,16 @@ const shouldExcludeUnbookedShopifyImportsForB2CStatus = (status?: string | strin
   return normalized.some((value) => !B2C_NEW_ORDER_STATUSES.has(value))
 }
 
+const buildB2CCourierAssignedCondition = sql`(
+  (
+    ${b2c_orders.courier_id} IS NOT NULL
+    OR NULLIF(BTRIM(COALESCE(${b2c_orders.courier_partner}, '')), '') IS NOT NULL
+  )
+  AND LOWER(COALESCE(${b2c_orders.courier_partner}, '')) <> 'shopify'
+  AND NOT ${hasGeneratedLabelSql(b2c_orders.label, b2c_orders.label_generated_once)}
+  AND LOWER(COALESCE(${b2c_orders.order_status}, '')) NOT IN ('pending', 'draft', 'cancelled', 'cancellation_requested')
+)`
+
 export const getB2COrdersByUserService = async (
   userId: string,
   page: number = 1,
@@ -10568,12 +10578,18 @@ export const getB2COrdersByUserService = async (
 
   // 🔹 Status filter (single or multiple)
   if (filters.status) {
-    if (Array.isArray(filters.status)) {
+    const normalizedStatuses = normalizeB2CStatusFilterValues(filters.status)
+    const hasCourierAssigned = normalizedStatuses.includes('courier_assigned')
+    const otherStatuses = normalizedStatuses.filter((value) => value !== 'courier_assigned')
+    if (hasCourierAssigned) {
+      conditions.push(buildB2CCourierAssignedCondition)
+      if (otherStatuses.length > 0) conditions.push(inArray(b2c_orders.order_status, otherStatuses))
+    } else if (Array.isArray(filters.status)) {
       conditions.push(inArray(b2c_orders.order_status, filters.status))
     } else {
       conditions.push(eq(b2c_orders.order_status, filters.status))
     }
-    if (shouldExcludeUnbookedShopifyImportsForB2CStatus(filters.status)) {
+    if (!hasCourierAssigned && shouldExcludeUnbookedShopifyImportsForB2CStatus(filters.status)) {
       conditions.push(excludeUnbookedShopifyImportSql)
     }
   }
