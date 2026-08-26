@@ -67,7 +67,7 @@ const buildCourierAssignedCondition = (alias: 'b2c' | 'b2b') => sql`(
   )
   AND LOWER(COALESCE(${sql.raw(`${alias}.courier_partner`)}, '')) <> 'shopify'
   AND NOT ${buildGeneratedLabelCondition(alias)}
-  AND LOWER(COALESCE(${sql.raw(`${alias}.order_status`)}, '')) NOT IN ('pending', 'draft', 'cancelled', 'cancellation_requested')
+  AND LOWER(COALESCE(${sql.raw(`${alias}.order_status`)}, '')) NOT IN ('cancelled', 'cancellation_requested')
 )`
 
 const buildSearchCondition = (alias: 'b2c' | 'b2b', search?: string) => {

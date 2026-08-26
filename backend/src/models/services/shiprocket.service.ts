@@ -10558,7 +10558,7 @@ const buildB2CCourierAssignedCondition = sql`(
   )
   AND LOWER(COALESCE(${b2c_orders.courier_partner}, '')) <> 'shopify'
   AND NOT ${hasGeneratedLabelSql(b2c_orders.label, b2c_orders.label_generated_once)}
-  AND LOWER(COALESCE(${b2c_orders.order_status}, '')) NOT IN ('pending', 'draft', 'cancelled', 'cancellation_requested')
+  AND LOWER(COALESCE(${b2c_orders.order_status}, '')) NOT IN ('cancelled', 'cancellation_requested')
 )`
 
 export const getB2COrdersByUserService = async (
