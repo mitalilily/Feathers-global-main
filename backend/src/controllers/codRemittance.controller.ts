@@ -219,7 +219,9 @@ export const exportSingleSettlement = async (req: any, res: Response): Promise<a
     const codCharges = Number(remittance.codCharges || 0)
     const freightCharges = Number(remittance.shippingCharges || 0)
     const totalDeductions = Number(remittance.deductions || 0)
-    const otherDeductions = totalDeductions - codCharges - freightCharges
+    // Component charges are retained for audit, but booking already debited
+    // them. Never expose a negative "other deductions" value in reports.
+    const otherDeductions = Math.max(0, totalDeductions - codCharges - freightCharges)
 
     const report = []
 
@@ -252,8 +254,8 @@ export const exportSingleSettlement = async (req: any, res: Response): Promise<a
     report.push(['COD Amount Collected:', `₹${Number(remittance.codAmount || 0).toFixed(2)}`])
     report.push([''])
     report.push(['DEDUCTIONS:'])
-    report.push(['  COD Charges:', `₹${codCharges.toFixed(2)}`])
-    report.push(['  Freight Charges:', `₹${freightCharges.toFixed(2)}`])
+    report.push(['  COD Charges (already debited at booking):', `₹${codCharges.toFixed(2)}`])
+    report.push(['  Freight Charges (already debited at booking):', `₹${freightCharges.toFixed(2)}`])
     if (otherDeductions > 0) {
       report.push(['  Other Deductions:', `₹${otherDeductions.toFixed(2)}`])
     }
@@ -338,7 +340,7 @@ export const exportRemittances = async (req: any, res: Response): Promise<any> =
       const codCharges = Number(r.codCharges || 0)
       const freightCharges = Number(r.shippingCharges || 0)
       const totalDeductions = Number(r.deductions || 0)
-      const otherDeductions = totalDeductions - codCharges - freightCharges
+      const otherDeductions = Math.max(0, totalDeductions - codCharges - freightCharges)
 
       return [
         r.orderNumber || '',

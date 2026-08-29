@@ -520,8 +520,14 @@ export const sendCodRemittanceEventEmail = async (params: {
       },
       { label: 'Status', value: escapeHtml(compactText(params.remittance.status)) },
       { label: 'COD amount', value: formatCurrency(params.remittance.codAmount) },
-      { label: 'COD charges', value: formatCurrency(params.remittance.codCharges) },
-      { label: 'Freight charges', value: formatCurrency(params.remittance.shippingCharges) },
+      {
+        label: 'COD charges (already debited at booking)',
+        value: formatCurrency(params.remittance.codCharges),
+      },
+      {
+        label: 'Freight charges (already debited at booking)',
+        value: formatCurrency(params.remittance.shippingCharges),
+      },
       { label: 'Total deductions', value: formatCurrency(params.remittance.deductions) },
       { label: 'Net remittable amount', value: formatCurrency(params.remittance.remittableAmount) },
       { label: 'Collected at', value: formatDateTime(params.remittance.collectedAt) },

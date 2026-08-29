@@ -124,10 +124,13 @@ export async function createCodRemittance(params: {
     collectedAt,
   } = params
 
-  // COD remittance should deduct merchant-facing platform charges, not customer-facing label charges.
+  // Freight and COD charges are debited from the wallet when the shipment is
+  // booked. They must not be deducted a second time from the COD remittance.
+  // Keep the component values below for audit/reporting, but remit the full
+  // collected COD amount.
   const normalizedFreightCharges = Number(freightCharges)
-  const deductions = Number(codCharges) + normalizedFreightCharges
-  const remittableAmount = Number(codAmount) - deductions
+  const deductions = 0
+  const remittableAmount = Number(codAmount)
 
   // Idempotency guard: delivered webhooks can be retried.
   const [existingRemittance] = await db
@@ -169,7 +172,9 @@ export async function createCodRemittance(params: {
       collectedAt: collectedAt || new Date(),
       notes: `COD collected by ${
         courierPartner || 'courier'
-      }. Awaiting settlement from courier partner.`,
+      }. Freight (₹${normalizedFreightCharges.toFixed(2)}) and COD charges (₹${Number(
+        codCharges,
+      ).toFixed(2)}) were already debited at booking and are not deducted again. Awaiting settlement from courier partner.`,
     })
     .returning()
 
