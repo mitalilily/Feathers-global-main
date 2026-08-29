@@ -60,7 +60,25 @@ const normalizeEditableSlab = (slab = {}) => {
 
 const normalizeEditableZoneSlabs = (zoneSlabs = {}) =>
   B2C_RATE_TYPES.reduce((acc, type) => {
-    acc[type] = (zoneSlabs?.[type] || []).map(normalizeEditableSlab)
+    // Keep the editor and API payload deterministic even when an older rate
+    // card was saved in a different row order. Gaps are valid; overlaps are
+    // still rejected by the backend.
+    const sorted = (zoneSlabs?.[type] || [])
+      .map(normalizeEditableSlab)
+      .sort(
+        (a, b) =>
+          Number(a.weight_from || 0) - Number(b.weight_from || 0) ||
+          Number(a.weight_to || Infinity) - Number(b.weight_to || Infinity),
+      )
+
+    // Extra-weight pricing belongs to the highest slab after sorting. This
+    // prevents a stale row-order from making the API reject an otherwise
+    // valid card.
+    acc[type] = sorted.map((slab, index) =>
+      index === sorted.length - 1
+        ? slab
+        : { ...slab, extra_rate: '', extra_weight_unit: '' },
+    )
     return acc
   }, {})
 

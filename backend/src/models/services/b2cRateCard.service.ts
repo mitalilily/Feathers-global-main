@@ -572,7 +572,10 @@ function findContainingRangeSlab(
   return selected
 }
 
-function findSmallestCoveringFiniteSlab(
+// When a weight falls into a permitted gap, use the first slab whose upper
+// boundary is above the weight (the next higher slab), rather than returning no
+// rate. This keeps pricing deterministic while retaining overlap protection.
+function findNextHigherSlab(
   chargeableWeightG: number,
   slabs: ResolvedRateCardSlab[],
 ): ResolvedRateCardSlab | null {
@@ -826,7 +829,7 @@ export function computeB2CRateCardCharge(params: {
     )
   }
 
-  const coveringSlab = findSmallestCoveringFiniteSlab(
+  const coveringSlab = findNextHigherSlab(
     ratedPreview.chargeable_weight,
     params.rateCard.slabs,
   )
