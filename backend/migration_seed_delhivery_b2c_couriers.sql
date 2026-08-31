@@ -7,10 +7,9 @@ update shipping_rates
 set
   courier_id = case
     when courier_id in (100, 93)
-      or lower(coalesce(mode, '')) in ('surface', 's', 'ground')
       or lower(coalesce(courier_name, '')) like '%surface%'
       then 100
-    when courier_id in (99, 1, 92)
+    when courier_id in (99, 92)
       or lower(coalesce(mode, '')) in ('air', 'a', 'express', 'e')
       or lower(coalesce(courier_name, '')) like '%air%'
       or lower(coalesce(courier_name, '')) like '%express%'
@@ -19,10 +18,9 @@ set
   end,
   courier_name = case
     when courier_id in (100, 93)
-      or lower(coalesce(mode, '')) in ('surface', 's', 'ground')
       or lower(coalesce(courier_name, '')) like '%surface%'
       then 'Delhivery Surface'
-    when courier_id in (99, 1, 92)
+    when courier_id in (99, 92)
       or lower(coalesce(mode, '')) in ('air', 'a', 'express', 'e')
       or lower(coalesce(courier_name, '')) like '%air%'
       or lower(coalesce(courier_name, '')) like '%express%'
@@ -31,7 +29,7 @@ set
   end,
   service_provider = 'delhivery',
   mode = case
-    when courier_id in (99, 1, 92) then 'Air'
+    when courier_id in (99, 92) then 'Air'
     when courier_id in (100, 93) then 'Surface'
     when lower(coalesce(mode, '')) in ('air', 'a', 'express', 'e') then 'Air'
     when lower(coalesce(mode, '')) in ('surface', 's', 'ground') then 'Surface'
@@ -45,7 +43,7 @@ where lower(business_type) = 'b2c'
   and (
     lower(coalesce(service_provider, '')) = 'delhivery'
     or lower(coalesce(courier_name, '')) like '%delhivery%'
-    or courier_id in (99, 100, 1, 92, 93)
+    or courier_id in (99, 100, 92, 93)
   );
 
 with canonical_delhivery_couriers(id, name) as (
