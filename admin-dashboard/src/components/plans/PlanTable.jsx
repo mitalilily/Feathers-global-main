@@ -78,7 +78,7 @@ const PlanTable = ({ data, loading, onEdit, onDelete, onActivate }) => {
           </Popover>
         ) : null}
 
-        {!isBasicPlan && !row?.is_active ? (
+        {!row?.is_active ? (
           <Button
             aria-label="activate"
             leftIcon={<CheckCircleIcon />}
