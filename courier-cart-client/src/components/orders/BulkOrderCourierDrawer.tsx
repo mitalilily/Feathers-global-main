@@ -60,6 +60,22 @@ const getOrderAmount = (order: BulkOrder) => {
   return subtotal > 0 ? subtotal : Number(order.order_amount ?? 0);
 };
 
+const normalizePaymentMode = (order: BulkOrder) =>
+  String(
+    order.order_type ??
+      order.payment_type ??
+      order.paymentMode ??
+      order.payment_mode ??
+      "",
+  )
+    .trim()
+    .toLowerCase() === "cod"
+    ? "cod"
+    : "prepaid";
+
+const getPaymentModeLabel = (mode: string) =>
+  mode === "cod" ? "COD" : "Prepaid";
+
 const getCourierKey = (courier: Record<string, any>) =>
   String(
     courier.courier_option_key ??
@@ -252,6 +268,18 @@ export default function BulkOrderCourierDrawer({
   );
   const ordersRateSignature = useMemo(
     () => buildOrdersRateSignature(orders),
+    [orders],
+  );
+  const paymentModeCounts = useMemo(
+    () =>
+      orders.reduce(
+        (counts, order) => {
+          const mode = normalizePaymentMode(order);
+          counts[mode] += 1;
+          return counts;
+        },
+        { cod: 0, prepaid: 0 },
+      ),
     [orders],
   );
   const courierRequestKey = useMemo(() => {
@@ -580,6 +608,21 @@ export default function BulkOrderCourierDrawer({
           pincode.
         </Alert>
 
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Chip
+            size="small"
+            color={paymentModeCounts.cod ? "warning" : "default"}
+            variant={paymentModeCounts.cod ? "filled" : "outlined"}
+            label={`COD: ${paymentModeCounts.cod}`}
+          />
+          <Chip
+            size="small"
+            color={paymentModeCounts.prepaid ? "success" : "default"}
+            variant={paymentModeCounts.prepaid ? "filled" : "outlined"}
+            label={`Prepaid: ${paymentModeCounts.prepaid}`}
+          />
+        </Stack>
+
         <TextField
           select
           fullWidth
@@ -663,6 +706,19 @@ export default function BulkOrderCourierDrawer({
                       <Typography fontWeight={800}>{name}</Typography>
                       <Typography variant="body2" color="text.secondary">
                         Serviceable for all {orders.length} selected orders
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Payment:{" "}
+                        {[
+                          paymentModeCounts.cod
+                            ? `${paymentModeCounts.cod} ${getPaymentModeLabel("cod")}`
+                            : "",
+                          paymentModeCounts.prepaid
+                            ? `${paymentModeCounts.prepaid} ${getPaymentModeLabel("prepaid")}`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(", ")}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {getBatchEddLabel(option)}

@@ -1,10 +1,12 @@
-import { Box, Button, Divider, Stack, Typography } from '@mui/material'
-import { FormProvider, useFieldArray, useForm } from 'react-hook-form'
-import { useEffect } from 'react'
+import { Box, Button, Divider, Grid, Stack, Typography } from '@mui/material'
+import { Controller, FormProvider, useFieldArray, useForm } from 'react-hook-form'
+import { useEffect, useMemo } from 'react'
 import { fetchAvailableCouriers } from '../../api/courier'
 import { useBookExistingB2COrderCourier } from '../../hooks/Orders/useOrders'
+import { usePaymentOptions } from '../../hooks/usePaymentOptions'
 import { toast } from '../UI/Toast'
 import CustomDrawer from '../UI/drawer/CustomDrawer'
+import CustomSelect from '../UI/inputs/CustomSelect'
 import DeliveryDetailsForm from './DeliveryDetailsForm'
 import PickupLocationForm from './PickupLocationForm'
 import { SelectCourierForm } from './SelectCourierForm'
@@ -17,6 +19,11 @@ type SourceOrderCourierDrawerProps = {
   order: Record<string, any> | null
   onClose: () => void
 }
+
+const allOrderTypes = [
+  { key: 'prepaid', label: 'Prepaid' },
+  { key: 'cod', label: 'Cash on Delivery' },
+]
 
 const normalizeProducts = (value: unknown): Product[] => {
   const raw = (() => {
@@ -146,15 +153,47 @@ export default function SourceOrderCourierDrawer({
   const methods = useForm<B2CFormData>({
     defaultValues: buildDefaultValues(order),
   })
-  const { control, handleSubmit, reset, setError, setValue } = methods
+  const {
+    control,
+    handleSubmit,
+    reset,
+    setError,
+    setValue,
+    watch,
+    formState: { errors },
+  } = methods
   const { fields, append, remove } = useFieldArray({ control, name: 'products' })
   const bookCourier = useBookExistingB2COrderCourier(onClose)
+  const { data: paymentOptions } = usePaymentOptions()
+
+  const orderTypes = useMemo(() => {
+    if (!paymentOptions) return allOrderTypes
+
+    return allOrderTypes.filter((type) => {
+      if (type.key === 'cod') return paymentOptions.codEnabled
+      if (type.key === 'prepaid') return paymentOptions.prepaidEnabled
+      return true
+    })
+  }, [paymentOptions])
+
+  const currentOrderType = watch('orderType')
 
   useEffect(() => {
     if (open) {
       reset(buildDefaultValues(order))
     }
   }, [open, order, reset])
+
+  useEffect(() => {
+    if (!paymentOptions || !orderTypes.length) return
+    const isCurrentTypeEnabled = orderTypes.some((type) => type.key === currentOrderType)
+    if (!isCurrentTypeEnabled) {
+      setValue('orderType', orderTypes[0].key as 'prepaid' | 'cod', {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+  }, [currentOrderType, orderTypes, paymentOptions, setValue])
 
   const onSubmit = async (data: B2CFormData) => {
     if (!order?.id) return
@@ -335,6 +374,34 @@ export default function SourceOrderCourierDrawer({
         <Box component="form" onSubmit={handleSubmit(onSubmit)}>
           <Stack spacing={2}>
             <DeliveryDetailsForm type="b2c" allowResolvedLocationEdit />
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                Payment Mode
+              </Typography>
+              <Grid container spacing={0.65}>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                  <Controller
+                    name="orderType"
+                    control={control}
+                    rules={{ required: 'Payment mode is required' }}
+                    render={({ field }) => (
+                      <CustomSelect
+                        required
+                        label="Payment Mode"
+                        value={field.value || ''}
+                        onSelect={(value) => field.onChange(value)}
+                        items={orderTypes}
+                        helperText={(errors?.orderType?.message as string) || 'Select payment mode'}
+                        error={!!errors?.orderType}
+                        topMargin={false}
+                        dense
+                      />
+                    )}
+                  />
+                </Grid>
+              </Grid>
+            </Box>
             <Divider />
             <Box>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
