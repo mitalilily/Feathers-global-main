@@ -52,10 +52,7 @@ const normalizeProducts = (value: unknown): Product[] => {
   return products.length ? products : [{ productName: 'Product', price: 0, quantity: 1 }]
 }
 
-const getProductsSubtotal = (products: Product[], fallback: unknown) => {
-  const storedAmount = Number(fallback)
-  if (Number.isFinite(storedAmount) && storedAmount > 0) return storedAmount
-
+const getProductsSubtotal = (products: Product[], fallback: unknown, preferProducts = false) => {
   const subtotal = products.reduce(
     (sum, product) =>
       sum +
@@ -63,6 +60,12 @@ const getProductsSubtotal = (products: Product[], fallback: unknown) => {
       Number(product.discount ?? 0),
     0,
   )
+
+  if (preferProducts && subtotal > 0) return subtotal
+
+  const storedAmount = Number(fallback)
+  if (Number.isFinite(storedAmount) && storedAmount > 0) return storedAmount
+
   return subtotal > 0 ? subtotal : Number(fallback ?? 0)
 }
 
@@ -214,7 +217,7 @@ export default function SourceOrderCourierDrawer({
       discount: Math.max(0, Number(product.discount ?? 0) || 0),
       tax_rate: Math.max(0, Number(product.taxRate ?? 0) || 0),
     }))
-    const subtotal = getProductsSubtotal(data.products ?? [], order?.order_amount)
+    const subtotal = getProductsSubtotal(data.products ?? [], order?.order_amount, true)
 
     let amazonRequestToken = data.amazonRequestToken ?? undefined
     let amazonRateId = data.amazonRateId ?? undefined

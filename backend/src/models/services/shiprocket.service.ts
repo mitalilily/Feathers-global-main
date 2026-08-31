@@ -9816,6 +9816,16 @@ const normalizeB2COrderItemsForBooking = (value: unknown) => {
   }))
 }
 
+const calculateB2COrderItemsAmount = (
+  items: Array<{ qty: number; price: number; discount: number }>,
+) => {
+  const amount = items.reduce(
+    (sum, item) => sum + Number(item.price ?? 0) * Number(item.qty ?? 1) - Number(item.discount ?? 0),
+    0,
+  )
+  return amount > 0 ? amount : 0
+}
+
 const resolveB2COrderItemsAmount = (
   items: Array<{ qty: number; price: number; discount: number }>,
   ...preferredAmounts: unknown[]
@@ -9825,11 +9835,7 @@ const resolveB2COrderItemsAmount = (
     if (Number.isFinite(amount) && amount > 0) return amount
   }
 
-  const amount = items.reduce(
-    (sum, item) => sum + Number(item.price ?? 0) * Number(item.qty ?? 1) - Number(item.discount ?? 0),
-    0,
-  )
-  return amount > 0 ? amount : 0
+  return calculateB2COrderItemsAmount(items)
 }
 
 export const bookExistingB2COrderWithCourierService = async (
@@ -9862,21 +9868,30 @@ export const bookExistingB2COrderWithCourierService = async (
     throw new HttpError(400, 'This order already has an AWB')
   }
 
+  const hasPayloadOrderItems = Array.isArray(payload.order_items) && payload.order_items.length > 0
   const orderItems = normalizeB2COrderItemsForBooking(
-    Array.isArray(payload.order_items) && payload.order_items.length
-      ? payload.order_items
-      : existingOrder.products,
+    hasPayloadOrderItems ? payload.order_items : existingOrder.products,
   )
-  // A synced marketplace order's stored total is the canonical amount payable by
-  // the customer. Rebuilding it from line items loses Shopify order-level
-  // discounts and can make the carrier COD amount larger than the actual order.
-  const orderAmount = resolveB2COrderItemsAmount(
-    orderItems,
-    existingOrder.order_amount,
-    payload.order_amount,
-    existingOrder.invoice_amount,
-  )
-  const paymentType = String(existingOrder.order_type || 'prepaid').toLowerCase() === 'cod' ? 'cod' : 'prepaid'
+  const payloadOrderAmount = Number(payload.order_amount)
+  const editedItemsAmount = calculateB2COrderItemsAmount(orderItems)
+  const orderAmount =
+    hasPayloadOrderItems && editedItemsAmount > 0
+      ? Number.isFinite(payloadOrderAmount) && payloadOrderAmount > 0
+        ? payloadOrderAmount
+        : editedItemsAmount
+      : resolveB2COrderItemsAmount(
+          orderItems,
+          payload.order_amount,
+          existingOrder.order_amount,
+          existingOrder.invoice_amount,
+        )
+  const requestedPaymentType = String(payload.payment_type || '').trim().toLowerCase()
+  const paymentType =
+    requestedPaymentType === 'cod' || requestedPaymentType === 'prepaid'
+      ? requestedPaymentType
+      : String(existingOrder.order_type || 'prepaid').toLowerCase() === 'cod'
+        ? 'cod'
+        : 'prepaid'
   const pickup = payload.pickup || ({} as ShipmentParams['pickup'])
   const consignee = payload.consignee || ({} as ShipmentParams['consignee'])
   const rto = payload.rto
@@ -9964,7 +9979,7 @@ export const bookExistingB2COrderWithCourierService = async (
     order_items: orderItems,
     invoice_number: existingOrder.invoice_number || existingOrder.order_number,
     invoice_date: existingOrder.invoice_date || new Date().toISOString().slice(0, 10),
-    invoice_amount: existingOrder.invoice_amount ?? existingOrder.order_amount ?? orderAmount,
+    invoice_amount: payload.invoice_amount ?? orderAmount,
     tags: existingOrder.tags || undefined,
     order_id: existingOrder.order_id || undefined,
     ...(payload.chargedWeight !== undefined ? { chargedWeight: payload.chargedWeight } : {}),
