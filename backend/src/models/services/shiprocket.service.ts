@@ -10527,8 +10527,8 @@ const b2bOrderNumberSequenceSql = sql<number>`
 
 const excludeUnbookedShopifyImportSql = sql`NOT (
   (
-    ${b2c_orders.order_id} LIKE 'shopify_%'
-    OR ${b2c_orders.provider_meta}->>'source' = 'shopify'
+    COALESCE(${b2c_orders.order_id} LIKE 'shopify_%', false)
+    OR COALESCE(${b2c_orders.provider_meta}->>'source' = 'shopify', false)
     OR COALESCE(${b2c_orders.provider_meta}->>'shopify_order_id', '') <> ''
   )
   AND COALESCE(${b2c_orders.awb_number}, '') = ''

@@ -145,8 +145,8 @@ const buildExcludeUnbookedShopifyImportCondition = (alias: 'b2c' | 'b2b') => {
 
   return sql`NOT (
     (
-      ${sql.raw(`${alias}.order_id`)} LIKE 'shopify_%'
-      OR ${sql.raw(`${alias}.provider_meta`)}->>'source' = 'shopify'
+      COALESCE(${sql.raw(`${alias}.order_id`)} LIKE 'shopify_%', false)
+      OR COALESCE(${sql.raw(`${alias}.provider_meta`)}->>'source' = 'shopify', false)
       OR COALESCE(${sql.raw(`${alias}.provider_meta`)}->>'shopify_order_id', '') <> ''
     )
     AND COALESCE(${sql.raw(`${alias}.awb_number`)}, '') = ''
