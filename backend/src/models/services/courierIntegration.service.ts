@@ -366,6 +366,17 @@ const normaliseEditableRateCardSlabs = (slabs: RateCardSlabInput[] = []) =>
     return inferredUnit !== null ? { ...slab, extra_weight_unit: inferredUnit } : slab
   })
 
+const normaliseEditableRateCardSlabsForSave = (slabs: RateCardSlabInput[] = []) => {
+  const normalised = normaliseRateCardSlabs(normaliseEditableRateCardSlabs(slabs))
+  const finalSlabIndex = normalised.length - 1
+
+  return normalised.map((slab, index) =>
+    index === finalSlabIndex
+      ? slab
+      : { ...slab, extra_rate: null, extra_weight_unit: null },
+  )
+}
+
 export const updateShippingRate = async (
   courierId: number,
   updates: ShippingRateUpdatePayload,
@@ -478,9 +489,7 @@ export const updateShippingRate = async (
       for (const type of B2C_RATE_TYPES) {
         if (!allowedRateTypes.has(type)) continue
         const value = zoneRate[type]
-        const explicitSlabs = normaliseRateCardSlabs(
-          normaliseEditableRateCardSlabs(zoneSlabs[type] || []),
-        )
+        const explicitSlabs = normaliseEditableRateCardSlabsForSave(zoneSlabs[type] || [])
         validateRateCardSlabs(explicitSlabs)
         const hasLegacyValue = value !== undefined && value !== null && value !== ''
         if (!hasLegacyValue && !explicitSlabs.length) continue
@@ -764,8 +773,8 @@ export const upsertShippingRate = async (input: RateInput) => {
 
   for (const r of input.rates) {
     if (!allowedRateTypes.has(r.type)) continue
-    const explicitSlabs = normaliseRateCardSlabs(
-      normaliseEditableRateCardSlabs(input.zone_slabs?.[r.zone_id]?.[r.type] || []),
+    const explicitSlabs = normaliseEditableRateCardSlabsForSave(
+      input.zone_slabs?.[r.zone_id]?.[r.type] || [],
     )
     validateRateCardSlabs(explicitSlabs)
     const fallbackRate = explicitSlabs[0]?.rate ?? r.rate

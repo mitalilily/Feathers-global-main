@@ -82,6 +82,15 @@ const normalizeEditableZoneSlabs = (zoneSlabs = {}) =>
     return acc
   }, {})
 
+const getSortedSlabsForDisplay = (slabs = []) =>
+  (slabs || [])
+    .map((slab, originalIndex) => ({ slab, originalIndex }))
+    .sort(
+      (a, b) =>
+        Number(a.slab?.weight_from || 0) - Number(b.slab?.weight_from || 0) ||
+        Number(a.slab?.weight_to || Infinity) - Number(b.slab?.weight_to || Infinity),
+    )
+
 export const RateCardEditModal = ({
   isOpen,
   onClose,
@@ -551,7 +560,7 @@ export const RateCardEditModal = ({
           <Stack spacing={1} fontSize="sm" color="orange.900">
             <Text>1. Add slabs in increasing order of weight.</Text>
             <Text>2. Slabs can have gaps, but overlapping slabs are not allowed.</Text>
-            <Text>3. If order weight falls in a gap, this courier will not appear.</Text>
+            <Text>3. If order weight falls in a gap, the next higher slab rate is used.</Text>
             <Text>
               4. If order weight goes above the last slab, extra charges are added using Extra Rate
               and Extra Unit of that last slab.
@@ -586,11 +595,12 @@ export const RateCardEditModal = ({
                       </Button>
                     </Flex>
                     <Stack spacing={3}>
-                      {(form.zone_slabs?.[zone.name]?.[type] || []).map((slab, index, slabList) => {
+                      {getSortedSlabsForDisplay(form.zone_slabs?.[zone.name]?.[type] || []).map((entry, index, slabList) => {
+                        const { slab, originalIndex } = entry
                         const isLastSlab = index === slabList.length - 1
                         return (
                         <SimpleGrid
-                          key={`${zone.name}-${type}-${index}`}
+                          key={`${zone.name}-${type}-${slab.id || originalIndex}`}
                           columns={{ base: 1, md: 2, xl: 6 }}
                           spacing={3}
                         >
@@ -600,7 +610,7 @@ export const RateCardEditModal = ({
                               type="number"
                               value={slab.weight_from ?? ''}
                               onChange={(e) =>
-                                handleSlabChange(zone.name, type, index, 'weight_from', e.target.value)
+                                handleSlabChange(zone.name, type, originalIndex, 'weight_from', e.target.value)
                               }
                             />
                           </FormControl>
@@ -610,7 +620,7 @@ export const RateCardEditModal = ({
                               type="number"
                               value={slab.weight_to ?? ''}
                               onChange={(e) =>
-                                handleSlabChange(zone.name, type, index, 'weight_to', e.target.value)
+                                handleSlabChange(zone.name, type, originalIndex, 'weight_to', e.target.value)
                               }
                             />
                           </FormControl>
@@ -620,7 +630,7 @@ export const RateCardEditModal = ({
                               type="number"
                               value={slab.rate ?? ''}
                               onChange={(e) =>
-                                handleSlabChange(zone.name, type, index, 'rate', e.target.value)
+                                handleSlabChange(zone.name, type, originalIndex, 'rate', e.target.value)
                               }
                             />
                           </FormControl>
@@ -631,7 +641,7 @@ export const RateCardEditModal = ({
                               value={slab.extra_rate ?? ''}
                               isDisabled={!isLastSlab}
                               onChange={(e) =>
-                                handleSlabChange(zone.name, type, index, 'extra_rate', e.target.value)
+                                handleSlabChange(zone.name, type, originalIndex, 'extra_rate', e.target.value)
                               }
                             />
                             <Text fontSize="xs" color="gray.500" mt={1}>
@@ -650,7 +660,7 @@ export const RateCardEditModal = ({
                                 handleSlabChange(
                                   zone.name,
                                   type,
-                                  index,
+                                  originalIndex,
                                   'extra_weight_unit',
                                   e.target.value,
                                 )
@@ -667,7 +677,7 @@ export const RateCardEditModal = ({
                             <Button
                               colorScheme="red"
                               variant="outline"
-                              onClick={() => removeSlab(zone.name, type, index)}
+                              onClick={() => removeSlab(zone.name, type, originalIndex)}
                             >
                               Remove
                             </Button>
