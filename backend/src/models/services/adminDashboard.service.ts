@@ -3,6 +3,10 @@ import { pool } from '../client'
 const COMBINED_ORDERS_CTE = `
 with combined_orders as (
   select
+    id,
+    user_id,
+    order_number,
+    awb_number,
     created_at,
     updated_at,
     lower(coalesce(order_status, '')) as status,
@@ -18,6 +22,10 @@ with combined_orders as (
   from b2c_orders
   union all
   select
+    id,
+    user_id,
+    order_number,
+    awb_number,
     created_at,
     updated_at,
     lower(coalesce(order_status, '')) as status,
@@ -83,6 +91,10 @@ export const getAdminDashboardStats = async () => {
     originResult,
     destinationResult,
     alertResult,
+    usersResult,
+    statusResult,
+    recentOrdersResult,
+    recentTicketsResult,
   ] = await Promise.all([
     pool.query(`
       ${COMBINED_ORDERS_CTE}
@@ -120,7 +132,7 @@ export const getAdminDashboardStats = async () => {
     `),
     pool.query(`
       ${COMBINED_ORDERS_CTE}
-      with days as (
+      , days as (
         select generate_series(current_date - interval '6 days', current_date, interval '1 day')::date as day
       ),
       order_days as (
@@ -201,6 +213,77 @@ export const getAdminDashboardStats = async () => {
           where status = 'pending'
         ) as cod_remittance_due
     `),
+    pool.query(`
+      with seller_orders as (
+        select user_id, max(created_at) as last_order_at
+        from b2c_orders
+        where lower(coalesce(order_status, '')) <> 'cancelled'
+        group by user_id
+        union all
+        select user_id, max(created_at) as last_order_at
+        from b2b_orders
+        where lower(coalesce(order_status, '')) <> 'cancelled'
+        group by user_id
+      ),
+      seller_activity as (
+        select user_id, max(last_order_at) as last_order_at
+        from seller_orders
+        group by user_id
+      )
+      select
+        count(*) filter (where lower(coalesce(users.role, 'customer')) = 'customer')::int as total_users,
+        count(*) filter (
+          where lower(coalesce(users.role, 'customer')) = 'customer'
+            and users."createdAt"::date = current_date
+        )::int as today_users,
+        count(*) filter (
+          where lower(coalesce(users.role, 'customer')) = 'customer'
+            and users."createdAt" >= now() - interval '7 days'
+        )::int as users_last_week,
+        count(*) filter (
+          where lower(coalesce(users.role, 'customer')) = 'customer'
+            and seller_activity.last_order_at >= now() - interval '30 days'
+        )::int as active_users,
+        count(*) filter (
+          where lower(coalesce(users.role, 'customer')) = 'customer'
+            and seller_activity.last_order_at >= now() - interval '7 days'
+        )::int as very_active_users
+      from users
+      left join seller_activity on seller_activity.user_id = users.id
+    `),
+    pool.query(`
+      ${COMBINED_ORDERS_CTE}
+      select status, count(*)::int as count
+      from combined_orders
+      group by status
+      order by count desc, status asc
+    `),
+    pool.query(`
+      ${COMBINED_ORDERS_CTE}
+      select
+        order_number,
+        awb_number,
+        status as order_status,
+        courier_name as courier_partner,
+        created_at,
+        updated_at
+      from combined_orders
+      order by created_at desc nulls last
+      limit 10
+    `),
+    pool.query(`
+      select
+        id,
+        subject,
+        status,
+        category,
+        awb_number as "awbNumber",
+        due_date as "dueDate",
+        created_at as "createdAt"
+      from support_tickets
+      order by created_at desc
+      limit 10
+    `),
   ])
 
   const summary = summaryResult.rows[0] || {}
@@ -211,6 +294,11 @@ export const getAdminDashboardStats = async () => {
   const nonCancelledOrders = toNumber(summary.operational_base_count)
   const ndrOrders = toNumber(summary.ndr_orders)
   const rtoOrders = toNumber(summary.rto_orders)
+  const terminalOrders = deliveredOrders + rtoOrders
+  const usersSummary = usersResult.rows[0] || {}
+  const orderStatusCounts = Object.fromEntries(
+    statusResult.rows.map((row) => [row.status || 'unknown', toNumber(row.count)]),
+  )
 
   const courierPerformance = Object.fromEntries(
     courierResult.rows.map((row) => {
@@ -249,9 +337,9 @@ export const getAdminDashboardStats = async () => {
       },
       operational: {
         deliverySuccessRate:
-          nonCancelledOrders > 0 ? Math.round((deliveredOrders / nonCancelledOrders) * 100) : 0,
+          terminalOrders > 0 ? Math.round((deliveredOrders / terminalOrders) * 100) : 0,
         ndrRate: nonCancelledOrders > 0 ? Number(((ndrOrders / nonCancelledOrders) * 100).toFixed(1)) : 0,
-        rtoRate: nonCancelledOrders > 0 ? Math.round((rtoOrders / nonCancelledOrders) * 100) : 0,
+        rtoRate: terminalOrders > 0 ? Number(((rtoOrders / terminalOrders) * 100).toFixed(1)) : 0,
         avgDeliveryTime: toNumber(summary.avg_delivery_time),
         totalOrders,
         deliveredOrders,
@@ -278,6 +366,14 @@ export const getAdminDashboardStats = async () => {
           count: toNumber(row.order_count),
         })),
       },
+      users: {
+        total: toNumber(usersSummary.total_users),
+        today: toNumber(usersSummary.today_users),
+        lastWeek: toNumber(usersSummary.users_last_week),
+        active: toNumber(usersSummary.active_users),
+        veryActive: toNumber(usersSummary.very_active_users),
+        pendingKyc: toNumber(alerts.pending_kyc),
+      },
       charts: {
         ordersByDate: chartResult.rows.map((row) => ({
           date: row.date,
@@ -288,6 +384,9 @@ export const getAdminDashboardStats = async () => {
           revenue: toNumber(row.revenue),
         })),
       },
+      orderStatusCounts,
+      recentOrders: recentOrdersResult.rows,
+      recentTickets: recentTicketsResult.rows,
     },
   }
 }

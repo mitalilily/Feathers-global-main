@@ -19,6 +19,7 @@ import {
   Text,
   useColorModeValue,
   VStack,
+  Select,
 } from '@chakra-ui/react'
 import { IconAlertCircle, IconCheck, IconClockHour10, IconPhone, IconX } from '@tabler/icons-react'
 import MetricTile from 'components/Admin/MetricTile'
@@ -32,7 +33,6 @@ import { useAdminTickets } from 'hooks/useTickets'
 import { useUserInfo } from 'hooks/useUser'
 import moment from 'moment'
 import { useEffect, useState } from 'react'
-import { Select } from 'react-day-picker'
 import { supportCategories } from 'utils/constants'
 import { GenericTable } from 'views/Dashboard/Tables/components/GenericTable'
 

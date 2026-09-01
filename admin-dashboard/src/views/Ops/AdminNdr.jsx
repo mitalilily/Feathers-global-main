@@ -428,6 +428,7 @@ export default function AdminNdr() {
               isDisabled={!form.nextAttemptDate}
               onClick={() => {
                 reattemptMutate({
+                  orderId: activeRow?.order_id,
                   awb: activeRow?.awb_number,
                   nextAttemptDate: form.nextAttemptDate,
                   comments: form.comments,
@@ -474,7 +475,11 @@ export default function AdminNdr() {
               colorScheme="blue"
               isDisabled={!/^\d{10,}$/.test(form.phone || '')}
               onClick={() => {
-                changePhoneMutate({ awb: activeRow?.awb_number, phone: form.phone })
+                changePhoneMutate({
+                  orderId: activeRow?.order_id,
+                  awb: activeRow?.awb_number,
+                  phone: form.phone,
+                })
                 changePhoneModal.onClose()
               }}
             >
@@ -508,6 +513,7 @@ export default function AdminNdr() {
               isDisabled={!form.address_1}
               onClick={() => {
                 changeAddressMutate({
+                  orderId: activeRow?.order_id,
                   awb: activeRow?.awb_number,
                   name: form.name || undefined,
                   address_1: form.address_1,

@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { desc, eq, or } from 'drizzle-orm'
 import { Request, Response } from 'express'
 import { db } from '../models/client'
 import { b2c_orders } from '../models/schema/b2cOrders'
@@ -110,6 +110,34 @@ const buildShadowfaxForwardUpdateBase = (order: any, awb: string) => ({
   client_order_id: order.order_number,
 })
 
+const resolveNdrActionOrder = async ({ orderId, awb }: { orderId?: string; awb?: string }) => {
+  const normalizedAwb = String(awb || '').trim()
+  const conditions = []
+
+  if (orderId) conditions.push(eq(b2c_orders.id, orderId))
+  if (normalizedAwb) {
+    conditions.push(eq(b2c_orders.awb_number, normalizedAwb))
+    conditions.push(eq(b2c_orders.provider_reference, normalizedAwb))
+    conditions.push(eq(b2c_orders.order_number, normalizedAwb))
+  }
+
+  if (!conditions.length) return null
+
+  const [order] = await db
+    .select()
+    .from(b2c_orders)
+    .where(conditions.length === 1 ? conditions[0] : or(...conditions))
+    .limit(1)
+
+  return order || null
+}
+
+const getCourierActionAwb = (order: any, fallbackAwb?: string) =>
+  String(order?.awb_number || fallbackAwb || order?.provider_reference || '').trim()
+
+const getShadowfaxActionAwb = (order: any, fallbackAwb?: string) =>
+  String(order?.awb_number || order?.provider_reference || fallbackAwb || '').trim()
+
 /**
  * POST /ndr/reattempt
  * Body: { orderId?: string, awb?: string, nextAttemptDate: string (YYYY-MM-DD), comments?: string, alternateAddress?, alternateNumber? }
@@ -134,10 +162,7 @@ export const ndrReattemptController = async (req: Request, res: Response) => {
     }
 
     // Fetch order
-    const where = orderId
-      ? eq(b2c_orders.id, orderId)
-      : and(eq(b2c_orders.awb_number, awb as string))
-    const [order] = await db.select().from(b2c_orders).where(where)
+    const order = await resolveNdrActionOrder({ orderId, awb })
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' })
     }
@@ -181,7 +206,7 @@ export const ndrReattemptController = async (req: Request, res: Response) => {
 
     if (provider === 'delhivery' || provider === 'delhivyery') {
       const delhivery = new DelhiveryService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
       const resp = await delhivery.submitNdrAction([
         {
@@ -215,7 +240,7 @@ export const ndrReattemptController = async (req: Request, res: Response) => {
 
     if (provider === 'xpressbees') {
       const xpressbees = new XpressbeesService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
       const resp = await xpressbees.submitNdrAction([
         {
@@ -250,7 +275,7 @@ export const ndrReattemptController = async (req: Request, res: Response) => {
 
     if (provider === 'shadowfax') {
       const shadowfax = new ShadowfaxService()
-      const wb = awb || order.provider_reference || order.awb_number
+      const wb = getShadowfaxActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const payload = {
@@ -326,10 +351,7 @@ export const ndrChangeAddressController = async (req: Request, res: Response) =>
       return res.status(400).json({ success: false, message: 'address_1 is required' })
     }
 
-    const where = orderId
-      ? eq(b2c_orders.id, orderId)
-      : and(eq(b2c_orders.awb_number, awb as string))
-    const [order] = await db.select().from(b2c_orders).where(where)
+    const order = await resolveNdrActionOrder({ orderId, awb })
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' })
 
     // Eligibility checks (NSL)
@@ -361,7 +383,7 @@ export const ndrChangeAddressController = async (req: Request, res: Response) =>
 
     if (provider === 'delhivery' || provider === 'delhivyery') {
       const delhivery = new DelhiveryService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const resp = await delhivery.submitNdrAction([
@@ -397,7 +419,7 @@ export const ndrChangeAddressController = async (req: Request, res: Response) =>
 
     if (provider === 'ekart') {
       const ekart = new EkartService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const addressString = [address_1, address_2].filter(Boolean).join(', ')
@@ -436,7 +458,7 @@ export const ndrChangeAddressController = async (req: Request, res: Response) =>
 
     if (provider === 'xpressbees') {
       const xpressbees = new XpressbeesService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const resp = await xpressbees.submitNdrAction([
@@ -476,7 +498,7 @@ export const ndrChangeAddressController = async (req: Request, res: Response) =>
 
     if (provider === 'shadowfax') {
       const shadowfax = new ShadowfaxService()
-      const wb = awb || order.provider_reference || order.awb_number
+      const wb = getShadowfaxActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const customerDetails = {
@@ -552,10 +574,7 @@ export const ndrChangePhoneController = async (req: Request, res: Response) => {
         .json({ success: false, message: 'Valid phone (10+ digits) is required' })
     }
 
-    const where = orderId
-      ? eq(b2c_orders.id, orderId)
-      : and(eq(b2c_orders.awb_number, awb as string))
-    const [order] = await db.select().from(b2c_orders).where(where)
+    const order = await resolveNdrActionOrder({ orderId, awb })
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' })
 
     // Eligibility checks (NSL)
@@ -586,7 +605,7 @@ export const ndrChangePhoneController = async (req: Request, res: Response) => {
 
     if (provider === 'delhivery') {
       const delhivery = new DelhiveryService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const resp = await delhivery.submitNdrAction([
@@ -620,7 +639,7 @@ export const ndrChangePhoneController = async (req: Request, res: Response) => {
 
     if (provider === 'ekart') {
       const ekart = new EkartService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const resp = await ekart.submitNdrAction({
@@ -651,7 +670,7 @@ export const ndrChangePhoneController = async (req: Request, res: Response) => {
 
     if (provider === 'xpressbees') {
       const xpressbees = new XpressbeesService()
-      const wb = awb || order.awb_number
+      const wb = getCourierActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const resp = await xpressbees.submitNdrAction([
@@ -686,7 +705,7 @@ export const ndrChangePhoneController = async (req: Request, res: Response) => {
 
     if (provider === 'shadowfax') {
       const shadowfax = new ShadowfaxService()
-      const wb = awb || order.provider_reference || order.awb_number
+      const wb = getShadowfaxActionAwb(order, awb)
       if (!wb) return res.status(400).json({ success: false, message: 'AWB is required' })
 
       const payload = {

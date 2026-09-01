@@ -1,7 +1,14 @@
 import api from './axios'
 
-// Get comprehensive admin dashboard statistics
+// Get comprehensive admin dashboard statistics from the backend aggregate endpoint.
+// The older browser-side calculator is kept below as a fallback helper, but the
+// dashboard must not calculate core KPIs from large paginated list endpoints.
 export const getAdminDashboardStats = async () => {
+  const { data } = await api.get('/admin/dashboard/stats')
+  return data
+}
+
+export const getAdminDashboardStatsLegacy = async () => {
   try {
     // Fetch all necessary data in parallel
     const [

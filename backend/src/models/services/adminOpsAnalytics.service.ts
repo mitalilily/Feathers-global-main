@@ -300,6 +300,9 @@ const applyOrderStats = (stats: any, row: any) => {
 const finalizeBaseStats = (stats: any) => {
   const avg = (values: number[]) =>
     values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0
+  const terminalOrders = stats.delivered + stats.rto
+  const codTerminalOrders = stats.codDelivered + stats.codRto
+  const prepaidTerminalOrders = stats.prepaidDelivered + stats.prepaidRto
 
   return {
     orders: stats.orders,
@@ -311,15 +314,15 @@ const finalizeBaseStats = (stats: any) => {
     prepaidOrders: stats.prepaidOrders,
     prepaidDelivered: stats.prepaidDelivered,
     prepaidRto: stats.prepaidRto,
-    deliveryRate: stats.orders ? Number(((stats.delivered / stats.orders) * 100).toFixed(1)) : 0,
-    rtoRate: stats.orders ? Number(((stats.rto / stats.orders) * 100).toFixed(1)) : 0,
-    codDeliveryRate: stats.codOrders ? Number(((stats.codDelivered / stats.codOrders) * 100).toFixed(1)) : 0,
-    codRtoRate: stats.codOrders ? Number(((stats.codRto / stats.codOrders) * 100).toFixed(1)) : 0,
-    prepaidDeliveryRate: stats.prepaidOrders
-      ? Number(((stats.prepaidDelivered / stats.prepaidOrders) * 100).toFixed(1))
+    deliveryRate: terminalOrders ? Number(((stats.delivered / terminalOrders) * 100).toFixed(1)) : 0,
+    rtoRate: terminalOrders ? Number(((stats.rto / terminalOrders) * 100).toFixed(1)) : 0,
+    codDeliveryRate: codTerminalOrders ? Number(((stats.codDelivered / codTerminalOrders) * 100).toFixed(1)) : 0,
+    codRtoRate: codTerminalOrders ? Number(((stats.codRto / codTerminalOrders) * 100).toFixed(1)) : 0,
+    prepaidDeliveryRate: prepaidTerminalOrders
+      ? Number(((stats.prepaidDelivered / prepaidTerminalOrders) * 100).toFixed(1))
       : 0,
-    prepaidRtoRate: stats.prepaidOrders
-      ? Number(((stats.prepaidRto / stats.prepaidOrders) * 100).toFixed(1))
+    prepaidRtoRate: prepaidTerminalOrders
+      ? Number(((stats.prepaidRto / prepaidTerminalOrders) * 100).toFixed(1))
       : 0,
     avgDeliveryDays: avg(stats.deliveryDays),
     avgDispatchDays: avg(stats.dispatchDays),
