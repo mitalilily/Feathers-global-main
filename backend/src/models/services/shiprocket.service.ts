@@ -6123,6 +6123,14 @@ const hasGeneratedLabelSql = (labelColumn: unknown, generatedOnceColumn: unknown
   OR NULLIF(BTRIM(COALESCE(${labelColumn}, '')), '') IS NOT NULL
 )`
 
+const isXpressbeesIntegrationType = (value?: unknown) =>
+  String(value || '').trim().toLowerCase() === 'xpressbees'
+
+const shouldPersistProviderLabelAsOrderLabel = (integrationType: unknown, label: unknown) =>
+  !isXpressbeesIntegrationType(integrationType) &&
+  typeof label === 'string' &&
+  label.trim().length > 0
+
 export async function createB2COrder({
   tx,
   params,
@@ -6340,10 +6348,16 @@ export async function createB2COrder({
         provider_meta: shipmentData ?? null,
         edd: expectedDelivery,
         awb_number: shipmentData?.awb_number ?? null,
-        // Store courier-provided label key/identifier if available
-        label: typeof shipmentData?.label === 'string' ? shipmentData.label : null,
-        label_generated_once:
-          typeof shipmentData?.label === 'string' && shipmentData.label.trim().length > 0,
+        // Store courier-provided label key/identifier if available.
+        // Xpressbees returns its own provider PDF URL here; keep that in provider_meta and
+        // generate the panel's custom label separately so downloads stay branded/consistent.
+        label: shouldPersistProviderLabelAsOrderLabel(integration_type, shipmentData?.label)
+          ? shipmentData.label
+          : null,
+        label_generated_once: shouldPersistProviderLabelAsOrderLabel(
+          integration_type,
+          shipmentData?.label,
+        ),
         manifest:
           typeof shipmentData?.manifest === 'string' && shipmentData?.manifest.length <= 100
             ? shipmentData.manifest
@@ -6643,16 +6657,15 @@ async function updateExistingB2COrderWithShipment({
       ),
       edd: expectedDelivery,
       awb_number: shipmentData?.awb_number ?? existingOrder.awb_number,
-      label:
-        typeof shipmentData?.label === 'string'
-          ? shipmentData.label
-          : shouldRegenerateLocalLabel
-            ? null
-            : existingOrder.label,
+      label: shouldPersistProviderLabelAsOrderLabel(integration_type, shipmentData?.label)
+        ? shipmentData.label
+        : shouldRegenerateLocalLabel || isXpressbeesIntegrationType(integration_type)
+          ? null
+          : existingOrder.label,
       label_generated_once:
-        typeof shipmentData?.label === 'string' && shipmentData.label.trim().length > 0
+        shouldPersistProviderLabelAsOrderLabel(integration_type, shipmentData?.label)
           ? true
-          : shouldRegenerateLocalLabel
+          : shouldRegenerateLocalLabel || isXpressbeesIntegrationType(integration_type)
             ? false
             : existingOrder.label_generated_once,
       manifest:
@@ -9370,6 +9383,43 @@ export const createB2CShipmentService = async (
             message: markErr?.message || markErr,
           })
         })
+
+        try {
+          const [freshXpressbeesOrder] = await tx
+            .select()
+            .from(b2c_orders)
+            .where(eq(b2c_orders.id, newOrder.id))
+
+          if (freshXpressbeesOrder?.awb_number) {
+            const labelKey = await generateLabelForOrder(freshXpressbeesOrder, userId, tx)
+            if (labelKey) {
+              await tx
+                .update(b2c_orders)
+                .set({
+                  label: labelKey,
+                  label_generated_once: true,
+                  updated_at: new Date(),
+                })
+                .where(eq(b2c_orders.id, newOrder.id))
+              console.log(
+                `✅ [Xpressbees] Custom panel label generated for order ${freshXpressbeesOrder.order_number}: ${labelKey}`,
+              )
+            } else {
+              console.warn(
+                `⚠️ [Xpressbees] Custom label generator returned empty result for ${freshXpressbeesOrder.order_number}`,
+              )
+            }
+          } else {
+            console.warn(
+              `⚠️ [Xpressbees] Skipping custom label generation because AWB is missing for order ${newOrder?.order_number || newOrder?.id}`,
+            )
+          }
+        } catch (labelErr: any) {
+          console.error(
+            `❌ [Xpressbees] Failed to generate custom panel label for order ${params.order_number}:`,
+            labelErr?.message || labelErr,
+          )
+        }
       }
 
       if (selectedDelhiveryShippingMode && selectedDelhiveryCourierId !== null) {
