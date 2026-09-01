@@ -1,15 +1,11 @@
 import {
   Box,
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
   Flex,
   Link,
   useColorModeValue,
 } from '@chakra-ui/react'
 import PropTypes from 'prop-types'
 import { useEffect, useState } from 'react'
-import { BRAND } from '../../constants/brand'
 import BrandMark from '../Brand/BrandMark'
 import AdminNavbarLinks from './AdminNavbarLinks'
 
@@ -18,7 +14,6 @@ export default function AdminNavbar(props) {
   const { variant, children, fixed, secondary, brandText, onOpen, sidebarWidth = 275, ...rest } = props
 
   let mainText = useColorModeValue('gray.800', 'gray.100')
-  let secondaryText = useColorModeValue('gray.500', 'gray.400')
   let navbarPosition = 'absolute'
   let navbarShadow = 'none'
   let navbarBg = 'none'
@@ -46,7 +41,6 @@ export default function AdminNavbar(props) {
   if (secondary) {
     navbarPosition = 'absolute'
     mainText = 'white'
-    secondaryText = 'whiteAlpha.700'
     secondaryMargin = '22px'
     paddingX = '30px'
   }
@@ -96,19 +90,6 @@ export default function AdminNavbar(props) {
           </Box>
 
           <Box>
-            <Breadcrumb separator="/" spacing="8px" mb="3px">
-              <BreadcrumbItem>
-                <BreadcrumbLink href="#" color={secondaryText} fontSize="xs" fontWeight="600" _hover={{ color: 'brand.500', textDecoration: 'none' }}>
-                  {BRAND.name}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="#" color={mainText} fontSize="xs" fontWeight="700" _hover={{ color: 'brand.500', textDecoration: 'none' }}>
-                  {brandText}
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-            </Breadcrumb>
-
             <Link
               color={mainText}
               href="#"

@@ -13,8 +13,8 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
     `linear-gradient(180deg, ${BRAND.colors.paper} 0%, ${BRAND.colors.surface} 100%)`,
     '#111113',
   )
-  const sidebarBorder = useColorModeValue('rgba(215, 238, 241, 0.95)', 'rgba(255,255,255,0.06)')
-  const sidebarShadow = useColorModeValue('14px 0 32px rgba(7, 25, 35, 0.08)', '14px 0 34px rgba(5, 4, 10, 0.45)')
+  const sidebarBorder = useColorModeValue('transparent', 'transparent')
+  const sidebarShadow = 'none'
   const activeBg = useColorModeValue('rgba(4,123,133,0.08)', 'rgba(255,255,255,0.08)')
   const hoverBg = useColorModeValue('rgba(4,123,133,0.05)', 'rgba(255,255,255,0.05)')
   const activeBorder = useColorModeValue('rgba(4,123,133,0.18)', 'rgba(255,255,255,0.12)')
@@ -189,7 +189,7 @@ const SidebarContent = ({ logoText, routes, sidebarWidth }) => {
       h="100vh"
       w={`${sidebarWidth}px`}
       bg={sidebarBg}
-      borderRight="1px solid"
+      borderRight="0"
       borderColor={sidebarBorder}
       boxShadow={sidebarShadow}
       position="fixed"

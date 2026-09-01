@@ -145,6 +145,12 @@ const Orders = () => {
       placeholder: 'Start Date',
     },
     {
+      key: 'toDate',
+      label: 'To Date',
+      type: 'date',
+      placeholder: 'End Date',
+    },
+    {
       key: 'labelGenerated',
       label: 'Label Generated',
       type: 'select',
@@ -153,12 +159,6 @@ const Orders = () => {
         { value: 'generated', label: 'Generated' },
         { value: 'no', label: 'No' },
       ],
-    },
-    {
-      key: 'toDate',
-      label: 'To Date',
-      type: 'date',
-      placeholder: 'End Date',
     },
   ]
 
@@ -304,7 +304,7 @@ const Orders = () => {
 
       <Flex justify="space-between" align={{ base: 'stretch', md: 'center' }} direction={{ base: 'column', md: 'row' }} gap={3} mb={4}>
         <Text fontSize="sm" color="gray.500">
-          Use the status tiles for quick triage, then narrow the queue with filters below.
+          Narrow the queue with filters first, then use the status tiles below for quick triage.
         </Text>
         <HStack spacing={3} align="center">
           <Text fontSize="sm" color="gray.500">
@@ -329,6 +329,28 @@ const Orders = () => {
           </Select>
         </HStack>
       </Flex>
+
+      <Card mb={4} boxShadow="none" borderRadius="18px" border="1px solid" borderColor="gray.200">
+        <CardBody p={{ base: 3, md: 4 }}>
+          <TableFilters
+            filters={filterOptions}
+            values={filters}
+            onApply={(appliedFilters) => {
+              setFilters((prev) => ({
+                ...appliedFilters,
+                sortBy: prev.sortBy || 'created_at',
+                sortOrder: prev.sortOrder || 'desc',
+              }))
+              setPage(1)
+            }}
+            actions={[]}
+            showActiveFiltersCount={true}
+            cardStyle={false}
+            defaultVisibleCount={5}
+            compact
+          />
+        </CardBody>
+      </Card>
 
       <Box overflowX="auto" mb={4} pb={1}>
         <HStack spacing={4} align="flex-end" minW="max-content">
@@ -363,26 +385,6 @@ const Orders = () => {
           ))}
         </HStack>
       </Box>
-
-      <Card mb={4} boxShadow="sm" borderRadius="24px">
-        <CardBody p={{ base: 4, md: 5 }}>
-          <TableFilters
-            filters={filterOptions}
-            values={filters}
-            onApply={(appliedFilters) => {
-              setFilters((prev) => ({
-                ...appliedFilters,
-                sortBy: prev.sortBy || 'created_at',
-                sortOrder: prev.sortOrder || 'desc',
-              }))
-              setPage(1)
-            }}
-            actions={[]}
-            showActiveFiltersCount={true}
-            cardStyle={false}
-          />
-        </CardBody>
-      </Card>
       <OrdersTable
         orders={ordersData?.orders}
         totalCount={ordersData?.totalCount}

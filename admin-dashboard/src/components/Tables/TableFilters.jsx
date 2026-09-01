@@ -36,6 +36,8 @@ const TableFilters = ({
   actions = [],
   showActiveFiltersCount = true,
   cardStyle = false,
+  defaultVisibleCount = 4,
+  compact = false,
 }) => {
   const [localValues, setLocalValues] = useState(() => values || {})
   const [showAll, setShowAll] = useState(false)
@@ -89,7 +91,7 @@ const TableFilters = ({
     )
   }, [localValues])
 
-  const DEFAULT_VISIBLE_COUNT = 4
+  const DEFAULT_VISIBLE_COUNT = defaultVisibleCount
   const shouldLimit = !showAll && filters.length > DEFAULT_VISIBLE_COUNT
   const visibleFilters = shouldLimit ? filters.slice(0, DEFAULT_VISIBLE_COUNT) : filters
 
@@ -97,7 +99,7 @@ const TableFilters = ({
     bg: useColorModeValue('white', 'rgba(15, 28, 53, 0.85)'),
     borderColor,
     borderRadius: '14px',
-    h: '46px',
+    h: compact ? '44px' : '46px',
     _focus: {
       borderColor: 'brand.500',
       boxShadow: '0 0 0 3px rgba(109, 40, 217, 0.12)',
@@ -114,7 +116,7 @@ const TableFilters = ({
     if (type === 'text' || type === 'search') {
       return (
         <Box key={key}>
-          <Text mb="1.5" fontWeight="700" fontSize="sm" color={labelColor}>
+          <Text mb="1.5" fontWeight="700" fontSize={compact ? 'xs' : 'sm'} color={labelColor}>
             {label}
           </Text>
           <InputGroup>
@@ -153,7 +155,7 @@ const TableFilters = ({
     if (type === 'date') {
       return (
         <Box key={key}>
-          <Text mb="1.5" fontWeight="700" fontSize="sm" color={labelColor}>
+          <Text mb="1.5" fontWeight="700" fontSize={compact ? 'xs' : 'sm'} color={labelColor}>
             {label}
           </Text>
           <InputGroup>
@@ -175,7 +177,7 @@ const TableFilters = ({
     if (type === 'number') {
       return (
         <Box key={key}>
-          <Text mb="1.5" fontWeight="700" fontSize="sm" color={labelColor}>
+          <Text mb="1.5" fontWeight="700" fontSize={compact ? 'xs' : 'sm'} color={labelColor}>
             {label}
           </Text>
           <Input
@@ -192,7 +194,7 @@ const TableFilters = ({
     if (type === 'select') {
       return (
         <Box key={key}>
-          <Text mb="1.5" fontWeight="700" fontSize="sm" color={labelColor}>
+          <Text mb="1.5" fontWeight="700" fontSize={compact ? 'xs' : 'sm'} color={labelColor}>
             {label}
           </Text>
           <Select
@@ -251,8 +253,8 @@ const TableFilters = ({
               ? 'repeat(4, 1fr)'
               : 'repeat(auto-fit, minmax(200px, 1fr))',
         }}
-        gap={4}
-        mb={4}
+        gap={compact ? 3 : 4}
+        mb={compact ? 3 : 4}
       >
         {(isMobile ? filters : visibleFilters).map((filter) => (
           <GridItem key={filter.key}>{renderFilterField(filter)}</GridItem>
@@ -265,6 +267,7 @@ const TableFilters = ({
             bg="brand.500"
             color="white"
             size="sm"
+            borderRadius="14px"
             onClick={() => {
               onApply(localValues)
               if (isMobile) onClose()
@@ -274,7 +277,7 @@ const TableFilters = ({
           >
             Apply Filters
           </Button>
-          <Button variant="outline" size="sm" onClick={handleReset} isDisabled={!hasFilters} borderColor={borderColor} borderRadius="12px">
+          <Button variant="outline" size="sm" onClick={handleReset} isDisabled={!hasFilters} borderColor={borderColor} borderRadius="14px">
             Clear All
           </Button>
           {showActiveFiltersCount && activeFiltersCount > 0 && (
